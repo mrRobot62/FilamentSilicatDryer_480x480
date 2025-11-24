@@ -1,9 +1,9 @@
 /**
- * @file lvgl_template.h
+ * @file filamentsilicatdryer_480x480.h
  */
 
-#ifndef LVGL_TEMPLATE_H
-#define LVGL_TEMPLATE_H
+#ifndef FILAMENTSILICATDRYER_480X480_H
+#define FILAMENTSILICATDRYER_480X480_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,7 +13,7 @@ extern "C" {
  *      INCLUDES
  *********************/
 
-#include "lvgl_template_gen.h"
+#include "filamentsilicatdryer_480x480_gen.h"
 
 /*********************
  *      DEFINES
@@ -34,7 +34,7 @@ extern "C" {
 /**
  * Initialize the component library
  */
-void lvgl_template_init(const char * asset_path);
+void filamentsilicatdryer_480x480_init(const char * asset_path);
 
 /**********************
  *      MACROS
@@ -44,4 +44,4 @@ void lvgl_template_init(const char * asset_path);
 } /*extern "C"*/
 #endif
 
-#endif /*LVGL_TEMPLATE_H*/
+#endif /*FILAMENTSILICATDRYER_480X480_H*/

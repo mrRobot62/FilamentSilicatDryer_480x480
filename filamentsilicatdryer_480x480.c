@@ -1,12 +1,12 @@
 /**
- * @file lvgl_template.c
+ * @file filamentsilicatdryer_480x480.c
  */
 
 /*********************
  *      INCLUDES
  *********************/
 
-#include "lvgl_template.h"
+#include "filamentsilicatdryer_480x480.h"
 
 /*********************
  *      DEFINES
@@ -32,9 +32,9 @@
  *   GLOBAL FUNCTIONS
  **********************/
 
-void lvgl_template_init(const char * asset_path)
+void filamentsilicatdryer_480x480_init(const char * asset_path)
 {
-    lvgl_template_init_gen(asset_path);
+    filamentsilicatdryer_480x480_init_gen(asset_path);
 
     /* Add your own custom code here if needed */
 }

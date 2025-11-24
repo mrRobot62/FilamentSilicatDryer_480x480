@@ -1,12 +1,12 @@
 /**
- * @file lvgl_template_gen.c
+ * @file filamentsilicatdryer_480x480_gen.c
  */
 
 /*********************
  *      INCLUDES
  *********************/
 
-#include "lvgl_template_gen.h"
+#include "filamentsilicatdryer_480x480_gen.h"
 
 #if LV_USE_XML
 #endif /* LV_USE_XML */
@@ -63,7 +63,7 @@
  *   GLOBAL FUNCTIONS
  **********************/
 
-void lvgl_template_init_gen(const char * asset_path)
+void filamentsilicatdryer_480x480_init_gen(const char * asset_path)
 {
     char buf[256];
 

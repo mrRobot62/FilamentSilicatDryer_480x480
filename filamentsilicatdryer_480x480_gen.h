@@ -1,9 +1,9 @@
 /**
- * @file lvgl_template_gen.h
+ * @file filamentsilicatdryer_480x480_gen.h
  */
 
-#ifndef LVGL_TEMPLATE_GEN_H
-#define LVGL_TEMPLATE_GEN_H
+#ifndef FILAMENTSILICATDRYER_480X480_GEN_H
+#define FILAMENTSILICATDRYER_480X480_GEN_H
 
 #ifndef UI_SUBJECT_STRING_LENGTH
 #define UI_SUBJECT_STRING_LENGTH 256
@@ -67,7 +67,7 @@ extern "C" {
  * Initialize the component library
  */
 
-void lvgl_template_init_gen(const char * asset_path);
+void filamentsilicatdryer_480x480_init_gen(const char * asset_path);
 
 /**********************
  *      MACROS
@@ -81,4 +81,4 @@ void lvgl_template_init_gen(const char * asset_path);
 } /*extern "C"*/
 #endif
 
-#endif /*LVGL_TEMPLATE_GEN_H*/
+#endif /*FILAMENTSILICATDRYER_480X480_GEN_H*/
