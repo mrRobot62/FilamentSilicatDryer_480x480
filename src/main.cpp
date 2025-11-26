@@ -1,24 +1,23 @@
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
+#include "panel_hsd040bpn1.h" // deine Init-Tabelle
 
 // -----------------------------------------------------------------------------
-// Pins: ESP32-4848S040 / dein Board
-// (aus offiziellen Arduino_GFX Beispielen & Issues für dieses Panel)
+// Pins & Panel-Konfiguration für dein 4" ST7701 480x480 Panel
 // -----------------------------------------------------------------------------
 
-// Backlight optional – bei dir vermutlich fest verdrahtet, aber Pin 38
-#define GFX_BL 38
+#define GFX_BL 38 // Backlight (falls verbunden)
 
-// SPI-Bus für ST7701-Register (CS/SCK/SDA)
+// SPI-Bus für ST7701-Register (SWSPI)
 Arduino_DataBus *bus = new Arduino_SWSPI(
-    GFX_NOT_DEFINED, // DC – wird für ST7701 nicht benötigt
+    GFX_NOT_DEFINED, // DC (nicht benötigt für ST7701-Init)
     39,              // CS
     48,              // SCK
     47,              // MOSI (SDA)
-    GFX_NOT_DEFINED  // MISO – nicht benutzt
+    GFX_NOT_DEFINED  // MISO (nicht verwendet)
 );
 
-// RGB-Panel (DE/VS/HS/PCLK + 16-Bit RGB565 + Timings)
+// RGB-Panel (DE/VS/HS/PCLK + 16bit RGB-Bus)
 Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
     18, // DE
     17, // VSYNC
@@ -34,24 +33,27 @@ Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
     // B0..B4
     4, 5, 6, 7, 15,
 
-    // Timing / Polarität (typische Werte für HSD040BPN1-A00 / ST7701)
-    1, 10, 8, 50, // hsync_polarity, front_porch, pulse_width, back_porch
-    1, 10, 8, 20  // vsync_polarity, front_porch, pulse_width, back_porch
-);
+    // Hsync: polarity, front_porch, pulse_width, back_porch
+    1, 10, 8, 50,
 
-// Display-Objekt für ST7701 (480x480)
+    // Vsync: polarity, front_porch (VFP), pulse_width, back_porch (VBP)
+    1, 12, 8, 15);
+
+// High-Level-Display-Objekt mit unserer eigenen Init-Sequenz
 Arduino_RGB_Display *gfx = new Arduino_RGB_Display(
-    480, 480, // width, height
-    rgbpanel,
-    0,    // rotation
-    true, // auto_flush
-    bus,
-    GFX_NOT_DEFINED, // RST – auf deinem Board RC-Reset-Schaltung
-    st7701_type1_init_operations,
-    sizeof(st7701_type1_init_operations));
+    480, 480,        // width, height
+    rgbpanel,        // RGB panel
+    0,               // rotation
+    true,            // auto_flush
+    bus,             // SPI-Bus für ST7701-Register
+    GFX_NOT_DEFINED, // RST (Board nutzt RC-Reset)
+    st7701_hsd040bpn1_init_operations,
+    // st7701_type8_init_operations,
+    //    sizeof(st7701_type8_init_operations)
+    sizeof(st7701_hsd040bpn1_init_operations));
 
 // -----------------------------------------------------------------------------
-// SETUP
+// Setup: statisches Testbild
 // -----------------------------------------------------------------------------
 
 void setup()
@@ -59,50 +61,64 @@ void setup()
     Serial.begin(115200);
     delay(500);
     Serial.println();
-    Serial.println("=== Arduino_GFX 1.5.0 minimal test (ST7701 480x480) ===");
-
-    if (psramFound())
-    {
-        Serial.printf("PSRAM found, free: %u bytes\n", ESP.getFreePsram());
-    }
-    else
-    {
-        Serial.println("PSRAM NOT found!");
-    }
-
-    // Display initialisieren
-    gfx->begin();
-    gfx->fillScreen(BLACK);
+    Serial.println(F("=== Arduino_GFX 1.5.0 + HSD040BPN1 ST7701 480x480 test ==="));
 
 #ifdef GFX_BL
     pinMode(GFX_BL, OUTPUT);
-    digitalWrite(GFX_BL, HIGH); // falls Backlight-Pin existiert
+    digitalWrite(GFX_BL, HIGH); // Backlight an
 #endif
 
-    // Test: Text ausgeben
-    gfx->setCursor(40, 40);
+    if (!gfx->begin())
+    {
+        Serial.println(F("gfx->begin() FAILED!"));
+        while (true)
+        {
+            delay(1000);
+        }
+    }
+
+    Serial.println(F("gfx->begin() OK"));
+
+    // Hintergrund schwarz
+    gfx->fillScreen(BLACK);
+
+    // Oben: 3 Farbbalken (sollen klar ROT / GRUEN / BLAU sein)
+    int barH = 40;
+    int barW = 480 / 3;
+    gfx->fillRect(0, 0, barW, barH, RED);
+    gfx->fillRect(barW, 0, barW, barH, GREEN);
+    gfx->fillRect(barW * 2, 0, barW, barH, BLUE);
+
+    // Rahmen in voller Breite/Höhe
+    gfx->drawRect(0, 0, 480, 480, WHITE);
+
+    // Diagonalen
+    gfx->drawLine(0, 0, 479, 479, WHITE);
+    gfx->drawLine(0, 479, 479, 0, WHITE);
+
+    // Kreise in der Mitte
+    int cx = 240;
+    int cy = 240;
+    gfx->drawCircle(cx, cy, 40, YELLOW);
+    gfx->drawCircle(cx, cy, 80, CYAN);
+    gfx->fillCircle(cx, cy, 20, MAGENTA);
+
+    // Text oben links
+    gfx->setCursor(10, 60);
     gfx->setTextColor(WHITE);
     gfx->setTextSize(2);
-    gfx->println("GFX 1.5.0 ST7701 test");
+    gfx->println(F("Arduino_GFX 1.5.0 + custom init"));
 
-    Serial.println("Setup done, now cycling colors...");
+    gfx->setTextSize(1);
+    gfx->println(F("HSD040BPN1 ST7701 480x480"));
+
+    // Text unten links
+    gfx->setCursor(10, 460);
+    gfx->setTextColor(WHITE);
+    gfx->println(F("Full-screen test"));
 }
-
-// -----------------------------------------------------------------------------
-// LOOP – einfache Farbtests
-// -----------------------------------------------------------------------------
-
 void loop()
 {
-    gfx->fillScreen(RED);
-    delay(500);
-
-    gfx->fillScreen(GREEN);
-    delay(500);
-
-    gfx->fillScreen(BLUE);
-    delay(500);
-
-    gfx->fillScreen(BLACK);
-    delay(500);
+    // statisches Bild
+    delay(1000);
 }

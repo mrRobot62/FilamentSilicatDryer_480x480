@@ -1,0 +1,184 @@
+#include <Arduino.h>
+#include <Arduino_GFX_Library.h>
+
+// -----------------------------------------------------------------------------
+// 1. Board-spezifische Pins (aus deinem funktionierenden Setup)
+// -----------------------------------------------------------------------------
+
+#define GFX_BL 38 // Backlight (falls überhaupt angeschlossen)
+
+// SPI-Bus für ST7701-Register (CS/SCK/SDA)
+Arduino_DataBus *bus = new Arduino_SWSPI(
+    GFX_NOT_DEFINED, // DC – für ST7701-Init nicht benötigt
+    39,              // CS
+    48,              // SCK
+    47,              // MOSI (SDA)
+    GFX_NOT_DEFINED  // MISO – unbenutzt
+);
+
+// RGB-Panel (DE/VS/HS/PCLK + 16-Bit RGB565 + Timings)
+Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
+    18, // DE
+    17, // VSYNC
+    16, // HSYNC
+    21, // PCLK
+
+    // R0..R4
+    11, 12, 13, 14, 0,
+
+    // G0..G5
+    8, 20, 3, 46, 9, 10,
+
+    // B0..B4
+    4, 5, 6, 7, 15,
+
+    // Timing / Polarität
+    1, 10, 8, 50, // hsync: polarity, front_porch, pulse_width, back_porch
+    1, 12, 8, 15
+);
+
+
+// Display-Objekt für ST7701 (480x480)
+Arduino_RGB_Display *gfx = new Arduino_RGB_Display(
+    480, 480, // width, height
+    rgbpanel,
+    0,    // rotation (0 = "normal")
+    true, // auto_flush
+    bus,
+    GFX_NOT_DEFINED, // RST – auf deinem Board RC-Reset-Schaltung
+    st7701_type8_init_operations,
+    sizeof(st7701_type8_init_operations));
+
+// -----------------------------------------------------------------------------
+// 2. Demo-Helper
+// -----------------------------------------------------------------------------
+
+// Simple animation state
+static int16_t anim_x = 0;
+static int16_t anim_width = 60;
+static uint16_t anim_color = YELLOW;
+
+// draw a static test pattern (called once in setup)
+void draw_test_pattern()
+{
+    // Hintergrund in dunkelgrau
+    gfx->fillScreen(0x2104); // dark grayish
+
+    // Farbbalken oben
+    int16_t bar_h = 40;
+    gfx->fillRect(0, 0, 160, bar_h, RED);
+    gfx->fillRect(160, 0, 160, bar_h, GREEN);
+    gfx->fillRect(320, 0, 160, bar_h, BLUE);
+
+    // Rahmen
+    gfx->drawRect(0, 0, 480, 480, WHITE);
+
+    // Diagonale Linien
+    gfx->drawLine(0, 0, 479, 479, 0xFFFF); // white
+    gfx->drawLine(479, 0, 0, 479, 0xFFFF); // white
+
+    // Kreise in der Mitte
+    int16_t cx = 240;
+    int16_t cy = 240;
+    gfx->drawCircle(cx, cy, 60, CYAN);
+    gfx->drawCircle(cx, cy, 90, MAGENTA);
+    gfx->fillCircle(cx, cy, 30, YELLOW);
+
+    // Text oben links
+    gfx->setTextSize(2);
+    gfx->setTextColor(WHITE, 0x2104);
+    gfx->setCursor(10, 50);
+    gfx->println("Arduino_GFX 1.5.0");
+
+    gfx->setTextSize(1);
+    gfx->setCursor(10, 75);
+    gfx->println("ST7701 480x480 RGB Panel");
+
+    // Text unten
+    gfx->setTextSize(2);
+    gfx->setCursor(10, 440);
+    gfx->setTextColor(GREEN, 0x2104);
+    gfx->println("Static test pattern");
+}
+
+// draw one animation step (small moving bar)
+void draw_animation_step()
+{
+    static int16_t last_x = -1;
+
+    // Erase previous bar (if any) by drawing over in background color
+    if (last_x >= 0)
+    {
+        gfx->fillRect(last_x, 200, anim_width, 20, 0x2104);
+    }
+
+    // Draw new bar
+    gfx->fillRect(anim_x, 200, anim_width, 20, anim_color);
+
+    // Save position
+    last_x = anim_x;
+
+    // Move bar to the right
+    anim_x += 5;
+    if (anim_x > (480 - anim_width))
+    {
+        anim_x = 0;
+
+        // Change color on wrap
+        if (anim_color == YELLOW)
+            anim_color = CYAN;
+        else if (anim_color == CYAN)
+            anim_color = MAGENTA;
+        else
+            anim_color = YELLOW;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 3. SETUP
+// -----------------------------------------------------------------------------
+
+void setup()
+{
+    Serial.begin(115200);
+    delay(500);
+    Serial.println();
+    Serial.println("=== Arduino_GFX 1.5.0 Demo (ST7701 480x480) ===");
+
+    if (psramFound())
+    {
+        Serial.printf("PSRAM found, free: %u bytes\n", ESP.getFreePsram());
+    }
+    else
+    {
+        Serial.println("PSRAM NOT found! (but GFX-only demo can still work)");
+    }
+
+    // Display initialisieren
+    gfx->begin();
+    // Farbinversion umschalten – TEST
+    gfx->invertDisplay(false); // <--- NEU: zuerst mit 'true' probieren
+
+
+    gfx->fillScreen(BLACK);
+
+#ifdef GFX_BL
+    pinMode(GFX_BL, OUTPUT);
+    digitalWrite(GFX_BL, HIGH); // falls Backlight-Pin vorhanden/verdrahtet
+#endif
+
+    // Einmaliges Testbild zeichnen
+    draw_test_pattern();
+
+    Serial.println("Setup done. You should see shapes, text and a moving bar.");
+}
+
+// -----------------------------------------------------------------------------
+// 4. LOOP – Animation
+// -----------------------------------------------------------------------------
+
+void loop()
+{
+    draw_animation_step();
+    delay(30); // ~33 FPS, kann angepasst werden
+}
