@@ -5,7 +5,7 @@
 #include "touch.h"
 
 // Globale UI-Objekte (optional, aber praktisch)
-//extern lv_obj_t *ui_screen;
+// extern lv_obj_t *ui_screen;
 // extern lv_obj_t *ui_LabelInfo;
 // extern lv_obj_t *ui_ButtonTest;
 
@@ -16,9 +16,11 @@ typedef struct
     lv_draw_buf_t lv_draw_buf;
     lv_color_t *lv_buf1 = nullptr;
 
+    // Screen
+    lv_obj_t *screen = nullptr;
+
     // touch-Display-Input-Device (Touch)
     lv_indev_t *lv_touch_indev;
-    lv_obj_t *screen = nullptr;
 
     // Widgets, Screens, etc. hier hinzufügen
     lv_obj_t *btnStart = nullptr;

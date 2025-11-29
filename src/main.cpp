@@ -44,8 +44,12 @@ void loop()
         // Serial.println(F("[MAIN] loop() heartbeat"));
     }
 
+    //---------------------------------------------------------
+    // Debug: Touch-Events über LVGL testen
+    //---------------------------------------------------------
     // **Direkter Test des Hersteller-Touch-Treibers**
     //   -> Wenn hier bei Berührung nichts kommt, liegt das Problem unterhalb von LVGL.
+
     // if (touch_touched())
     // {
     //     // Serial.print(F("[RAW TOUCH] x="));

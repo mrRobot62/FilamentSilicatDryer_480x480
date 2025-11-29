@@ -60,32 +60,51 @@ static void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data)
     }
 }
 
+void _create_btnStartStop()
+{
+    g_ui.btnStart = lv_button_create(g_ui.screen);
+    lv_obj_set_size(g_ui.btnStart, 200, 80);
+    lv_obj_center(g_ui.btnStart);
+
+    // 1) Default-Fokus-Outline (blauer Rahmen) ausblenden
+    lv_obj_set_style_outline_opa(g_ui.btnStart, LV_OPA_TRANSP,
+                                 LV_PART_MAIN | LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_width(g_ui.btnStart, 0,
+                                   LV_PART_MAIN | LV_STATE_FOCUSED);
+
+    // 2) Roten Rahmen für "Button ist gerade gedrückt"
+    lv_obj_set_style_border_color(g_ui.btnStart, lv_color_hex(0xFF0000),
+                                  LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(g_ui.btnStart, 3,
+                                  LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_border_opa(g_ui.btnStart, LV_OPA_COVER,
+                                LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_radius(g_ui.btnStart, 8,
+                            LV_PART_MAIN | LV_STATE_PRESSED);
+
+    g_ui.lblBtnStart = lv_label_create(g_ui.btnStart);
+    lv_label_set_text(g_ui.lblBtnStart, "Start");
+    lv_obj_center(g_ui.lblBtnStart);
+
+    // // Event-Callback registrieren}
+    lv_obj_add_event_cb(g_ui.lblBtnStart, ui_event_ButtonTest, LV_EVENT_CLICKED, nullptr);
+}
+
 void ui_build()
 {
     // Aktuellen Screen holen (Standard-Screen)
-    ui_ScreenMain = lv_screen_active();
+    g_ui.screen = lv_screen_active();
 
     // Hintergrund
-    lv_obj_set_style_bg_color(ui_ScreenMain, lv_color_hex(0x202020), 0);
-    lv_obj_set_style_bg_opa(ui_ScreenMain, LV_OPA_COVER, 0);
-
+    lv_obj_set_style_bg_color(g_ui.screen, lv_color_hex(0x202020), 0);
+    lv_obj_set_style_bg_opa(g_ui.screen, LV_OPA_COVER, 0);
     // Label oben
-    ui_LabelInfo = lv_label_create(ui_ScreenMain);
+    ui_LabelInfo = lv_label_create(g_ui.screen);
     lv_label_set_text(ui_LabelInfo, "Touch me!");
     lv_obj_set_style_text_color(ui_LabelInfo, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(ui_LabelInfo, LV_ALIGN_TOP_MID, 0, 20);
 
-    // Button in der Mitte
-    ui_ButtonTest = lv_button_create(ui_ScreenMain);
-    lv_obj_set_size(ui_ButtonTest, 200, 80);
-    lv_obj_center(ui_ButtonTest);
-
-    lv_obj_t *btn_label = lv_label_create(ui_ButtonTest);
-    lv_label_set_text(btn_label, "Button");
-    lv_obj_center(btn_label);
-
-    // Event-Callback registrieren
-    lv_obj_add_event_cb(ui_ButtonTest, ui_event_ButtonTest, LV_EVENT_CLICKED, nullptr);
+    _create_btnStartStop();
 }
 
 /**
