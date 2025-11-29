@@ -1,4 +1,4 @@
-#include "display_hsd040bpn1.h"
+#include "display/display_hsd040bpn1.h"
 
 // Globale Display-Instanz
 Arduino_RGB_Display *gfx = nullptr;
