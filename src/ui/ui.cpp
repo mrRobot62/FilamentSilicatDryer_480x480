@@ -73,14 +73,14 @@ void _create_btnStartStop()
                                    LV_PART_MAIN | LV_STATE_FOCUSED);
 
     // 2) Roten Rahmen für "Button ist gerade gedrückt"
-    lv_obj_set_style_border_color(g_ui.btnStart, lv_color_hex(0xFF0000),
-                                  LV_PART_MAIN | LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(g_ui.btnStart, 3,
-                                  LV_PART_MAIN | LV_STATE_PRESSED);
-    lv_obj_set_style_border_opa(g_ui.btnStart, LV_OPA_COVER,
-                                LV_PART_MAIN | LV_STATE_PRESSED);
-    lv_obj_set_style_radius(g_ui.btnStart, 8,
-                            LV_PART_MAIN | LV_STATE_PRESSED);
+    // lv_obj_set_style_border_color(g_ui.btnStart, lv_color_hex(0xFF0000),
+    //                               LV_PART_MAIN | LV_STATE_PRESSED);
+    // lv_obj_set_style_border_width(g_ui.btnStart, 3,
+    //                               LV_PART_MAIN | LV_STATE_PRESSED);
+    // lv_obj_set_style_border_opa(g_ui.btnStart, LV_OPA_COVER,
+    //                             LV_PART_MAIN | LV_STATE_PRESSED);
+    // lv_obj_set_style_radius(g_ui.btnStart, 8,
+    //                         LV_PART_MAIN | LV_STATE_PRESSED);
 
     g_ui.lblBtnStart = lv_label_create(g_ui.btnStart);
     lv_label_set_text(g_ui.lblBtnStart, "Start");
