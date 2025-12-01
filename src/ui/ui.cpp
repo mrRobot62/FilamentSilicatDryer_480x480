@@ -60,6 +60,11 @@ static void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data)
     }
 }
 
+//-----------------------------------------------------------------------
+// ICON-Buttons
+//-----------------------------------------------------------------------
+void _create_btnFAN12V() {}
+
 void _create_btnStartStop()
 {
     g_ui.btnStart = lv_button_create(g_ui.screen);

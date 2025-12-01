@@ -9,6 +9,7 @@
             "name": "PlatformIO",
             "includePath": [
                 "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/src",
+                "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/PCF8574 library",
                 "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/Adafruit MCP9600 Library",
                 "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/Adafruit BusIO",
                 "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/TAMC_GT911",
@@ -313,6 +314,7 @@
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
                     "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/src",
+                    "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/PCF8574 library",
                     "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/Adafruit MCP9600 Library",
                     "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/Adafruit BusIO",
                     "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/TAMC_GT911",
@@ -622,6 +624,12 @@
                 "ARDUINO_EVENT_RUNNING_CORE=1",
                 "LV_CONF_INCLUDE_SIMPLE",
                 "BOARD_HAS_PSRAM",
+                "OVENINFO",
+                "OVENERR",
+                "OVENDBG",
+                "OVENWARN",
+                "UI_INFO",
+                "EVENTINFO",
                 "ESP32_ARDUINO_LIB_BUILDER",
                 "ESP_PLATFORM",
                 "IDF_VER=\"v5.1.4-972-g632e0c2a9f-dirty\"",

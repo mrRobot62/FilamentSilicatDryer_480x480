@@ -4,10 +4,9 @@
 #include "display/display_hsd040bpn1.h"
 #include "touch.h"
 
-// Globale UI-Objekte (optional, aber praktisch)
-// extern lv_obj_t *ui_screen;
-// extern lv_obj_t *ui_LabelInfo;
-// extern lv_obj_t *ui_ButtonTest;
+// UI Scale TIME
+#define SCALE_TIME_HOUR_START 0
+#define SCALE_TIME_HOUR_END 12
 
 typedef struct
 {
