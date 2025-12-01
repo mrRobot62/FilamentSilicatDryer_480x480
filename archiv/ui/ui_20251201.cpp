@@ -1,10 +1,11 @@
 
-#include "ui.h"
-#include "screens/screen_main.h"
-#include "ui_events.h"
+#include "ui/ui.h"
+#include "ui/ui_events.h"
 
-// Hier die EINZIGE Definition:
-UiControls g_ui;
+// Definition der globalen UI-Objekt-Pointer
+lv_obj_t *ui_ScreenMain = nullptr;
+lv_obj_t *ui_LabelInfo = nullptr;
+lv_obj_t *ui_ButtonTest = nullptr;
 
 // Flush-Callback: LVGL -> GFX
 static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
@@ -57,6 +58,58 @@ static void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data)
     {
         data->state = LV_INDEV_STATE_RELEASED;
     }
+}
+
+//-----------------------------------------------------------------------
+// ICON-Buttons
+//-----------------------------------------------------------------------
+void _create_btnFAN12V() {}
+
+void _create_btnStartStop()
+{
+    g_ui.btnStart = lv_button_create(g_ui.screen);
+    lv_obj_set_size(g_ui.btnStart, 200, 80);
+    lv_obj_center(g_ui.btnStart);
+
+    // 1) Default-Fokus-Outline (blauer Rahmen) ausblenden
+    lv_obj_set_style_outline_opa(g_ui.btnStart, LV_OPA_TRANSP,
+                                 LV_PART_MAIN | LV_STATE_FOCUSED);
+    lv_obj_set_style_outline_width(g_ui.btnStart, 0,
+                                   LV_PART_MAIN | LV_STATE_FOCUSED);
+
+    // 2) Roten Rahmen für "Button ist gerade gedrückt"
+    // lv_obj_set_style_border_color(g_ui.btnStart, lv_color_hex(0xFF0000),
+    //                               LV_PART_MAIN | LV_STATE_PRESSED);
+    // lv_obj_set_style_border_width(g_ui.btnStart, 3,
+    //                               LV_PART_MAIN | LV_STATE_PRESSED);
+    // lv_obj_set_style_border_opa(g_ui.btnStart, LV_OPA_COVER,
+    //                             LV_PART_MAIN | LV_STATE_PRESSED);
+    // lv_obj_set_style_radius(g_ui.btnStart, 8,
+    //                         LV_PART_MAIN | LV_STATE_PRESSED);
+
+    g_ui.lblBtnStart = lv_label_create(g_ui.btnStart);
+    lv_label_set_text(g_ui.lblBtnStart, "Start");
+    lv_obj_center(g_ui.lblBtnStart);
+
+    // // Event-Callback registrieren}
+    lv_obj_add_event_cb(g_ui.lblBtnStart, ui_event_ButtonTest, LV_EVENT_CLICKED, nullptr);
+}
+
+void ui_build()
+{
+    // Aktuellen Screen holen (Standard-Screen)
+    g_ui.screen = lv_screen_active();
+
+    // Hintergrund
+    lv_obj_set_style_bg_color(g_ui.screen, lv_color_hex(0x202020), 0);
+    lv_obj_set_style_bg_opa(g_ui.screen, LV_OPA_COVER, 0);
+    // Label oben
+    ui_LabelInfo = lv_label_create(g_ui.screen);
+    lv_label_set_text(ui_LabelInfo, "Touch me!");
+    lv_obj_set_style_text_color(ui_LabelInfo, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(ui_LabelInfo, LV_ALIGN_TOP_MID, 0, 20);
+
+    _create_btnStartStop();
 }
 
 /**
@@ -145,11 +198,6 @@ void ui_init(void)
     Serial.println(F("[UI] LVGL input device (touch) created"));
 
     // 7) UI erzeugen
-    // --- Main Screen erzeugen
-    g_ui.screenMain = screen_main_create();
-    Serial.println(F("[UI] screen_main created"));
-
-    // --- Laden (sichtbar machen)
-    lv_screen_load(g_ui.screenMain);
-    Serial.println(F("[UI] screen_main loaded"));
+    ui_build();
+    Serial.println(F("[UI] ui_build_ui() OK"));
 }

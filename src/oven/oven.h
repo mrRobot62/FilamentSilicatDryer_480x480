@@ -10,48 +10,70 @@
 #define OVEN_P4_SILICAT_MOTOR P4 // PIN 9 auf Stecker
 #define OVEN_P5_DOOR_SENSOR P5   // PIN 12 auf Stecker
 #define OVEN_P6_HEATER P6        // PINT 6 auf stecker
-class Oven
+
+#pragma once
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Drying profile configuration
+typedef struct
 {
-public:
-    Oven(uint8_t scl, uint8_t sda, uint8_t addr = 0x20);
-    ~Oven();
-    void begin();
-    void setTemperature(float temperature);
-    float getTemperature() const;
-    void setTargetTemperature(float target);
-    float getTargetTemperature() const;
+    // total drying duration in minutes (HH:MM)
+    uint32_t durationMinutes;
+    float targetTemperature;
+    int filamentId;
+} OvenProfile;
 
-    void fan12VOn();
-    void fan12VOff();
-    void fan230VOn();
-    void fan230VOff();
-    void fan230VSlowOn();
-    void fan230VSlowOff();
-    void lampOn();
-    void lampOff();
-    void heaterOn();
-    void heaterOff();
-    void silicatMotorOn();
-    void silicatMotorOff();
-    void setDoorOpen();
-    void setDoorClosed();
-    bool isDoorOpen() const;
-    bool isDoorClosed() const;
+typedef struct
+{
+    // configured profile duration in minutes (for UI/config)
+    uint32_t durationMinutes;
 
-private:
-    uint8_t _scl;
-    uint8_t _sda;
-    uint8_t _addr;
-    bool _initialized = false;
-    bool _fan12VState = false;
-    bool _fan230VState = false;
-    bool _lampState = false;
-    bool _silicatMotorState = false;
-    bool _doorClosed = false; // true = closed, false = open
-    bool _doorOpen = false;   // true = open, false = closed
-    bool _heaterState = false;
-    float _currentTemperature = 0.0f;
-    float _targetTemperature = 0.0f;
+    // countdown in seconds (for runtime + HH:MM:SS display)
+    uint32_t secondsRemaining;
 
-    PCF8574 *_pcf;
-};
+    float tempCurrent;
+    float tempTarget;
+
+    int filamentId;
+
+    // Actuator states ...
+    bool fan12v_on;
+    bool fan230_on;
+    bool fan230_slow_on;
+    bool heater_on;
+    bool door_open;
+    bool motor_on;
+    bool lamp_on;
+
+    bool fan230_manual_allowed;
+    bool motor_manual_allowed;
+    bool lamp_manual_allowed;
+
+    bool running;
+
+} OvenRuntimeState;
+
+// Initialization – called from setup()
+void oven_init(void);
+
+// Called in loop() to update timing, state machine, sensors, etc.
+void oven_tick(void);
+
+// Start/stop the drying process
+void oven_start(void);
+void oven_stop(void);
+bool oven_is_running(void);
+
+// Profile access
+void oven_set_profile(const OvenProfile *profile);
+void oven_get_profile(OvenProfile *profileOut);
+
+// Current runtime state for UI
+void oven_get_runtime_state(OvenRuntimeState *stateOut);
+
+// Manual commands triggered by icon buttons on the main screen
+void oven_command_toggle_fan230_manual(void);
+void oven_command_toggle_motor_manual(void);
+void oven_command_toggle_lamp_manual(void);

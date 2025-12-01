@@ -10,19 +10,26 @@
 
 typedef struct
 {
+    // Display-Treiber für LVGL
     lv_display_t *displayDrv = nullptr;
     lv_draw_buf_t lv_draw_buf;
     lv_color_t *lv_buf1 = nullptr;
 
-    lv_indev_t *lv_touch_indev = nullptr;
+    // Screen
+    lv_obj_t *screen = nullptr;
 
-    lv_obj_t *screenMain = nullptr;
-    lv_obj_t *screenConfig = nullptr;
-    lv_obj_t *screenLog = nullptr;
+    // touch-Display-Input-Device (Touch)
+    lv_indev_t *lv_touch_indev;
+
+    // Widgets, Screens, etc. hier hinzufügen
+    lv_obj_t *btnStart = nullptr;
+
+    // Labels
+    lv_obj_t *lblBtnStart = nullptr;
 
 } UiControls;
 
-extern UiControls g_ui;
+static UiControls g_ui;
 
 // UI initialisieren (Screens, Widgets, Events registrieren)
 void ui_init(void);

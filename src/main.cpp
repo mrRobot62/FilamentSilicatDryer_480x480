@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <lvgl.h>
+
 // #include <esp_heap_caps.h>
 
 // #include "display/display_hsd040bpn1.h"
@@ -7,6 +8,7 @@
 
 #include "ui/ui.h"
 #include "ui/ui_events.h"
+#include "ui/screens/screen_main.h"
 
 static uint32_t last_beat = 0;
 static uint32_t last_tick_ms = 0;
@@ -31,19 +33,28 @@ void loop()
     uint32_t now = millis();
     uint32_t elapsed = now - last_tick_ms;
     last_tick_ms = now;
+    static uint32_t last_ui_update = 0;
 
-    // Wichtig: LVGL mitteilen, wie viele Millisekunden vergangen sind
+    // 1) LVGL housekeeping
+    lv_timer_handler(); // verarbeitet LVGL-Anliegen
+    delay(5);           // sehr wichtig für Taskwechsel → verhindert Watchdog
+
+    // 2) Wichtig: LVGL mitteilen, wie viele Millisekunden vergangen sind
     lv_tick_inc(elapsed);
 
-    lv_timer_handler();
-    delay(5);
+    // 3) Oven tick (1 Hz)
+    oven_tick();
 
-    if (now - last_beat > 5000)
+    // 3) UI update (z. B. 4x pro Sekunde)
+    if (now - last_ui_update >= 250)
     {
-        last_beat = now;
-        // Serial.println(F("[MAIN] loop() heartbeat"));
-    }
+        last_ui_update = now;
 
+        OvenRuntimeState st;
+        oven_get_runtime_state(&st);
+
+        screen_main_update_runtime(&st);
+    }
     //---------------------------------------------------------
     // Debug: Touch-Events über LVGL testen
     //---------------------------------------------------------
