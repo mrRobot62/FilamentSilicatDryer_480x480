@@ -3,32 +3,6 @@
 #include "oven/oven.h"
 #include "log_events.h" // falls du Logging schon nutzt, sonst erstmal weglassen
 
-// -------- MAIN SCREEN EVENTS --------
-// void ui_event_main_start_button(lv_event_t *e)
-// {
-//     LV_UNUSED(e);
-//     lv_event_code_t code = lv_event_get_code(e);
-//     EVENT_DBG("ui_event_main_start_button code=%d\n", (int)code);
-
-//     // Minimal stub implementation for now:
-//     // Toggle oven running state and print something to Serial.
-
-//     if (oven_is_running())
-//     {
-//         oven_stop();
-//         EVENT_INFO("Start button clicked: oven_stop()\n");
-//     }
-//     else
-//     {
-//         oven_start();
-//         EVENT_INFO("Start button clicked: oven_start()\n");
-//     }
-
-//     // Später:
-//     // - OvenRuntimeState lesen
-//     // - screen_main_update_runtime(&state)
-//     // - log_ui_button_clicked("start")
-// }
 // MAIN - Door open/close
 void ui_event_main_open_config(lv_event_t *e)
 {

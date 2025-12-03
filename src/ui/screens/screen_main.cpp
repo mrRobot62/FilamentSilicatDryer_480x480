@@ -187,16 +187,6 @@ lv_obj_t *screen_main_create(void)
     create_page_indicator(ui.root);
     create_bottom_section(ui.root);
 
-    // TEMP: full-screen test button to verify LVGL events
-    // ui.btn_start = lv_btn_create(ui.root);
-    // lv_obj_set_size(ui.btn_start, LV_PCT(25), LV_PCT(25));
-    // lv_obj_center(ui.btn_start);
-
-    // ui.label_btn_start = lv_label_create(ui.btn_start);
-    // lv_label_set_text(ui.label_btn_start, "TEST");
-    // lv_obj_center(ui.label_btn_start);
-
-    // lv_obj_add_event_cb(ui.btn_start, test_fullscreen_btn_cb, LV_EVENT_CLICKED, nullptr);
     UI_DBG("[screen_main_create screen_main_create] screen-addr: %d\n", ui.root);
     return ui.root;
 }
