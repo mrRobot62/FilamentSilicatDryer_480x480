@@ -3,5 +3,12 @@
 		{
 			"path": "."
 		}
-	]
+	],
+	"settings": {
+		"files.associations": {
+			"*.simql": "simql",
+			"system_error": "cpp",
+			"regex": "cpp"
+		}
+	}
 }

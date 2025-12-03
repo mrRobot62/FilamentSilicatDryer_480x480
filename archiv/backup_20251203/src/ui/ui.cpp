@@ -38,12 +38,12 @@ static void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data)
 
     static uint32_t read_counter = 0;
     read_counter++;
-    // Alle 500 Aufrufe eine Debug-Zeile ausgeben
-    if (read_counter % 500 == 0)
+    UI_INFO("my_touch_read()....");
+    // Alle 50 Aufrufe eine Debug-Zeile ausgeben
+    if (read_counter % 50 == 0)
     {
-        // Serial.print(F("[LVGL TOUCH] read_cb called, count="));
-        // Serial.println(read_counter);
-        UI_DBG("[LVGL TOUCH] read_cb called, count=%d\n", read_counter);
+        Serial.print(F("[LVGL TOUCH] read_cb called, count="));
+        Serial.println(read_counter);
     }
 
     bool touched = false;
@@ -59,7 +59,10 @@ static void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data)
         data->point.x = touch_last_x;
         data->point.y = touch_last_y;
 
-        UI_INFO("[TOUCH] PRESSED at %d, %d\n", data->point.x, data->point.y);
+        Serial.print(F("[TOUCH] PRESSED at "));
+        Serial.print(data->point.x);
+        Serial.print(F(", "));
+        Serial.println(data->point.y);
     }
     else
     {
@@ -89,30 +92,33 @@ void ui_init(void)
             }
         }
     }
-    UI_INFO("[UI] (1) init_display() OK\n");
+    Serial.println(F("[UI] (1) init_display() OK"));
 
     // 2) LVGL initialisieren
     lv_init();
+    Serial.println(F("[UI] (2) lv_init() OK"));
 
-    UI_INFO("[UI] (2a) lv_init - OK\n");
     const uint32_t buf_lines = 80;
     const uint32_t buf_pixels = SCREEN_WIDTH * buf_lines;
+
+    Serial.println(F("[UI] Allocating LVGL draw buffer..."));
     g_ui.lv_buf1 = (lv_color_t *)heap_caps_malloc(
         buf_pixels * sizeof(lv_color_t),
         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 
+    Serial.println(F("[UI] Allocating LVGL draw buffer done"));
+
     if (!g_ui.lv_buf1)
     {
-
-        UI_INFO("[UI] LVGL draw buffer alloc FAILED\n");
+        Serial.println(F("[UI] LVGL draw buffer alloc FAILED"));
         while (true)
         {
             delay(1000);
         }
     }
-    UI_INFO("[UI] (2b) Allocating LVGL draw buffer done\n");
+    Serial.print(F("[UI] (3) LVGL draw buffer alloc OK, pixels="));
+    Serial.println(buf_pixels);
 
-    // 3) DrawBuffer
     lv_draw_buf_init(
         &g_ui.lv_draw_buf,
         SCREEN_WIDTH,
@@ -121,26 +127,26 @@ void ui_init(void)
         SCREEN_WIDTH,
         g_ui.lv_buf1,
         buf_pixels * sizeof(lv_color_t));
-    UI_INFO("[UI] (3) LVGL draw buffer alloc OK, pixels=%d\n", buf_pixels);
 
     // 4) Display-Objekt
     g_ui.displayDrv = lv_display_create(SCREEN_WIDTH, SCREEN_HEIGHT);
     if (!g_ui.displayDrv)
     {
-        UI_INFO("[UI] lv_display_create() FAILED\n");
+        Serial.println(F("[UI] lv_display_create() FAILED"));
         while (true)
         {
             delay(1000);
         }
     }
-    UI_INFO("[UI] (4a) lv_display_create() (%d,%d) - OK\n", SCREEN_WIDTH, SCREEN_HEIGHT);
+    Serial.println(F("[UI] lv_display_create() OK"));
+
     lv_display_set_flush_cb(g_ui.displayDrv, my_disp_flush);
     lv_display_set_draw_buffers(g_ui.displayDrv, &g_ui.lv_draw_buf, nullptr);
-    UI_INFO("[UI] (4b) lv_display_set_draw_buffers() OK\n");
+    Serial.println(F("[UI] lv_display_set_draw_buffers() OK"));
 
     // 5) Touch initialisieren
     touch_init();
-    UI_INFO("[UI] (5) touch_init() OK\n");
+    Serial.println(F("[UI] touch_init() OK"));
 
     // 6) LVGL Input-Device einrichten
     // TOUCH ist ein Input-Device und wird an eine callback-routine gebunden
@@ -149,14 +155,14 @@ void ui_init(void)
     lv_indev_set_type(g_ui.lv_touch_indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(g_ui.lv_touch_indev, my_touch_read);
     lv_indev_set_display(g_ui.lv_touch_indev, g_ui.displayDrv); // auf dieses Display mappen
-    UI_INFO("[UI] (6) LVGL input device (touch) created\n");
+    Serial.println(F("[UI] LVGL input device (touch) created"));
 
     // 7) UI erzeugen
     // --- Main Screen erzeugen
     g_ui.screenMain = screen_main_create();
-    UI_INFO("[UI] (7) screen_main created\n");
+    Serial.println(F("[UI] screen_main created"));
 
     // --- Laden (sichtbar machen)
     lv_screen_load(g_ui.screenMain);
-    UI_INFO("[UI] screen_main loaded\n");
+    Serial.println(F("[UI] screen_main loaded"));
 }

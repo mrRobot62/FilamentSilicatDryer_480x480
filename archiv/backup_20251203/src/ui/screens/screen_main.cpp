@@ -100,6 +100,24 @@ static void start_button_event_cb(lv_event_t *e);
 //----------------------------------------------------
 //
 //----------------------------------------------------
+static void debug_touch_event_cb(lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+
+    // Versuche, die aktuelle Touch-Position zu bekommen
+    lv_indev_t *indev = lv_indev_get_act();
+    lv_point_t p = {0, 0};
+    if (indev)
+    {
+        lv_indev_get_point(indev, &p);
+    }
+
+    UI_INFO("DEBUG_TOUCH_EVENT: code=%d, x=%d, y=%d", (int)code, (int)p.x, (int)p.y);
+}
+
+//----------------------------------------------------
+//
+//----------------------------------------------------
 static void test_fullscreen_btn_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
@@ -170,8 +188,8 @@ lv_obj_t *screen_main_create(void)
     }
 
     ui.root = lv_obj_create(nullptr);
-    // ui.root = lv_screen_active();
-    //  lv_obj_clear_flag(ui.root, LV_OBJ_FLAG_SCROLLABLE);
+    ui.root = lv_screen_active();
+    // lv_obj_clear_flag(ui.root, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_set_size(ui.root, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT);
     lv_obj_center(ui.root);
@@ -179,25 +197,24 @@ lv_obj_t *screen_main_create(void)
     lv_obj_set_style_bg_color(ui.root, color_from_hex(UI_COLOR_BG_HEX), 0);
     lv_obj_set_style_bg_opa(ui.root, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(ui.root, 0, 0);
-    UI_DBG("[screen_main_create screen_main_create] screen-addr: %d\n", ui.root);
 
     // Create sub sections
-    create_top_bar(ui.root);
-    create_center_section(ui.root);
-    create_page_indicator(ui.root);
-    create_bottom_section(ui.root);
+    // create_top_bar(ui.root);
+    // create_center_section(ui.root);
+    // create_page_indicator(ui.root);
+    // create_bottom_section(ui.root);
 
     // TEMP: full-screen test button to verify LVGL events
-    // ui.btn_start = lv_btn_create(ui.root);
-    // lv_obj_set_size(ui.btn_start, LV_PCT(25), LV_PCT(25));
-    // lv_obj_center(ui.btn_start);
+    ui.btn_start = lv_btn_create(ui.root);
+    lv_obj_set_size(ui.btn_start, LV_PCT(50), LV_PCT(50));
+    lv_obj_center(ui.btn_start);
 
-    // ui.label_btn_start = lv_label_create(ui.btn_start);
-    // lv_label_set_text(ui.label_btn_start, "TEST");
-    // lv_obj_center(ui.label_btn_start);
+    ui.label_btn_start = lv_label_create(ui.btn_start);
+    lv_label_set_text(ui.label_btn_start, "TEST");
+    lv_obj_center(ui.label_btn_start);
 
-    // lv_obj_add_event_cb(ui.btn_start, test_fullscreen_btn_cb, LV_EVENT_CLICKED, nullptr);
-    UI_DBG("[screen_main_create screen_main_create] screen-addr: %d\n", ui.root);
+    lv_obj_add_event_cb(ui.btn_start, test_fullscreen_btn_cb, LV_EVENT_ALL, nullptr);
+
     return ui.root;
 }
 
@@ -205,7 +222,6 @@ lv_obj_t *screen_main_create(void)
 //
 //----------------------------------------------------
 // Public API: runtime update
-//
 void screen_main_update_runtime(const OvenRuntimeState *state)
 {
     if (!state)
@@ -365,7 +381,7 @@ static void create_center_section(lv_obj_t *parent)
     ui.btn_start = lv_btn_create(ui.start_button_container);
     lv_obj_set_size(ui.btn_start, UI_START_BUTTON_SIZE, UI_START_BUTTON_SIZE);
     lv_obj_center(ui.btn_start);
-    lv_obj_add_event_cb(ui.btn_start, start_button_event_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(ui.btn_start, start_button_event_cb, LV_EVENT_ALL, nullptr);
 
     ui.label_btn_start = lv_label_create(ui.btn_start);
     lv_label_set_text(ui.label_btn_start, "START");
@@ -471,9 +487,7 @@ static void create_bottom_section(lv_obj_t *parent)
 //
 
 //----------------------------------------------------
-// update_time
-// aktualisiert die Heiz-Zeit HH:MM:SS
-// berechnet Restzeit
+//
 //----------------------------------------------------
 static void update_time_ui(const OvenRuntimeState &state)
 {
@@ -498,7 +512,6 @@ static void update_time_ui(const OvenRuntimeState &state)
 }
 
 //----------------------------------------------------
-// update_dail
 //
 //----------------------------------------------------
 static void update_dial_ui(const OvenRuntimeState &state)
@@ -519,9 +532,7 @@ static void update_dial_ui(const OvenRuntimeState &state)
 }
 
 //----------------------------------------------------
-// update_temp
-// update der aktuellen Temperatur-Labels
-// update der Scale-für IST-Temperatur
+//
 //----------------------------------------------------
 static void update_temp_ui(const OvenRuntimeState &state)
 {
@@ -575,9 +586,7 @@ static void update_temp_ui(const OvenRuntimeState &state)
 }
 
 //----------------------------------------------------
-// update_actuator_icons
-// führt update für Icons for (Farbwechsel)
-// Icons signalisieren lediglich ON/OFF
+//
 //----------------------------------------------------
 static void update_actuator_icons(const OvenRuntimeState &state)
 {
@@ -617,7 +626,6 @@ static void update_actuator_icons(const OvenRuntimeState &state)
 // Start/Stop button callback
 //
 //----------------------------------------------------
-// start_button_event_cb
 //
 //----------------------------------------------------
 static void start_button_event_cb(lv_event_t *e)
@@ -626,19 +634,7 @@ static void start_button_event_cb(lv_event_t *e)
     lv_event_code_t code = lv_event_get_code(e);
 
     // Wichtig: irgendein Log, das du sicher siehst
-    UI_INFO("start_button_event_cb(): code=%d\n", (int)code);
-
-    if (oven_is_running)
-    {
-        oven_stop();
-        UI_INFO("OVEN_STOPPED\n");
-    }
-    else
-    {
-        oven_start();
-        UI_INFO("OVEN_STARTED\n");
-    }
-
+    UI_INFO("start_button_event_cb(): code=%d", (int)code);
     // TODO:
     // Here you should call into your oven control logic, e.g.:
     // if (oven_is_running()) oven_stop();

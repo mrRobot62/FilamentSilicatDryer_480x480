@@ -8,9 +8,6 @@
 #define SCALE_TIME_HOUR_START 0
 #define SCALE_TIME_HOUR_END 12
 
-// zentrale STRUCT
-// nimmt lediglich die Screens auf, das Display und Touch
-// keine Widgets, die sind jeweils in den entsprechenden Screens verankert
 typedef struct
 {
     lv_display_t *displayDrv = nullptr;

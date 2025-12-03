@@ -6,7 +6,6 @@
 // #include "display/display_hsd040bpn1.h"
 // #include "touch.h"
 
-#include "log_core.h"
 #include "ui/ui.h"
 #include "ui/ui_events.h"
 #include "ui/screens/screen_main.h"
@@ -19,12 +18,11 @@ void setup()
     Serial.begin(115200);
     delay(4000); // damit du sicher die Setup-Logs siehst
 
-    INFO("======================================================\n");
-    INFO("=== ESP32-S3 + ST7701 480x480 + LVGL 9.4.x + Touch ===\n");
-    INFO("======================================================\n");
+    Serial.println();
+    Serial.println(F("=== ESP32-S3 + ST7701 480x480 + LVGL 9.4.x + Touch ==="));
 
     ui_init();
-    INFO("[MAIN] ui_init() OK\n");
+    Serial.println(F("[MAIN] ui_init() OK"));
 
     last_tick_ms = millis();
 }
@@ -32,31 +30,31 @@ void setup()
 void loop()
 {
 
-    static uint32_t last_ui_update = 0;
-
-    // Wichtig: LVGL mitteilen, wie viele Millisekunden vergangen sind
     uint32_t now = millis();
     uint32_t elapsed = now - last_tick_ms;
     last_tick_ms = now;
+    static uint32_t last_ui_update = 0;
+
+    // 1) LVGL housekeeping
+    lv_timer_handler(); // verarbeitet LVGL-Anliegen
+    delay(5);           // sehr wichtig für Taskwechsel → verhindert Watchdog
+
+    // 2) Wichtig: LVGL mitteilen, wie viele Millisekunden vergangen sind
     lv_tick_inc(elapsed);
 
-    // Oven-Tick (1Hz)
+    // // 3) Oven tick (1 Hz)
     oven_tick();
 
-    // UI update (4Hz)
+    // 3) UI update (z. B. 4x pro Sekunde)
     if (now - last_ui_update >= 250)
     {
         last_ui_update = now;
 
         OvenRuntimeState st;
-        // oven_get_runtime_state(&st);
+        //oven_get_runtime_state(&st);
 
-        // screen_main_update_runtime(&st);
+        //screen_main_update_runtime(&st);
     }
-
-    // Rendering
-    lv_timer_handler(); // rendert den aktuellen Screen
-    delay(5);           // sehr wichtig für Taskwechsel → verhindert Watchdog
 
     //---------------------------------------------------------
     // Debug: Touch-Events über LVGL testen

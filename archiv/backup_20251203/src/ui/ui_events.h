@@ -9,7 +9,8 @@
 // Start/Stop button on the main screen
 void ui_event_main_start_button(lv_event_t *e);
 
-// Navigation buttons on main scree;
+// Navigation buttons on main screen
+void ui_event_main_open_config(lv_event_t *e);
 void ui_event_main_open_log(lv_event_t *e);
 
 // Icon buttons with manual override (if allowed by oven state)
