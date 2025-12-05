@@ -49,9 +49,16 @@ void loop()
         last_ui_update = now;
 
         OvenRuntimeState st;
-        // oven_get_runtime_state(&st);
+        oven_get_runtime_state(&st);
 
-        // screen_main_update_runtime(&st);
+        // Debug-Log, damit wir sehen, dass UI-Update läuft
+        if (now - last_ui_update >= 1000)
+        {
+            INFO("UI update: remaining=%lus, duration=%umin",
+                 (unsigned long)st.secondsRemaining,
+                 (unsigned int)st.durationMinutes);
+        }
+        screen_main_update_runtime(&st);
     }
 
     // Rendering

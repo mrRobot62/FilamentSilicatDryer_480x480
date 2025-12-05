@@ -8,7 +8,8 @@
 		"files.associations": {
 			"*.simql": "simql",
 			"system_error": "cpp",
-			"regex": "cpp"
+			"regex": "cpp",
+			"random": "cpp"
 		}
 	}
 }

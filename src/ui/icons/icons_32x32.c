@@ -27,3 +27,4 @@
 #include "../assets/icons/fan230v_fast_wht.c" // fan230v_fast_wht
 #include "../assets/icons/heater_wht.c"       // heater_wht
 #include "../assets/icons/lamp230v_wht.c"     // lamp230v_wht
+#include "../assets/icons/door_open_wht.c"     // lamp230v_wht

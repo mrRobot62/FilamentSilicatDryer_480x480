@@ -159,4 +159,7 @@ void ui_init(void)
     // --- Laden (sichtbar machen)
     lv_screen_load(g_ui.screenMain);
     UI_INFO("[UI] screen_main loaded\n");
+
+    // update_needle(ui->needleMM, g_minute_hand_points, calc_minute_angle(ui->minutes), 40, 68);
+    // update_needle(ui->needleHH, g_hour_hand_points, calc_hour_angle(ui->hours, ui->minutes), 40, 60);
 }
