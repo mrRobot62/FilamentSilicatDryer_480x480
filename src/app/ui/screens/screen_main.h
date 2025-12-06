@@ -1,7 +1,7 @@
 #pragma once
 
 #include <lvgl.h>
-#include "../oven/oven.h" // Pfad ggf. anpassen zu deinem Projekt
+#include "oven/oven.h" // Pfad ggf. anpassen zu deinem Projekt
 #include "log_ui.h"
 
 // Forward-declare your OvenRuntimeState.

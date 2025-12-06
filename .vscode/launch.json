@@ -18,7 +18,7 @@
             "internalConsoleOptions": "openOnSessionStart",
             "preLaunchTask": {
                 "type": "PlatformIO",
-                "task": "Pre-Debug"
+                "task": "Pre-Debug (esp32s3_lvgl_st7701)"
             }
         },
         {

@@ -1,6 +1,5 @@
 #include "screen_main.h"
 #include <cstdio> // for snprintf
-#include "oven/oven.h"
 #include "../icons/icons_32x32.h"
 // -------------------------------------------------------------------
 //
@@ -459,7 +458,7 @@ static void create_center_section(lv_obj_t *parent)
     // ui->minutes = ui->countdown_minutes % 60;
     // int32_t hour_pos = (ui->hours % 12) * 5 + (ui->minutes / 12);
 
-    / lv_scale_set_line_needle_value(ui.dial, ui->needleMM, TIME_NEEDLE_LEN_M, ui.minutes);
+    // lv_scale_set_line_needle_value(ui.dial, ui->needleMM, TIME_NEEDLE_LEN_M, ui.minutes);
     // lv_scale_set_line_needle_value(ui.dial, ui->needleHH, TIME_NEEDLE_LEN_H, hour_pos);
 
     // ----
