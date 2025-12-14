@@ -9,9 +9,6 @@
             "name": "PlatformIO",
             "includePath": [
                 "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/src",
-                "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/PCF8575",
-                "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/Adafruit MCP9600 Library",
-                "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/Adafruit BusIO",
                 "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/TAMC_GT911",
                 "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/GFX Library for Arduino/src",
                 "/Users/bernhardklein/.platformio/packages/framework-arduinoespressif32/libraries/Wire/src",
@@ -315,9 +312,6 @@
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
                     "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/src",
-                    "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/PCF8575",
-                    "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/Adafruit MCP9600 Library",
-                    "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/Adafruit BusIO",
                     "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/TAMC_GT911",
                     "/Users/bernhardklein/workspace/arduino/esp32/FilamentSilicatDryer_480x480/.pio/libdeps/esp32s3_lvgl_st7701/GFX Library for Arduino/src",
                     "/Users/bernhardklein/.platformio/packages/framework-arduinoespressif32/libraries/Wire/src",

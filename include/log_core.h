@@ -34,26 +34,26 @@ inline void logPrintf(const char *tag, const char *level, const char *fmt, ...)
   va_end(args);
 }
 
-#define INFO(...)                       \
-  do                                    \
-  {                                     \
-    logPrintf("", "INFO", __VA_ARGS__); \
+#define INFO(...)                           \
+  do                                        \
+  {                                         \
+    logPrintf("MAIN", "INFO", __VA_ARGS__); \
   } while (0)
 
-#define DBG(...)                         \
-  do                                     \
-  {                                      \
-    logPrintf("", "DEBUG", __VA_ARGS__); \
+#define DBG(...)                             \
+  do                                         \
+  {                                          \
+    logPrintf("MAIN", "DEBUG", __VA_ARGS__); \
   } while (0)
 
-#define WARN(...)                       \
-  do                                    \
-  {                                     \
-    logPrintf("", "WARN", __VA_ARGS__); \
+#define WARN(...)                           \
+  do                                        \
+  {                                         \
+    logPrintf("MAIN", "WARN", __VA_ARGS__); \
   } while (0)
 
-#define ERR(...)                       \
-  do                                   \
-  {                                    \
-    logPrintf("", "ERR", __VA_ARGS__); \
+#define ERR(...)                           \
+  do                                       \
+  {                                        \
+    logPrintf("MAIN", "ERR", __VA_ARGS__); \
   } while (0)

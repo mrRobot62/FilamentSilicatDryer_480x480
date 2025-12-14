@@ -1,0 +1,166 @@
+#include <Arduino.h>
+#include <lvgl.h>
+#include <esp_heap_caps.h>
+
+#include "display_hsd040bpn1.h"
+
+// LVGL Display-Handle und Zeichnen-Puffer
+static lv_display_t *lv_disp = nullptr;
+
+// LVGL draw buffer + Speicher
+static lv_draw_buf_t lv_draw_buf;
+static lv_color_t *lv_buf1 = nullptr;
+
+// Flush-Callback: LVGL -> GFX
+static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
+{
+    // Breite/Höhe des zu zeichnenden Bereichs
+    uint32_t w = (area->x2 - area->x1 + 1);
+    uint32_t h = (area->y2 - area->y1 + 1);
+
+    // LV_COLOR_DEPTH = 16 -> px_map zeigt auf RGB565
+    uint16_t *src = (uint16_t *)px_map;
+
+    // GFX: am schnellsten über draw16bitRGBBitmap()
+    gfx->draw16bitRGBBitmap(area->x1, area->y1, src, w, h);
+
+    // LVGL sagen, dass wir fertig sind
+    lv_display_flush_ready(disp);
+}
+
+// Kleiner Test-Screen
+static void lv_create_test_screen()
+{
+    lv_obj_t *scr = lv_screen_active();
+
+    // Vollbild-Hintergrund-Farbe
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x202020), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+
+    // Label zentriert
+    lv_obj_t *label = lv_label_create(scr);
+    lv_label_set_text(label, "Hello LVGL 9 on ST7701");
+    lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(label);
+}
+
+void setup()
+{
+    Serial.begin(115200);
+    delay(2000);
+    Serial.println();
+    Serial.println(F("=== ESP32-S3 + ST7701 480x480 + LVGL 9.4.x ==="));
+
+    // 1) Display (GFX) initialisieren – nutzt deine funktionierende Initialisierung
+    if (!init_display())
+    {
+        Serial.println(F("[MAIN] Display init FAILED, stopping."));
+        while (true)
+        {
+            delay(1000);
+        }
+    }
+    Serial.println(F("[MAIN] Display init OK"));
+
+    // 2) LVGL initialisieren
+    lv_init();
+    Serial.println(F("[MAIN] lv_init() OK"));
+
+    // 3) Zeichnen-Puffer für LVGL anlegen
+    //    80 Zeilen à 480 Pixel à 2 Byte = 480 * 80 * 2 = 76.800 Bytes
+    const uint32_t buf_lines = 80;
+    const uint32_t buf_pixels = SCREEN_WIDTH * buf_lines;
+
+    lv_buf1 = (lv_color_t *)heap_caps_malloc(
+        buf_pixels * sizeof(lv_color_t),
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+
+    if (!lv_buf1)
+    {
+        Serial.println(F("[MAIN] LVGL draw buffer alloc FAILED"));
+        while (true)
+        {
+            delay(1000);
+        }
+    }
+    Serial.print(F("[MAIN] LVGL draw buffer alloc OK, pixels="));
+    Serial.println(buf_pixels);
+
+    // 4) LVGL Display-Objekt anlegen
+    lv_disp = lv_display_create(SCREEN_WIDTH, SCREEN_HEIGHT);
+    if (!lv_disp)
+    {
+        Serial.println(F("[MAIN] lv_display_create() FAILED"));
+        while (true)
+        {
+            delay(1000);
+        }
+    }
+    Serial.println(F("[MAIN] lv_display_create() OK"));
+
+    // Flush-Callback setzen
+    lv_display_set_flush_cb(lv_disp, my_disp_flush);
+
+    // Draw-Buffer initialisieren:
+    // Signatur deiner LVGL:
+    // lv_draw_buf_init(lv_draw_buf_t * draw_buf,
+    //                  uint32_t w, uint32_t h,
+    //                  lv_color_format_t cf,
+    //                  uint32_t stride,
+    //                  void * buf1,
+    //                  void * buf2);
+    lv_draw_buf_init(
+        &lv_draw_buf,
+        SCREEN_WIDTH,                   // w
+        buf_lines,                      // h (Zeilen im Buffer)
+        LV_COLOR_FORMAT_RGB565,         // cf
+        SCREEN_WIDTH,                   // stride (Pixel pro Zeile)
+        lv_buf1,                        // buf1
+        buf_pixels * sizeof(lv_color_t) // buf2 (kein 2. Buffer)
+    );
+
+    // Draw-Buffer mit dem Display verknüpfen
+    lv_display_set_draw_buffers(
+        lv_disp,
+        &lv_draw_buf, // erster (und einziger) Buffer
+        nullptr       // zweiter Buffer nicht genutzt
+    );
+
+    Serial.println(F("[MAIN] lv_display_set_draw_buffers() OK"));
+
+    // 5) Test-Screen erzeugen
+    lv_create_test_screen();
+    Serial.println(F("[MAIN] lv_create_test_screen() OK"));
+
+    // 6) Draw-Buffer dem Display zuweisen
+    // Signatur lt. deinem Fehler-Log:
+    // void lv_display_set_draw_buffers(lv_display_t * disp,
+    //                                  lv_draw_buf_t * buf1,
+    //                                  lv_draw_buf_t * buf2);
+
+    lv_display_set_draw_buffers(lv_disp, &lv_draw_buf, nullptr);
+
+    Serial.println(F("[MAIN] lv_display_set_draw_buffers() OK"));
+
+    // 7) Test-Screen erzeugen
+    lv_create_test_screen();
+    Serial.println(F("[MAIN] lv_create_test_screen() OK"));
+}
+
+void loop()
+{
+    // LVGL-Tasks abarbeiten
+    lv_timer_handler();
+
+    // Kleines Delay gegen 100%-CPU-Last
+    delay(5);
+
+    // Optional: Heartbeat für Debug
+    static uint32_t last_beat = 0;
+    uint32_t now = millis();
+    if (now - last_beat > 1000)
+    {
+        last_beat = now;
+        Serial.println(F("[MAIN] loop() heartbeat"));
+    }
+}
