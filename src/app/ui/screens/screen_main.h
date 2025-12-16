@@ -1,6 +1,8 @@
 #pragma once
 
 #include <lvgl.h>
+#include <cstdio> // for snprintf
+
 #include "oven/oven.h" // Pfad ggf. anpassen zu deinem Projekt
 #include "log_ui.h"
 
@@ -36,6 +38,7 @@
 #define UI_PAGE_DOT_SPACING 8
 
 // Color constants as hex values (actual palette can be tuned later)
+#define UI_COLOR_DANGER_HEX 0xFF0000 // unified red: STOP, WAIT blocked, DOOR open
 #define UI_COLOR_BG_HEX 0x101010
 #define UI_COLOR_PANEL_BG_HEX 0x202020
 #define UI_COLOR_PAGE_DOT_ACTIVE_HEX 0xFFFFFF
@@ -63,7 +66,13 @@
 #define UI_COLOR_ICON_ON_HEX 0x00FF00        // green
 #define UI_COLOR_ICON_DOOR_OPEN_HEX 0xFF0000 // red
 #define UI_COLOR_ICON_DIMMED_HEX 0x505050    // optional, falls du später "disabled" brauchst
-
+// --------------------------------------------------------
+// Pause button colors (UI uses ui_color_from_hex() later)
+// --------------------------------------------------------
+static constexpr uint32_t UI_COL_PAUSE_RUNNING_HEX = 0xFFA500;                 // orange (PAUSE)
+static constexpr uint32_t UI_COL_PAUSE_WAIT_BLOCKED_HEX = UI_COLOR_DANGER_HEX; // red (WAIT, door open -> blocked)
+static constexpr uint32_t UI_COL_PAUSE_WAIT_READY_HEX = 0x00C000;              // green (WAIT, door closed -> can resume)
+static constexpr uint32_t UI_COL_PAUSE_DISABLED_HEX = 0x404040;                // grey (STOPPED)
 // Page indices
 enum UiPageIndex : uint8_t
 {
@@ -81,3 +90,55 @@ void screen_main_update_runtime(const OvenRuntimeState *state);
 
 // Called by your UI manager when the active screen changes
 void screen_main_set_active_page(uint8_t page_index);
+
+// Helpers
+// UI color helper: swaps R <-> B (because the panel path swaps channels)
+static lv_color_t ui_color_from_hex(uint32_t rgb_hex)
+{
+    // rgb_hex is 0xRRGGBB
+    uint32_t r = (rgb_hex >> 16) & 0xFF;
+    uint32_t g = (rgb_hex >> 8) & 0xFF;
+    uint32_t b = (rgb_hex >> 0) & 0xFF;
+
+    uint32_t swapped = (b << 16) | (g << 8) | (r << 0); // 0xBBGGRR
+    return lv_color_hex(swapped);
+}
+
+// Format seconds -> "HH:MM:SS"
+static void format_hhmmss(uint32_t seconds, char *buf, size_t buf_size)
+{
+    uint32_t h = seconds / 3600;
+    uint32_t m = (seconds % 3600) / 60;
+    uint32_t s = seconds % 60;
+
+    if (h > 99)
+        h = 99; // just in case
+
+    if (h > 0)
+    {
+        std::snprintf(buf, buf_size, "%02u:%02u:%02u", h, m, s);
+    }
+    else
+    {
+        std::snprintf(buf, buf_size, "%02u:%02u", m, s);
+    }
+}
+
+// Format seconds -> "HH:MM" (for compact display)
+static void format_hhmm(uint32_t seconds, char *buf, size_t buf_size)
+{
+    uint32_t h = seconds / 3600;
+    uint32_t m = (seconds % 3600) / 60;
+
+    if (h > 99)
+        h = 99;
+
+    if (h > 0)
+    {
+        std::snprintf(buf, buf_size, "%02u:%02u", h, m);
+    }
+    else
+    {
+        std::snprintf(buf, buf_size, "00:%02u", m);
+    }
+}

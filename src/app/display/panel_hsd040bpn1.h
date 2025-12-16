@@ -30,7 +30,8 @@ static const uint8_t st7701_hsd040bpn1_init_operations[] PROGMEM = {
     0xEF,
     WRITE_BYTES,
     1,
-    0x08,
+    // 0x08, // RGB-Farbreihenfolge
+    0x00, // BGR-Farbreihenfolge
 
     // ------------------------------------------------------------------------
     // Seite 0x10: Power / Drive Settings + Gamma
@@ -366,6 +367,7 @@ static const uint8_t st7701_hsd040bpn1_init_operations[] PROGMEM = {
     WRITE_BYTES,
     1,
     0x66,
+    // 0x55, // Korrekt für RGB565 aber führt für völlig verschoben Farben (aus weiß wird gelb)
 
     // Memory Access Control (BGR / Scanrichtung)
     WRITE_COMMAND_8,

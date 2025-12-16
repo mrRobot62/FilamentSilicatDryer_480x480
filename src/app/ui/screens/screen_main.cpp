@@ -1,5 +1,4 @@
 #include "screen_main.h"
-#include <cstdio> // for snprintf
 #include "../icons/icons_32x32.h"
 // -------------------------------------------------------------------
 //
@@ -126,6 +125,13 @@ static void update_start_button_ui(void);
 static void start_button_event_cb(lv_event_t *e);
 static void pause_button_event_cb(lv_event_t *e);
 
+// UI helpers (needed before first use)
+static void ui_set_pause_enabled(bool en);
+static void ui_set_pause_label(const char *txt);
+
+// WAIT helper
+static void countdown_stop_and_set_wait_ui(const char *why);
+
 static lv_style_t style_dial_border;
 
 static lv_point_precise_t g_minute_hand_points[2];
@@ -145,6 +151,56 @@ static OvenRuntimeState g_last_runtime = {};
 // Snapshot of actuator states before entering WAIT
 static OvenRuntimeState g_pre_wait_snapshot = {};
 static bool g_has_pre_wait_snapshot = false;
+
+static bool g_sim_door_override = false;
+static bool g_sim_door_open = false;
+static bool g_paused_by_door = false;
+
+static void ui_set_pause_bg_hex(uint32_t rgb_hex)
+{
+    if (!ui.btn_pause)
+        return;
+    lv_obj_set_style_bg_color(ui.btn_pause, ui_color_from_hex(rgb_hex), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui.btn_pause, LV_OPA_COVER, LV_PART_MAIN);
+}
+
+static void pause_button_apply_ui(RunState st, bool door_open)
+{
+    if (!ui.btn_pause || !ui.label_btn_pause)
+        return;
+
+    switch (st)
+    {
+    case RunState::STOPPED:
+        ui_set_pause_label("WAIT");
+        ui_set_pause_enabled(false);
+        ui_set_pause_bg_hex(UI_COL_PAUSE_DISABLED_HEX);
+        break;
+
+    case RunState::RUNNING:
+        ui_set_pause_label("PAUSE");
+        ui_set_pause_enabled(true);
+        ui_set_pause_bg_hex(UI_COL_PAUSE_RUNNING_HEX);
+        break;
+
+    case RunState::WAIT:
+        ui_set_pause_label("WAIT");
+
+        if (door_open)
+        {
+            // blocked by door
+            ui_set_pause_enabled(false);
+            ui_set_pause_bg_hex(UI_COL_PAUSE_WAIT_BLOCKED_HEX);
+        }
+        else
+        {
+            // ready to resume
+            ui_set_pause_enabled(true);
+            ui_set_pause_bg_hex(UI_COL_PAUSE_WAIT_READY_HEX);
+        }
+        break;
+    }
+}
 
 static int calc_second_angle(int minute)
 {
@@ -195,6 +251,32 @@ static void update_needle(lv_obj_t *dial, lv_obj_t *needle, lv_point_precise_t *
 
     // With mutable points this is usually enough, but this also refreshes bounds reliably.
     lv_line_set_points(needle, buf, 2);
+}
+
+static void pause_button_update_enabled_by_door(bool door_open)
+{
+    if (!ui.btn_pause)
+        return;
+
+    // Door-open => Pause button must not be clickable (cannot resume)
+    // Door-closed => Pause button may be clickable (depending on run state)
+    if (door_open)
+    {
+        ui_set_pause_enabled(false);
+        UI_INFO("[DOOR] btnPause DISABLED (door open)\n");
+    }
+    else
+    {
+        // Only enable if we are in RUNNING or WAIT; STOPPED remains disabled elsewhere
+        bool allow = (g_run_state == RunState::RUNNING) || (g_run_state == RunState::WAIT);
+        ui_set_pause_enabled(allow);
+        UI_INFO("[DOOR] btnPause %s (door closed)\n", allow ? "ENABLED" : "DISABLED");
+    }
+}
+
+static bool get_effective_door_open(const OvenRuntimeState &state)
+{
+    return g_sim_door_override ? g_sim_door_open : state.door_open;
 }
 
 static void set_needles_hms(int hh, int mm, int ss)
@@ -402,49 +484,24 @@ static lv_obj_t *mk_scale_needle_mutable(lv_obj_t *parent,
 //----------------------------------------------------
 //
 //----------------------------------------------------
-// Helpers
-static lv_color_t color_from_hex(uint32_t hex)
+
+static void countdown_stop_and_set_wait_ui(const char *why)
 {
-    return lv_color_hex(hex);
-}
+    UI_INFO("[WAIT] stop countdown: %s (tick=%p)\n", why, g_countdown_tick);
 
-// Format seconds -> "HH:MM:SS"
-static void format_hhmmss(uint32_t seconds, char *buf, size_t buf_size)
-{
-    uint32_t h = seconds / 3600;
-    uint32_t m = (seconds % 3600) / 60;
-    uint32_t s = seconds % 60;
-
-    if (h > 99)
-        h = 99; // just in case
-
-    if (h > 0)
+    if (g_countdown_tick)
     {
-        std::snprintf(buf, buf_size, "%02u:%02u:%02u", h, m, s);
+        lv_timer_del(g_countdown_tick);
+        g_countdown_tick = nullptr;
+        UI_INFO("[WAIT] countdown timer deleted\n");
     }
-    else
-    {
-        std::snprintf(buf, buf_size, "%02u:%02u", m, s);
-    }
-}
 
-// Format seconds -> "HH:MM" (for compact display)
-static void format_hhmm(uint32_t seconds, char *buf, size_t buf_size)
-{
-    uint32_t h = seconds / 3600;
-    uint32_t m = (seconds % 3600) / 60;
+    g_run_state = RunState::WAIT;
 
-    if (h > 99)
-        h = 99;
+    ui_set_pause_label("WAIT");
+    ui_set_pause_enabled(false); // stays disabled until door is closed
 
-    if (h > 0)
-    {
-        std::snprintf(buf, buf_size, "%02u:%02u", h, m);
-    }
-    else
-    {
-        std::snprintf(buf, buf_size, "00:%02u", m);
-    }
+    UI_INFO("[WAIT] state=WAIT, btnPause WAIT + DISABLED\n");
 }
 
 static void ui_set_pause_enabled(bool en)
@@ -479,19 +536,35 @@ static void door_debug_toggle_event_cb(lv_event_t *e)
     if (code != LV_EVENT_CLICKED)
         return;
 
-    // Toggle simulated door state
-    g_last_runtime.door_open = !g_last_runtime.door_open;
+    // Enable override and toggle simulated door
+    g_sim_door_override = true;
+    g_sim_door_open = !g_sim_door_open;
 
-    UI_INFO("[DEBUG] door_open=%d\n", (int)g_last_runtime.door_open);
+    // Effective door state is the simulated one now
+    const bool door_open = g_sim_door_open;
 
-    // Force immediate UI refresh based on the simulated state
-    update_actuator_icons(g_last_runtime);
+    UI_INFO("[DEBUG] SIM door_open=%d (run_state=%d tick=%p)\n",
+            (int)door_open, (int)g_run_state, g_countdown_tick);
 
-    // Also update pause enable/disable immediately
-    if (g_run_state == RunState::WAIT)
+    // If door opens while running -> force WAIT immediately + stop oven (safety mock)
+    if (door_open && g_run_state == RunState::RUNNING)
     {
-        ui_set_pause_enabled(!g_last_runtime.door_open);
+        // snapshot for later resume (actuators etc.)
+        g_pre_wait_snapshot = g_last_runtime;
+        g_has_pre_wait_snapshot = true;
+
+        countdown_stop_and_set_wait_ui("door opened (sim)");
+
+        // Safety: stop outputs while door open (mock for now)
+        oven_stop();
+        g_paused_by_door = true;
     }
+
+    // Update pause availability based on door state
+    pause_button_update_enabled_by_door(door_open);
+
+    // Refresh icons immediately (door icon uses get_effective_door_open())
+    update_actuator_icons(g_last_runtime);
 }
 
 //----------------------------------------------------
@@ -515,7 +588,7 @@ lv_obj_t *screen_main_create(void)
     lv_obj_set_size(ui.root, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT);
     lv_obj_center(ui.root);
 
-    lv_obj_set_style_bg_color(ui.root, color_from_hex(UI_COLOR_BG_HEX), 0);
+    lv_obj_set_style_bg_color(ui.root, ui_color_from_hex(UI_COLOR_BG_HEX), 0);
     lv_obj_set_style_bg_opa(ui.root, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(ui.root, 0, 0);
     UI_DBG("[screen_main_create screen_main_create] screen-addr: %d\n", ui.root);
@@ -545,8 +618,25 @@ lv_obj_t *screen_main_create(void)
 void screen_main_update_runtime(const OvenRuntimeState *state)
 {
     if (!state)
-    {
         return;
+
+    static bool last_door_open = false;
+
+    if (state->door_open != last_door_open)
+    {
+        UI_INFO("[DOOR] state changed: %d -> %d (running=%d)\n",
+                (int)last_door_open, (int)state->door_open, (int)state->running);
+
+        last_door_open = state->door_open;
+
+        // Always keep pause button consistent with door
+        pause_button_update_enabled_by_door(state->door_open);
+
+        // If door opens while countdown is running -> force WAIT immediately
+        if (state->door_open)
+        {
+            countdown_stop_and_set_wait_ui("door opened");
+        }
     }
     g_last_runtime = *state;
     update_time_ui(*state);
@@ -555,25 +645,7 @@ void screen_main_update_runtime(const OvenRuntimeState *state)
     update_actuator_icons(*state);
     update_start_button_ui();
 
-    // Pause button availability:
-    // - RUNNING: enabled
-    // - WAIT: enabled only if door is CLOSED
-    // - STOPPED: disabled
-    if (g_run_state == RunState::RUNNING)
-    {
-        ui_set_pause_enabled(true);
-        ui_set_pause_label("PAUSE");
-    }
-    else if (g_run_state == RunState::WAIT)
-    {
-        ui_set_pause_label("WAIT");
-        ui_set_pause_enabled(!g_last_runtime.door_open);
-    }
-    else
-    {
-        ui_set_pause_label("WAIT");
-        ui_set_pause_enabled(false);
-    }
+    pause_button_apply_ui(g_run_state, get_effective_door_open(g_last_runtime));
 }
 
 // Public API: page indicator update
@@ -587,8 +659,8 @@ void screen_main_set_active_page(uint8_t page_index)
     for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i)
     {
         lv_color_t col = (i == page_index)
-                             ? color_from_hex(UI_COLOR_PAGE_DOT_ACTIVE_HEX)
-                             : color_from_hex(UI_COLOR_PAGE_DOT_INACTIVE_HEX);
+                             ? ui_color_from_hex(UI_COLOR_PAGE_DOT_ACTIVE_HEX)
+                             : ui_color_from_hex(UI_COLOR_PAGE_DOT_INACTIVE_HEX);
         lv_obj_set_style_bg_color(ui.page_dots[i], col, 0);
     }
 }
@@ -618,9 +690,9 @@ static void create_top_bar(lv_obj_t *parent)
     lv_obj_align(ui.time_bar, LV_ALIGN_LEFT_MID, UI_SIDE_PADDING, 0);
     lv_bar_set_range(ui.time_bar, 0, 0); //
     lv_bar_set_value(ui.time_bar, 0, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(ui.time_bar, color_from_hex(0x404040), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.time_bar, ui_color_from_hex(0x404040), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui.time_bar, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui.time_bar, color_from_hex(UI_COLOR_TIME_BAR_HEX), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(ui.time_bar, ui_color_from_hex(UI_COLOR_TIME_BAR_HEX), LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(ui.time_bar, LV_OPA_COVER, LV_PART_INDICATOR);
 
     // Remaining time label on the right
@@ -843,7 +915,7 @@ static void create_center_section(lv_obj_t *parent)
     // lv_obj_remove_style_all(ui.btn_start);
     lv_obj_set_style_radius(ui.btn_start, 8, LV_PART_MAIN);
     lv_obj_set_style_bg_grad_dir(ui.btn_start, LV_GRAD_DIR_NONE, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui.btn_start, color_from_hex(0xFFA500), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.btn_start, ui_color_from_hex(0xFFA500), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui.btn_start, LV_OPA_COVER, LV_PART_MAIN);
 
     ui.label_btn_start = lv_label_create(ui.btn_start);
@@ -859,7 +931,7 @@ static void create_center_section(lv_obj_t *parent)
     // Same look as START in stopped-state for now (we'll bind to state later)
     lv_obj_set_style_radius(ui.btn_pause, 8, LV_PART_MAIN);
     lv_obj_set_style_bg_grad_dir(ui.btn_pause, LV_GRAD_DIR_NONE, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(ui.btn_pause, color_from_hex(0xFFA500), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.btn_pause, ui_color_from_hex(0xFFA500), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui.btn_pause, LV_OPA_COVER, LV_PART_MAIN);
 
     ui.label_btn_pause = lv_label_create(ui.btn_pause);
@@ -894,7 +966,7 @@ static void create_page_indicator(lv_obj_t *parent)
     lv_obj_center(ui.page_indicator_panel);
 
     lv_obj_set_style_radius(ui.page_indicator_panel, 12, 0);
-    lv_obj_set_style_bg_color(ui.page_indicator_panel, color_from_hex(UI_COLOR_PANEL_BG_HEX), 0);
+    lv_obj_set_style_bg_color(ui.page_indicator_panel, ui_color_from_hex(UI_COLOR_PANEL_BG_HEX), 0);
     lv_obj_set_style_bg_opa(ui.page_indicator_panel, LV_OPA_COVER, 0);
     lv_obj_set_style_border_opa(ui.page_indicator_panel, LV_OPA_TRANSP, 0);
     lv_obj_set_style_pad_all(ui.page_indicator_panel, 4, 0);
@@ -917,8 +989,8 @@ static void create_page_indicator(lv_obj_t *parent)
         lv_obj_set_style_margin_left(ui.page_dots[i], (i == 0) ? 0 : UI_PAGE_DOT_SPACING, 0);
 
         lv_color_t col = (i == UI_PAGE_MAIN)
-                             ? color_from_hex(UI_COLOR_PAGE_DOT_ACTIVE_HEX)
-                             : color_from_hex(UI_COLOR_PAGE_DOT_INACTIVE_HEX);
+                             ? ui_color_from_hex(UI_COLOR_PAGE_DOT_ACTIVE_HEX)
+                             : ui_color_from_hex(UI_COLOR_PAGE_DOT_INACTIVE_HEX);
         lv_obj_set_style_bg_color(ui.page_dots[i], col, 0);
     }
 }
@@ -944,14 +1016,14 @@ static void create_bottom_section(lv_obj_t *parent)
     lv_bar_set_range(ui.temp_scale, UI_TEMP_MIN_C, UI_TEMP_MAX_C);
     lv_bar_set_value(ui.temp_scale, 0, LV_ANIM_OFF);
 
-    lv_obj_set_style_bg_color(ui.temp_scale, color_from_hex(0x404040), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.temp_scale, ui_color_from_hex(0x404040), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui.temp_scale, LV_OPA_COVER, LV_PART_MAIN);
     // Indicator is not used as "fill" here; we will use separate markers.
 
     // Target temperature marker (thin line)
     ui.temp_marker_target = lv_obj_create(ui.bottom_container);
     lv_obj_set_size(ui.temp_marker_target, 2, UI_TEMP_SCALE_HEIGHT + 6);
-    lv_obj_set_style_bg_color(ui.temp_marker_target, color_from_hex(UI_COLOR_TEMP_TARGET_HEX), 0);
+    lv_obj_set_style_bg_color(ui.temp_marker_target, ui_color_from_hex(UI_COLOR_TEMP_TARGET_HEX), 0);
     lv_obj_set_style_bg_opa(ui.temp_marker_target, LV_OPA_COVER, 0);
     lv_obj_set_style_border_opa(ui.temp_marker_target, LV_OPA_TRANSP, 0);
     lv_obj_align_to(ui.temp_marker_target, ui.temp_scale, LV_ALIGN_OUT_TOP_LEFT, 0, -3);
@@ -959,7 +1031,7 @@ static void create_bottom_section(lv_obj_t *parent)
     // Current temperature indicator (small rectangle above scale)
     ui.temp_indicator_current = lv_obj_create(ui.bottom_container);
     lv_obj_set_size(ui.temp_indicator_current, 4, UI_TEMP_SCALE_HEIGHT);
-    lv_obj_set_style_bg_color(ui.temp_indicator_current, color_from_hex(UI_COLOR_TEMP_CURRENT_HEX), 0);
+    lv_obj_set_style_bg_color(ui.temp_indicator_current, ui_color_from_hex(UI_COLOR_TEMP_CURRENT_HEX), 0);
     lv_obj_set_style_bg_opa(ui.temp_indicator_current, LV_OPA_COVER, 0);
     lv_obj_set_style_border_opa(ui.temp_indicator_current, LV_OPA_TRANSP, 0);
     lv_obj_align_to(ui.temp_indicator_current, ui.temp_scale, LV_ALIGN_OUT_TOP_LEFT, 0, -3);
@@ -983,6 +1055,12 @@ static void update_time_ui(const OvenRuntimeState &state)
 {
     const uint32_t totalSeconds = state.durationMinutes * 60;
     const uint32_t remaining = state.secondsRemaining;
+
+    // UI countdown owns the top bar while running (prevents flicker with oven runtime updates)
+    if (g_countdown_tick != nullptr)
+    {
+        return;
+    }
 
     if (totalSeconds > 0)
     {
@@ -1105,9 +1183,9 @@ static void update_actuator_icons(const OvenRuntimeState &state)
         }
     };
     // Door icon is always live from real runtime state
-    const bool door_open = state.door_open;
-    const lv_color_t col_on = color_from_hex(UI_COLOR_ICON_ON_HEX);               // z.B. grün
-    const lv_color_t col_door_open = color_from_hex(UI_COLOR_ICON_DOOR_OPEN_HEX); // z.B. rot
+    const bool door_open = get_effective_door_open(state);
+    const lv_color_t col_on = ui_color_from_hex(UI_COLOR_ICON_ON_HEX);               // z.B. grün
+    const lv_color_t col_door_open = ui_color_from_hex(UI_COLOR_ICON_DOOR_OPEN_HEX); // z.B. rot
 
     // Door always reflects reality
     set_icon_state(ui.icon_door, col_door_open, door_open);
@@ -1140,37 +1218,6 @@ static void update_actuator_icons(const OvenRuntimeState &state)
 
     // Lamp: white (off) -> green (on)
     set_icon_state(ui.icon_lamp, col_on, state.lamp_on);
-
-    // auto set_icon_color = [](lv_obj_t *obj, lv_color_t color)
-    // {
-    //     lv_obj_set_style_text_color(obj, color, 0);
-    // };
-
-    // // Base colors
-    // const lv_color_t col_off = color_from_hex(UI_COLOR_ICON_OFF_HEX);
-    // const lv_color_t col_on = color_from_hex(UI_COLOR_ICON_ON_HEX);
-    // const lv_color_t col_door_open = color_from_hex(UI_COLOR_ICON_DOOR_OPEN_HEX);
-
-    // // 12V fan: white (off) -> green (on)
-    // set_icon_color(ui.icon_fan12v, state.fan12v_on ? col_on : col_off);
-
-    // // 230V fan: white (off) -> green (on)
-    // set_icon_color(ui.icon_fan230, state.fan230_on ? col_on : col_off);
-
-    // // 230V fan slow: white (off) -> green (on)
-    // set_icon_color(ui.icon_fan230_slow, state.fan230_slow_on ? col_on : col_off);
-
-    // // Heater: white (off) -> green (on)
-    // set_icon_color(ui.icon_heater, state.heater_on ? col_on : col_off);
-
-    // // Door: white (closed) -> red (open)
-    // set_icon_color(ui.icon_door, state.door_open ? col_door_open : col_off);
-
-    // // Motor: white (off) -> green (on)
-    // set_icon_color(ui.icon_motor, state.motor_on ? col_on : col_off);
-
-    // // Lamp: white (off) -> green (on)
-    // set_icon_color(ui.icon_lamp, state.lamp_on ? col_on : col_off);
 }
 
 static void update_start_button_ui(void)
@@ -1186,14 +1233,14 @@ static void update_start_button_ui(void)
     {
         // Oven is running: button should be red and show STOP
         lv_label_set_text(ui.label_btn_start, "STOP");
-        lv_obj_set_style_bg_color(ui.btn_start, color_from_hex(0xFF0000), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(ui.btn_start, ui_color_from_hex(UI_COLOR_DANGER_HEX), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(ui.btn_start, LV_OPA_COVER, LV_PART_MAIN);
     }
     else
     {
         // Oven is stopped: button should be orange and show START
         lv_label_set_text(ui.label_btn_start, "START");
-        lv_obj_set_style_bg_color(ui.btn_start, color_from_hex(0xFFA500), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(ui.btn_start, ui_color_from_hex(0xFFA500), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(ui.btn_start, LV_OPA_COVER, LV_PART_MAIN);
     }
 }
@@ -1266,7 +1313,7 @@ static void start_button_event_cb(lv_event_t *e)
     set_remaining_label_seconds(g_remaining_seconds);
 
     g_countdown_tick = lv_timer_create(countdown_tick_cb, COUNT_TICK_UPDATE_FREQ, &ui);
-
+    pause_button_apply_ui(g_run_state, get_effective_door_open(g_last_runtime));
     UI_INFO("[COUNTDOWN] started: %d seconds\n", g_remaining_seconds);
 }
 
@@ -1295,7 +1342,7 @@ static void pause_button_event_cb(lv_event_t *e)
     if (g_run_state == RunState::WAIT)
     {
         // Only resume when door is closed
-        if (g_last_runtime.door_open)
+        if (get_effective_door_open(g_last_runtime))
         {
             UI_INFO("[WAIT] cannot resume: door open\n");
             return;
