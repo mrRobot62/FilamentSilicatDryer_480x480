@@ -553,10 +553,11 @@ static void door_debug_toggle_event_cb(lv_event_t *e)
         g_pre_wait_snapshot = g_last_runtime;
         g_has_pre_wait_snapshot = true;
 
-        countdown_stop_and_set_wait_ui("door opened (sim)");
+        countdown_stop_and_set_wait_ui("door opened");
+        oven_pause_wait();
+        g_run_state = RunState::WAIT;
+        update_start_button_ui();
 
-        // Safety: stop outputs while door open (mock for now)
-        oven_stop();
         g_paused_by_door = true;
     }
 
@@ -1341,20 +1342,22 @@ static void pause_button_event_cb(lv_event_t *e)
 
     if (g_run_state == RunState::WAIT)
     {
-        // Only resume when door is closed
         if (get_effective_door_open(g_last_runtime))
         {
             UI_INFO("[WAIT] cannot resume: door open\n");
             return;
         }
 
-        // Resume: restart timer, restore icon view will follow g_last_runtime updates
+        if (!oven_resume_from_wait())
+        {
+            UI_INFO("[WAIT] resume rejected by oven\n");
+            return;
+        }
+
         g_run_state = RunState::RUNNING;
 
         if (!g_countdown_tick)
-        {
             g_countdown_tick = lv_timer_create(countdown_tick_cb, COUNT_TICK_UPDATE_FREQ, &ui);
-        }
 
         UI_INFO("[WAIT] resumed\n");
         return;

@@ -2,6 +2,9 @@
 #include <Arduino.h>
 
 // Internal static state -----------------------------------
+static bool waiting = false;
+static OvenRuntimeState preWaitSnapshot = {};
+static bool hasPreWaitSnapshot = false;
 
 static OvenProfile currentProfile = {
     .durationMinutes = 60, // 1 hour default
@@ -250,6 +253,77 @@ void oven_command_toggle_lamp_manual(void)
 
     Serial.print(F("[OVEN] Lamp toggled: "));
     Serial.println(runtimeState.lamp_on ? "ON" : "OFF");
+}
+
+bool oven_is_waiting(void)
+{
+    return waiting;
+}
+
+void oven_pause_wait(void)
+{
+    // Only meaningful if currently running and not already waiting
+    if (!runtimeState.running || waiting)
+        return;
+
+    // Snapshot current actuator/runtime state
+    preWaitSnapshot = runtimeState;
+    hasPreWaitSnapshot = true;
+
+    // Enter WAIT: stop countdown progression
+    runtimeState.running = false;
+    waiting = true;
+
+    // Safety-first WAIT outputs:
+    // Heater OFF, Motor OFF
+    runtimeState.heater_on = false;
+    runtimeState.motor_on = false;
+
+    // Fans + lamp behavior in WAIT (as you defined)
+    runtimeState.fan12v_on = true;
+    runtimeState.fan230_on = false;
+    runtimeState.fan230_slow_on = true;
+    runtimeState.lamp_on = true;
+
+    Serial.println(F("[OVEN] WAIT (paused)"));
+}
+
+bool oven_resume_from_wait(void)
+{
+    if (!waiting)
+        return false;
+
+    // Safety rule: never resume when door open
+    if (runtimeState.door_open)
+    {
+        Serial.println(F("[OVEN] RESUME blocked: door open"));
+        return false;
+    }
+
+    // Restore snapshot if available
+    if (hasPreWaitSnapshot)
+    {
+        bool keepDoor = runtimeState.door_open;               // should be false here, but keep it safe
+        uint32_t keepSeconds = runtimeState.secondsRemaining; // keep remaining time
+
+        runtimeState = preWaitSnapshot;
+
+        runtimeState.door_open = keepDoor;
+        runtimeState.secondsRemaining = keepSeconds;
+    }
+
+    // Enforce safety again (even after restore)
+    if (runtimeState.door_open)
+    {
+        runtimeState.heater_on = false;
+        runtimeState.motor_on = false;
+    }
+
+    runtimeState.running = true;
+    waiting = false;
+
+    Serial.println(F("[OVEN] RESUME from WAIT"));
+    return true;
 }
 
 // ---------------------------------------------------

@@ -76,4 +76,9 @@ void oven_command_toggle_fan230_manual(void);
 void oven_command_toggle_motor_manual(void);
 void oven_command_toggle_lamp_manual(void);
 
+// Pause/Resume (WAIT mode)
+void oven_pause_wait(void);
+bool oven_resume_from_wait(void);
+bool oven_is_waiting(void);
+
 // END OF FILE
