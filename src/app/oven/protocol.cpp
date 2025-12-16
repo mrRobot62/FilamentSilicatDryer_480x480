@@ -498,3 +498,5 @@ String ProtocolCodec::buildClientAckTog(uint16_t newMask)
     snprintf(buf, sizeof(buf), "C;ACK;TOG;%04X\r\n", newMask);
     return String(buf);
 }
+
+// END OF FILE

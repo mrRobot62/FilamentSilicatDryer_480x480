@@ -15,6 +15,18 @@
 //
 // -------------------------------------------------------------------
 
+constexpr int COUNT_TICK_UPDATE_FREQ = 1000;
+
+// --------------------------------------------------------
+// States
+// --------------------------------------------------------
+enum class RunState : uint8_t
+{
+    STOPPED = 0,
+    RUNNING,
+    WAIT
+};
+
 // Internal widget storage
 // diese Struktur enthält alle Widgets von allen Screens
 typedef struct main_screen_widgets_t
@@ -71,6 +83,12 @@ typedef struct main_screen_widgets_t
     lv_obj_t *label_btn_start;
 
     // --------------------------------------------------------
+    // Pause/Wait (Step 1)
+    // --------------------------------------------------------
+    lv_obj_t *btn_pause;
+    lv_obj_t *label_btn_pause;
+
+    // --------------------------------------------------------
     // Page indicator
     // --------------------------------------------------------
     lv_obj_t *page_indicator_panel;
@@ -83,6 +101,11 @@ typedef struct main_screen_widgets_t
     lv_obj_t *temp_label_current;
     lv_obj_t *temp_marker_target;
     lv_obj_t *temp_indicator_current;
+
+    lv_timer_t *needles_init_timer;
+    int needle_rFromMinute, needle_rToMinute;
+    int needle_rFromHour, needle_rToHour;
+
 } main_screen_widgets_t;
 
 // Static instance
@@ -101,11 +124,280 @@ static void update_actuator_icons(const OvenRuntimeState &state);
 static void update_start_button_ui(void);
 
 static void start_button_event_cb(lv_event_t *e);
+static void pause_button_event_cb(lv_event_t *e);
 
 static lv_style_t style_dial_border;
 
 static lv_point_precise_t g_minute_hand_points[2];
 static lv_point_precise_t g_hour_hand_points[2];
+static lv_point_precise_t g_second_hand_points[2];
+
+static int g_remaining_seconds = 0;
+static int g_total_seconds = g_remaining_seconds;
+
+static lv_timer_t *g_countdown_tick = nullptr;
+
+static RunState g_run_state = RunState::STOPPED;
+
+// Last runtime snapshot from oven_get_runtime_state()
+static OvenRuntimeState g_last_runtime = {};
+
+// Snapshot of actuator states before entering WAIT
+static OvenRuntimeState g_pre_wait_snapshot = {};
+static bool g_has_pre_wait_snapshot = false;
+
+static int calc_second_angle(int minute)
+{
+    return (90 - minute * 6);
+}
+
+static int calc_minute_angle(int minute)
+{
+    return (90 - minute * 6);
+}
+
+static int calc_hour_angle(int hour, int minute)
+{
+    float hm = (float)hour + (float)(minute / 60.0f);
+    return (90 - (int)(hm * 30));
+}
+
+static void set_remaining_label_seconds(int remaining_seconds)
+{
+    if (remaining_seconds < 0)
+        remaining_seconds = 0;
+
+    int hh = remaining_seconds / 3600;
+    int mm = (remaining_seconds % 3600) / 60;
+    int ss = remaining_seconds % 60;
+
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%02d:%02d:%02d", hh, mm, ss);
+
+    lv_label_set_text(ui.time_label_remaining, buf);
+}
+
+static void update_needle(lv_obj_t *dial, lv_obj_t *needle, lv_point_precise_t *buf, int angle_deg, int rFrom, int rTo)
+{
+    lv_area_t a;
+    lv_obj_get_coords(dial, &a);
+
+    lv_coord_t cx = (a.x1 + a.x2) / 2;
+    lv_coord_t cy = (a.y1 + a.y2) / 2;
+
+    float rad = angle_deg * 0.01745329252f; // PI/180
+
+    buf[0].x = cx + (int)(cosf(rad) * rFrom);
+    buf[0].y = cy - (int)(sinf(rad) * rFrom);
+
+    buf[1].x = cx + (int)(cosf(rad) * rTo);
+    buf[1].y = cy - (int)(sinf(rad) * rTo);
+
+    // With mutable points this is usually enough, but this also refreshes bounds reliably.
+    lv_line_set_points(needle, buf, 2);
+}
+
+static void set_needles_hms(int hh, int mm, int ss)
+{
+    update_needle(ui.dial, ui.needleMM, g_minute_hand_points,
+                  calc_minute_angle(mm),
+                  ui.needle_rFromMinute, ui.needle_rToMinute);
+
+    update_needle(ui.dial, ui.needleHH, g_hour_hand_points,
+                  calc_hour_angle(hh, mm),
+                  ui.needle_rFromHour, ui.needle_rToHour);
+
+    update_needle(ui.dial, ui.needleSS, g_second_hand_points,
+                  calc_minute_angle(ss),
+                  ui.needle_rFromMinute, ui.needle_rToMinute);
+}
+
+static void countdown_tick_cb(lv_timer_t *t)
+{
+    if (g_total_seconds > 0)
+    {
+        int elapsed = g_total_seconds - g_remaining_seconds;
+        if (elapsed < 0)
+            elapsed = 0;
+        if (elapsed > g_total_seconds)
+            elapsed = g_total_seconds;
+
+        lv_bar_set_value(ui.time_bar, elapsed, LV_ANIM_OFF);
+    }
+
+    if (g_remaining_seconds <= 0)
+    {
+        // Countdown finished
+        g_remaining_seconds = 0;
+
+        update_needle(ui.dial, ui.needleMM, g_minute_hand_points,
+                      calc_minute_angle(0),
+                      ui.needle_rFromMinute, ui.needle_rToMinute);
+
+        update_needle(ui.dial, ui.needleHH, g_hour_hand_points,
+                      calc_hour_angle(0, 0),
+                      ui.needle_rFromHour, ui.needle_rToHour);
+
+        update_needle(ui.dial, ui.needleSS, g_second_hand_points,
+                      calc_minute_angle(0),
+                      ui.needle_rFromMinute, ui.needle_rToMinute);
+
+        lv_timer_del(g_countdown_tick);
+        g_countdown_tick = nullptr;
+
+        UI_INFO("*************************************\n");
+        UI_INFO("[COUNTDOWN] finished\n");
+        UI_INFO("*************************************\n");
+        return;
+    }
+
+    g_remaining_seconds--;
+
+    if (g_total_seconds > 0)
+    {
+        int elapsed = g_total_seconds - g_remaining_seconds;
+        if (elapsed < 0)
+            elapsed = 0;
+        if (elapsed > g_total_seconds)
+            elapsed = g_total_seconds;
+
+        lv_bar_set_value(ui.time_bar, elapsed, LV_ANIM_OFF);
+    }
+
+    set_remaining_label_seconds(g_remaining_seconds);
+
+    // --- derive HH / MM / SS ---
+    int hh = g_remaining_seconds / 3600;
+    int mm = (g_remaining_seconds % 3600) / 60;
+    int ss = g_remaining_seconds % 60;
+
+    // --- compute angles ---
+    int angMM = calc_minute_angle(mm);
+    int angHH = calc_hour_angle(hh, mm);
+    int angSS = calc_minute_angle(ss);
+
+    // --- update needles ---
+    update_needle(ui.dial, ui.needleMM, g_minute_hand_points,
+                  angMM, ui.needle_rFromMinute, ui.needle_rToMinute);
+
+    update_needle(ui.dial, ui.needleHH, g_hour_hand_points,
+                  angHH, ui.needle_rFromHour, ui.needle_rToHour);
+
+    update_needle(ui.dial, ui.needleSS, g_second_hand_points,
+                  angSS, ui.needle_rFromMinute, ui.needle_rToMinute);
+}
+
+static void needles_init_cb(lv_timer_t *t)
+{
+
+    // Force layout to be up-to-date
+    lv_obj_update_layout(ui.root);
+    lv_obj_update_layout(ui.dial);
+
+    lv_coord_t w = lv_obj_get_width(ui.dial);
+    lv_coord_t h = lv_obj_get_height(ui.dial);
+
+    UI_INFO("[needles_init] dial size: %d x %d\n", (int)w, (int)h);
+
+    if (w <= 0 || h <= 0)
+    {
+        UI_INFO("[needles_init] dial not ready yet\n");
+        return; // keep timer, try again next tick
+    }
+
+    lv_coord_t dial_r = w / 2;
+
+    static constexpr int NEEDLE_END_GAP_PX = 40;            // abstand des Zeigerendes bis zum Rand
+    static constexpr float MINUTE_LEN_F = 0.750f;           // 0.75 vom Radius
+    static constexpr float HOUR_LEN_FACTOR = (2.0f / 3.0f); // Stundenzeiger hat die Länge 2/3 des minuten Zeigers
+
+    int rToMinute = (int)(dial_r - NEEDLE_END_GAP_PX);
+    int lenMinute = (int)(dial_r * MINUTE_LEN_F);
+    int rFromMinute = rToMinute - lenMinute;
+
+    int lenHour = (int)(lenMinute * HOUR_LEN_FACTOR);
+    int rFromHour = rFromMinute;
+    int rToHour = rFromHour + lenHour;
+
+    if (rToMinute < 1)
+        rToMinute = 1;
+    if (rFromMinute < 0)
+        rFromMinute = 0;
+    if (rToHour < 1)
+        rToHour = 1;
+    if (rFromHour < 0)
+        rFromHour = 0;
+
+    ui.needle_rFromMinute = rFromMinute;
+    ui.needle_rToMinute = rToMinute;
+    ui.needle_rFromHour = rFromHour;
+    ui.needle_rToHour = rToHour;
+
+    UI_INFO("[needles_init] rM %d..%d  rH %d..%d\n", rFromMinute, rToMinute, rFromHour, rToHour);
+    // -------------------------------------------------
+    // Default time after screen creation: 01:50:00
+    // -------------------------------------------------
+    int def_hh = 1;
+    int def_mm = 50;
+    int def_ss = 0;
+
+    // Initialize at 12 o'clock
+    update_needle(ui.dial, ui.needleMM, g_minute_hand_points, calc_minute_angle(def_mm), rFromMinute, rToMinute);
+    update_needle(ui.dial, ui.needleHH, g_hour_hand_points, calc_hour_angle(def_hh, def_mm), rFromHour, rToHour);
+    update_needle(ui.dial, ui.needleSS, g_second_hand_points, calc_minute_angle(def_ss), rFromMinute, rToMinute);
+    g_remaining_seconds = def_hh * 3600 + def_mm * 60 + def_ss;
+    UI_INFO("[INIT] Countdown start seconds = %d", g_remaining_seconds);
+
+    UI_INFO("[needles_init] MM p0=%d,%d p1=%d,%d\n",
+            (int)g_minute_hand_points[0].x, (int)g_minute_hand_points[0].y,
+            (int)g_minute_hand_points[1].x, (int)g_minute_hand_points[1].y);
+
+    // Progressbar update
+    g_total_seconds = g_remaining_seconds;
+
+    // Progressbar init: 0 .. total, value=0
+    lv_bar_set_range(ui.time_bar, 0, g_total_seconds);
+    lv_bar_set_value(ui.time_bar, 0, LV_ANIM_OFF);
+
+    // One-shot: stop timer now
+    lv_timer_del(ui.needles_init_timer);
+    ui.needles_init_timer = nullptr;
+}
+
+static lv_obj_t *mk_scale_needle_mutable(lv_obj_t *parent,
+                                         lv_point_precise_t *pts,
+                                         uint8_t width,
+                                         lv_color_t color)
+{
+    lv_obj_t *line = lv_line_create(parent);
+
+    // Remove theme styles
+    lv_obj_remove_style_all(line);
+
+    // IMPORTANT: mutable points so we can update the buffer directly
+    lv_line_set_points_mutable(line, pts, 2);
+
+    // Coordinate space = full screen
+    lv_obj_set_pos(line, 0, 0);
+    lv_obj_set_size(line, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT);
+
+    lv_obj_add_flag(line, LV_OBJ_FLAG_IGNORE_LAYOUT);
+
+    // ---- RE-APPLY LINE STYLE (THIS IS REQUIRED) ----
+    lv_obj_set_style_line_width(line, width, LV_PART_MAIN);
+    lv_obj_set_style_line_color(line, color, LV_PART_MAIN);
+    lv_obj_set_style_line_rounded(line, true, LV_PART_MAIN);
+    lv_obj_set_style_line_opa(line, LV_OPA_COVER, LV_PART_MAIN);
+
+    // Object itself must be invisible
+    lv_obj_set_style_bg_opa(line, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(line, 0, LV_PART_MAIN);
+    lv_obj_set_style_outline_width(line, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(line, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(line, 0, LV_PART_MAIN);
+
+    return line;
+}
 
 //----------------------------------------------------
 //
@@ -155,37 +447,51 @@ static void format_hhmm(uint32_t seconds, char *buf, size_t buf_size)
     }
 }
 
-static int calc_minute_angle(int minute)
+static void ui_set_pause_enabled(bool en)
 {
-    return (90 - minute * 6);
+    if (!ui.btn_pause)
+        return;
+
+    if (en)
+    {
+        lv_obj_add_flag(ui.btn_pause, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_opa(ui.btn_pause, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(ui.btn_pause, LV_OPA_COVER, LV_PART_MAIN);
+    }
+    else
+    {
+        lv_obj_clear_flag(ui.btn_pause, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_opa(ui.btn_pause, LV_OPA_40, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(ui.btn_pause, LV_OPA_40, LV_PART_MAIN);
+    }
 }
 
-static int calc_hour_angle(int hour, int minute)
+static void ui_set_pause_label(const char *txt)
 {
-    float hm = (float)hour + (float)(minute / 60.0f);
-    return (90 - (int)(hm * 30));
+    if (!ui.label_btn_pause)
+        return;
+    lv_label_set_text(ui.label_btn_pause, txt);
 }
 
-static void update_needle(lv_obj_t *dial, lv_obj_t *needle, lv_point_precise_t *buf, int angle_deg, int rFrom, int rTo)
+static void door_debug_toggle_event_cb(lv_event_t *e)
 {
-    lv_obj_t *parent = lv_obj_get_parent(needle);
-    lv_area_t a;
-    lv_obj_get_coords(dial, &a);
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_CLICKED)
+        return;
 
-    lv_coord_t cx = (a.x1 + a.x2) / 2;
-    lv_coord_t cy = (a.y1 + a.y2) / 2;
+    // Toggle simulated door state
+    g_last_runtime.door_open = !g_last_runtime.door_open;
 
-    float rad = angle_deg * 0.01745329252f; // PI/180
+    UI_INFO("[DEBUG] door_open=%d\n", (int)g_last_runtime.door_open);
 
-    // Startpunkt (innerer Radius)
-    buf[0].x = cx + (int)(cosf(rad) * rFrom);
-    buf[0].y = cy - (int)(sinf(rad) * rFrom);
+    // Force immediate UI refresh based on the simulated state
+    update_actuator_icons(g_last_runtime);
 
-    // Endpunkt (äußerer Radius)
-    buf[1].x = cx + (int)(cosf(rad) * rTo);
-    buf[1].y = cy - (int)(sinf(rad) * rTo);
-
-    lv_line_set_points(needle, buf, 2);
+    // Also update pause enable/disable immediately
+    if (g_run_state == RunState::WAIT)
+    {
+        ui_set_pause_enabled(!g_last_runtime.door_open);
+    }
 }
 
 //----------------------------------------------------
@@ -198,7 +504,7 @@ lv_obj_t *screen_main_create(void)
     // Root object
     if (ui.root != nullptr)
     {
-        UI_INFO("return screen_main_create()");
+        UI_INFO("return screen_main_create()\n");
         return ui.root;
     }
 
@@ -242,12 +548,32 @@ void screen_main_update_runtime(const OvenRuntimeState *state)
     {
         return;
     }
-
+    g_last_runtime = *state;
     update_time_ui(*state);
     update_dial_ui(*state);
     update_temp_ui(*state);
     update_actuator_icons(*state);
     update_start_button_ui();
+
+    // Pause button availability:
+    // - RUNNING: enabled
+    // - WAIT: enabled only if door is CLOSED
+    // - STOPPED: disabled
+    if (g_run_state == RunState::RUNNING)
+    {
+        ui_set_pause_enabled(true);
+        ui_set_pause_label("PAUSE");
+    }
+    else if (g_run_state == RunState::WAIT)
+    {
+        ui_set_pause_label("WAIT");
+        ui_set_pause_enabled(!g_last_runtime.door_open);
+    }
+    else
+    {
+        ui_set_pause_label("WAIT");
+        ui_set_pause_enabled(false);
+    }
 }
 
 // Public API: page indicator update
@@ -274,6 +600,7 @@ void screen_main_set_active_page(uint8_t page_index)
 //----------------------------------------------------
 //
 //----------------------------------------------------
+
 static void create_top_bar(lv_obj_t *parent)
 {
     ui.top_bar_container = lv_obj_create(parent);
@@ -289,7 +616,7 @@ static void create_top_bar(lv_obj_t *parent)
     ui.time_bar = lv_bar_create(ui.top_bar_container);
     lv_obj_set_size(ui.time_bar, UI_TIME_BAR_WIDTH, UI_TIME_BAR_HEIGHT);
     lv_obj_align(ui.time_bar, LV_ALIGN_LEFT_MID, UI_SIDE_PADDING, 0);
-    lv_bar_set_range(ui.time_bar, 0, 60 * 60); // default 60 min
+    lv_bar_set_range(ui.time_bar, 0, 0); //
     lv_bar_set_value(ui.time_bar, 0, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(ui.time_bar, color_from_hex(0x404040), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui.time_bar, LV_OPA_COVER, LV_PART_MAIN);
@@ -298,7 +625,7 @@ static void create_top_bar(lv_obj_t *parent)
 
     // Remaining time label on the right
     ui.time_label_remaining = lv_label_create(ui.top_bar_container);
-    lv_label_set_text(ui.time_label_remaining, "00:00");
+    lv_label_set_text(ui.time_label_remaining, "00:00:00");
     lv_obj_align(ui.time_label_remaining, LV_ALIGN_RIGHT_MID, -UI_SIDE_PADDING, 0);
 }
 
@@ -354,6 +681,8 @@ static void create_center_section(lv_obj_t *parent)
     // For door we currently reuse the motor icon as placeholder; adjust if a dedicated door icon is added later
     lv_image_set_src(ui.icon_door, &door_open_wht);
     lv_obj_set_size(ui.icon_door, 32, 32);
+    lv_obj_add_flag(ui.icon_door, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui.icon_door, door_debug_toggle_event_cb, LV_EVENT_CLICKED, nullptr);
 
     ui.icon_motor = lv_image_create(ui.icons_container);
     lv_image_set_src(ui.icon_motor, &motor230v);
@@ -397,10 +726,12 @@ static void create_center_section(lv_obj_t *parent)
 
     // /* Label style properties */
     lv_style_set_text_font(&indicator_style, LV_FONT_DEFAULT);
-    lv_style_set_text_color(&indicator_style, lv_palette_main(LV_PALETTE_YELLOW));
+    // lv_style_set_text_color(&indicator_style, lv_palette_main(LV_PALETTE_YELLOW));
+    lv_style_set_text_color(&indicator_style, lv_color_hex(UI_COLOR_DIAL_LABELS_HEX));
 
     // /* Major tick properties */
-    lv_style_set_line_color(&indicator_style, lv_palette_main(LV_PALETTE_YELLOW));
+    //    lv_style_set_line_color(&indicator_style, lv_palette_main(LV_PALETTE_YELLOW));
+    lv_style_set_line_color(&indicator_style, lv_color_hex(UI_COLOR_DIAL_TICKS_MAJOR_HEX));
     lv_style_set_length(&indicator_style, 16);    /* tick length */
     lv_style_set_line_width(&indicator_style, 3); /* tick width */
     lv_obj_add_style(ui.dial, &indicator_style, LV_PART_INDICATOR);
@@ -408,7 +739,8 @@ static void create_center_section(lv_obj_t *parent)
     // /* Minor tick properties */
     static lv_style_t minor_ticks_style;
     lv_style_init(&minor_ticks_style);
-    lv_style_set_line_color(&minor_ticks_style, lv_palette_main(LV_PALETTE_YELLOW));
+    // lv_style_set_line_color(&minor_ticks_style, lv_palette_main(LV_PALETTE_YELLOW));
+    lv_style_set_line_color(&minor_ticks_style, lv_color_hex(UI_COLOR_DIAL_TICKS_MINOR_HEX));
 
     lv_style_set_length(&minor_ticks_style, 12);    /* tick length */
     lv_style_set_line_width(&minor_ticks_style, 2); /* tick width */
@@ -425,77 +757,45 @@ static void create_center_section(lv_obj_t *parent)
     lv_scale_set_angle_range(ui.dial, 360);
     lv_scale_set_rotation(ui.dial, 270); // 0 = 3Uhr, 90=6Uhr, 180=9Uhr, 270=12Uhr
 
-    //
-    // Needles (HH / MM / SS) als Icons, zunächst nur sichtbar, noch ohne Drehung
-    // Elternobjekt: ui.root, damit sie kein Layout beeinflussen
-    //
-    // ui.needleHH = lv_image_create(ui.root);
-    // lv_image_set_src(ui.needleHH, &needle_hh);
-    // lv_obj_add_flag(ui.needleHH, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    // lv_obj_align_to(ui.needleHH, ui.dial, LV_ALIGN_CENTER, 0, 0);
+    UI_INFO("SETUP NEEDLS\n");
 
-    ui.needleMM = lv_image_create(ui.root);
-    lv_image_set_src(ui.needleMM, &needle_mm);
-    lv_obj_add_flag(ui.needleMM, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    lv_obj_align_to(ui.needleMM, ui.dial, LV_ALIGN_TOP_MID, 0, 0);
+    // --------------------------------------------------------
+    // Needles as lv_line with mutable points (no PNG)
+    // --------------------------------------------------------
 
-    // ui.needleSS = lv_image_create(ui.root);
-    // lv_image_set_src(ui.needleSS, &needle_ss);
-    // lv_obj_add_flag(ui.needleSS, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    // lv_obj_align_to(ui.needleSS, ui.dial, LV_ALIGN_CENTER, 0, 0);
+    // Dial radius (based on actual object size)
+    lv_coord_t dial_r = lv_obj_get_width(ui.dial) / 2;
 
-    // Set pivot (rotation center) to bottom-center of each needle
-    auto setup_pivot = [](lv_obj_t *needle)
-    {
-        if (!needle)
-            return;
-        lv_coord_t w = lv_obj_get_width(needle);
-        lv_coord_t h = lv_obj_get_height(needle);
-        // center in X, fast am unteren Rand in Y
-        lv_obj_set_style_transform_pivot_x(needle, w / 2, LV_PART_MAIN);
-        lv_obj_set_style_transform_pivot_y(needle, h - 1, LV_PART_MAIN);
-    };
+    // Configurable constants
+    // static constexpr int NEEDLE_END_GAP_PX = 20;            // keep tip before numbers
+    // static constexpr float MINUTE_LEN_F = 0.50f;            // 1/2 radius
+    // static constexpr float HOUR_LEN_FACTOR = (2.0f / 3.0f); // 1/3 shorter than minute
 
-    setup_pivot(ui.needleHH);
-    setup_pivot(ui.needleMM);
-    setup_pivot(ui.needleSS);
+    // int rToMinute = (int)(dial_r - NEEDLE_END_GAP_PX);
+    // int lenMinute = (int)(dial_r * MINUTE_LEN_F);
+    // int rFromMinute = rToMinute - lenMinute;
 
-    // Farben der Nadeln:
-    //  - MM = Orange
-    //  - HH = Weiß
-    //  - SS lassen wir vorerst aus (oder später z.B. Rot)
+    // int lenHour = (int)(lenMinute * HOUR_LEN_FACTOR);
+    // int rToHour = rToMinute;
+    // int rFromHour = rToHour - lenHour;
 
-    // Minute: Orange
-    if (ui.needleMM)
-    {
-        lv_obj_set_style_img_recolor(ui.needleMM, lv_color_hex(0xFF8800), LV_PART_MAIN);
-        lv_obj_set_style_img_recolor_opa(ui.needleMM, LV_OPA_COVER, LV_PART_MAIN);
-    }
+    // UI_INFO("needleMM - mk_scale_needle_mutable \n");
+    //  Minute needle: thin white
+    ui.needleMM = mk_scale_needle_mutable(ui.root, g_minute_hand_points, 5, lv_color_hex(0xFFFFFF));
 
-    // // Stunde: Weiß
-    // if (ui.needleHH)
-    // {
-    //     lv_obj_set_style_img_recolor(ui.needleHH, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    //     lv_obj_set_style_img_recolor_opa(ui.needleHH, LV_OPA_COVER, LV_PART_MAIN);
-    // }
+    // Hour needle: thicker orange
+    // UI_INFO("needleHH - mk_scale_needle_mutable \n");
+    ui.needleHH = mk_scale_needle_mutable(ui.root, g_hour_hand_points, 10, lv_color_hex(0xFFFFFF));
 
-    // // Sekunde: vorerst neutral lassen oder z.B. leicht grau
-    // if (ui.needleSS)
-    // {
-    //     lv_obj_set_style_img_recolor(ui.needleSS, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    //     lv_obj_set_style_img_recolor_opa(ui.needleSS, LV_OPA_50, LV_PART_MAIN);
-    // }
+    // Second needle: very thin red, same length as minute
+    // UI_INFO("needleSS - mk_scale_needle_mutable\n");
+    ui.needleSS = mk_scale_needle_mutable(ui.root, g_second_hand_points, 2, lv_color_hex(0xFF0000));
 
-    // ui.needleMM = mk_scale_needle_mutable(g_minute_hand_points, 3, lv_color_hex(UI_COLOR_DIAL_NEEDLE_MM));
-    // ui.needleHH = mk_scale_needle_mutable(g_hour_hand_points, 5, lv_color_hex(UI_COLOR_DIAL_NEEDLE_MM));
+    lv_obj_move_foreground(ui.needleHH);
+    lv_obj_move_foreground(ui.needleMM);
+    lv_obj_move_foreground(ui.needleSS);
 
-    // ui->countdown_minutes = 4 * 60 + 0;
-    // ui->hours = ui->countdown_minutes / 60;
-    // ui->minutes = ui->countdown_minutes % 60;
-    // int32_t hour_pos = (ui->hours % 12) * 5 + (ui->minutes / 12);
-
-    // lv_scale_set_line_needle_value(ui.dial, ui->needleMM, TIME_NEEDLE_LEN_M, ui.minutes);
-    // lv_scale_set_line_needle_value(ui.dial, ui->needleHH, TIME_NEEDLE_LEN_H, hour_pos);
+    ui.needles_init_timer = lv_timer_create(needles_init_cb, 50, &ui);
 
     // ----
     lv_obj_set_size(ui.dial, UI_DIAL_SIZE - 8, UI_DIAL_SIZE - 8);
@@ -513,9 +813,9 @@ static void create_center_section(lv_obj_t *parent)
     lv_label_set_text(ui.label_time_in_dial, "00:00:00");
     lv_obj_align(ui.label_time_in_dial, LV_ALIGN_CENTER, 0, 12);
 
-    //
+    // --------------------------------------------------------
     // Start/Stop button container (right)
-    //
+    // --------------------------------------------------------
     ui.start_button_container = lv_obj_create(ui.center_container);
     lv_obj_clear_flag(ui.start_button_container, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(ui.start_button_container, UI_SIDE_PADDING, UI_DIAL_SIZE);
@@ -525,11 +825,18 @@ static void create_center_section(lv_obj_t *parent)
 
     ui.btn_start = lv_btn_create(ui.start_button_container);
 
+    // Stack buttons vertically (START on top, WAIT below)
+    lv_obj_set_flex_flow(ui.start_button_container, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(ui.start_button_container,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(ui.start_button_container, 12, 0); // spacing between buttons
+
     // Remove all theme styles so we have full control over the button appearance
     // lv_obj_remove_style_all(ui.btn_start);
 
     lv_obj_set_size(ui.btn_start, UI_START_BUTTON_SIZE, UI_START_BUTTON_SIZE);
-    lv_obj_center(ui.btn_start);
     lv_obj_add_event_cb(ui.btn_start, start_button_event_cb, LV_EVENT_CLICKED, nullptr);
 
     // Base style for START button: solid color, no gradient
@@ -542,6 +849,30 @@ static void create_center_section(lv_obj_t *parent)
     ui.label_btn_start = lv_label_create(ui.btn_start);
     lv_label_set_text(ui.label_btn_start, "START");
     lv_obj_center(ui.label_btn_start);
+
+    // --------------------------------------------------------
+    // Pause/Wait button (below START)
+    // --------------------------------------------------------
+    ui.btn_pause = lv_btn_create(ui.start_button_container);
+    lv_obj_set_size(ui.btn_pause, UI_START_BUTTON_SIZE, UI_START_BUTTON_SIZE);
+
+    // Same look as START in stopped-state for now (we'll bind to state later)
+    lv_obj_set_style_radius(ui.btn_pause, 8, LV_PART_MAIN);
+    lv_obj_set_style_bg_grad_dir(ui.btn_pause, LV_GRAD_DIR_NONE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.btn_pause, color_from_hex(0xFFA500), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui.btn_pause, LV_OPA_COVER, LV_PART_MAIN);
+
+    ui.label_btn_pause = lv_label_create(ui.btn_pause);
+    lv_label_set_text(ui.label_btn_pause, "WAIT");
+    lv_obj_center(ui.label_btn_pause);
+    lv_obj_add_event_cb(ui.btn_pause, pause_button_event_cb, LV_EVENT_CLICKED, nullptr);
+    // Initially disabled (oven not running at boot)
+    ui_set_pause_enabled(false);
+
+    UI_INFO("Needles: MM=%p HH=%p SS=%p\n", ui.needleMM, ui.needleHH, ui.needleSS);
+    UI_INFO("MM p0=%d,%d p1=%d,%d\n",
+            (int)g_minute_hand_points[0].x, (int)g_minute_hand_points[0].y,
+            (int)g_minute_hand_points[1].x, (int)g_minute_hand_points[1].y);
 }
 
 //----------------------------------------------------
@@ -773,10 +1104,25 @@ static void update_actuator_icons(const OvenRuntimeState &state)
             lv_obj_set_style_img_recolor_opa(obj, LV_OPA_TRANSP, LV_PART_MAIN);
         }
     };
-
+    // Door icon is always live from real runtime state
+    const bool door_open = state.door_open;
     const lv_color_t col_on = color_from_hex(UI_COLOR_ICON_ON_HEX);               // z.B. grün
     const lv_color_t col_door_open = color_from_hex(UI_COLOR_ICON_DOOR_OPEN_HEX); // z.B. rot
 
+    // Door always reflects reality
+    set_icon_state(ui.icon_door, col_door_open, door_open);
+
+    // WAIT override: show safe-state regardless of the real actuator bits
+    if (g_run_state == RunState::WAIT)
+    {
+        set_icon_state(ui.icon_fan230, col_on, false);     // OFF
+        set_icon_state(ui.icon_fan230_slow, col_on, true); // ON
+        set_icon_state(ui.icon_fan12v, col_on, true);      // ON
+        set_icon_state(ui.icon_lamp, col_on, true);        // ON
+        set_icon_state(ui.icon_heater, col_on, false);     // OFF
+        set_icon_state(ui.icon_motor, col_on, false);      // OFF
+        return;
+    }
     // 12V fan: white (off) -> green (on)
     set_icon_state(ui.icon_fan12v, col_on, state.fan12v_on);
 
@@ -788,9 +1134,6 @@ static void update_actuator_icons(const OvenRuntimeState &state)
 
     // Heater: white (off) -> green (on)
     set_icon_state(ui.icon_heater, col_on, state.heater_on);
-
-    // Door: white (closed) -> red (open)
-    set_icon_state(ui.icon_door, col_door_open, state.door_open);
 
     // Motor: white (off) -> green (on)
     set_icon_state(ui.icon_motor, col_on, state.motor_on);
@@ -837,7 +1180,7 @@ static void update_start_button_ui(void)
         return;
     }
 
-    const bool running = oven_is_running();
+    const bool running = (g_run_state != RunState::STOPPED);
 
     if (running)
     {
@@ -870,22 +1213,105 @@ static void start_button_event_cb(lv_event_t *e)
     // Wichtig: irgendein Log, das du sicher siehst
     UI_INFO("start_button_event_cb(): code=%d\n", (int)code);
 
-    if (oven_is_running())
+    if (g_run_state != RunState::STOPPED)
     {
+        // STOP from RUNNING or WAIT
         oven_stop();
+
+        if (g_countdown_tick)
+        {
+            lv_timer_del(g_countdown_tick);
+            g_countdown_tick = nullptr;
+        }
+
+        // Reset to default preset time (temporary until config is wired)
+        int h = 1;
+        int m = 50;
+        g_remaining_seconds = h * 3600 + m * 60;
+        g_total_seconds = g_remaining_seconds;
+
+        set_needles_hms(h, m, 0);
+        set_remaining_label_seconds(g_remaining_seconds);
+
+        lv_bar_set_range(ui.time_bar, 0, g_total_seconds);
+        lv_bar_set_value(ui.time_bar, 0, LV_ANIM_OFF);
+
+        g_run_state = RunState::STOPPED;
         UI_INFO("OVEN_STOPPED\n");
+        return;
     }
-    else
+    // START from STOPPED
+    oven_start();
+    g_run_state = RunState::RUNNING;
+    UI_INFO("OVEN_STARTED\n");
+
+    // Example: ui->hours / ui->minutes come from your config
+
+    if (g_remaining_seconds <= 0)
     {
-        oven_start();
-        UI_INFO("OVEN_STARTED\n");
+        UI_INFO("[COUNTDOWN] nothing to start (remaining_seconds=%d)\n", g_remaining_seconds);
+        return;
     }
 
-    // TODO:
-    // Here you should call into your oven control logic, e.g.:
-    // if (oven_is_running()) oven_stop();
-    // else oven_start();
-    //
-    // The visual state (START/STOP label, color) should then be updated
-    // via screen_main_update_runtime() when OvenRuntimeState changes.
+    if (g_countdown_tick)
+    {
+        lv_timer_del(g_countdown_tick);
+    }
+
+    g_total_seconds = g_remaining_seconds;
+
+    lv_bar_set_range(ui.time_bar, 0, g_total_seconds);
+    lv_bar_set_value(ui.time_bar, 0, LV_ANIM_OFF);
+
+    set_remaining_label_seconds(g_remaining_seconds);
+
+    g_countdown_tick = lv_timer_create(countdown_tick_cb, COUNT_TICK_UPDATE_FREQ, &ui);
+
+    UI_INFO("[COUNTDOWN] started: %d seconds\n", g_remaining_seconds);
 }
+
+static void pause_button_event_cb(lv_event_t *e)
+{
+    LV_UNUSED(e);
+
+    if (g_run_state == RunState::RUNNING)
+    {
+        // Enter WAIT: stop countdown timer, snapshot runtime
+        if (g_countdown_tick)
+        {
+            lv_timer_del(g_countdown_tick);
+            g_countdown_tick = nullptr;
+        }
+
+        g_pre_wait_snapshot = g_last_runtime;
+        g_has_pre_wait_snapshot = true;
+
+        g_run_state = RunState::WAIT;
+
+        UI_INFO("[WAIT] entered\n");
+        return;
+    }
+
+    if (g_run_state == RunState::WAIT)
+    {
+        // Only resume when door is closed
+        if (g_last_runtime.door_open)
+        {
+            UI_INFO("[WAIT] cannot resume: door open\n");
+            return;
+        }
+
+        // Resume: restart timer, restore icon view will follow g_last_runtime updates
+        g_run_state = RunState::RUNNING;
+
+        if (!g_countdown_tick)
+        {
+            g_countdown_tick = lv_timer_create(countdown_tick_cb, COUNT_TICK_UPDATE_FREQ, &ui);
+        }
+
+        UI_INFO("[WAIT] resumed\n");
+        return;
+    }
+}
+
+// END OF FILE

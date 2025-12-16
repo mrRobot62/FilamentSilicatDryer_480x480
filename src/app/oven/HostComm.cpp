@@ -354,3 +354,5 @@ void HostComm::processLine(const String &line)
 {
     handleIncomingLine(line);
 }
+
+// END OF FILE

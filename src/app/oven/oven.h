@@ -75,3 +75,5 @@ void oven_get_runtime_state(OvenRuntimeState *stateOut);
 void oven_command_toggle_fan230_manual(void);
 void oven_command_toggle_motor_manual(void);
 void oven_command_toggle_lamp_manual(void);
+
+// END OF FILE

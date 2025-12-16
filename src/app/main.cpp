@@ -7,8 +7,8 @@
 // #include "touch.h"
 
 #include "log_core.h"
-#include "ui/ui.h"
-#include "ui/ui_events.h"
+#include "ui.h"
+#include "ui_events.h"
 #include "ui/screens/screen_main.h"
 
 static uint32_t last_beat = 0;

@@ -53,6 +53,12 @@
 #define UI_COLOR_DIAL_NEEDLE_HH 0xFF8800
 // #00aaffff
 
+// Dial colors (explicit, tweakable)
+#define UI_COLOR_DIAL_LABELS_HEX 0x00aaffff    // numbers
+#define UI_COLOR_DIAL_TICKS_MAJOR_HEX 0xE0E0E0 // major ticks
+#define UI_COLOR_DIAL_TICKS_MINOR_HEX 0xA0A0A0 // minor ticks
+#define UI_COLOR_DIAL_MARKER_HEX 0x00AAFF      // small triangle marker (12 o'clock)
+
 #define UI_COLOR_ICON_OFF_HEX 0xFFFFFF       // white
 #define UI_COLOR_ICON_ON_HEX 0x00FF00        // green
 #define UI_COLOR_ICON_DOOR_OPEN_HEX 0xFF0000 // red
