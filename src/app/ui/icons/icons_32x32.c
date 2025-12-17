@@ -28,5 +28,6 @@
 #include "../assets/icons/heater_wht.c"       // heater_wht
 #include "../assets/icons/lamp230v_wht.c"     // lamp230v_wht
 #include "../assets/icons/door_open_wht.c"     // lamp230v_wht
-#include "../assets/icons/needle.c"     // Hour needle_wht
+#include "../assets/icons/temp_tri_up_wht.c"     // Hour needle_wht
+#include "../assets/icons/temp_tri_down_wht.c"     // Hour needle_wht
 

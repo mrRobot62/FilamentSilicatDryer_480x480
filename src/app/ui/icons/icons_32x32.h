@@ -16,9 +16,8 @@ extern "C"
     extern const lv_image_dsc_t lamp230v_wht;
     extern const lv_image_dsc_t motor230v;
     extern const lv_image_dsc_t door_open_wht;
-    extern const lv_image_dsc_t needle_hh;
-    extern const lv_image_dsc_t needle_mm;
-    extern const lv_image_dsc_t needle_ss;
+    extern const lv_image_dsc_t temp_tri_up_wht;
+    extern const lv_image_dsc_t temp_tri_down_wht;
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -33,7 +33,7 @@ typedef struct
 
     float tempCurrent;
     float tempTarget;
-
+    float tempToleranceC;
     int filamentId;
 
     // Actuator states ...

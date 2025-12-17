@@ -50,14 +50,14 @@
 #define UI_COLOR_DIAL 0xFFFFFF
 #define UI_COLOR_DIAL_TICKS_H 0xB0B0B0
 #define UI_COLOR_DIAL_TICKS_M 0x909090
-#define UI_COLOR_DIAL_FRAME 0xE100FF
-#define UI_COLOR_DIAL_FRAME 0x00aaff
+// #ffbf00
+#define UI_COLOR_DIAL_FRAME 0xffbf00
 #define UI_COLOR_DIAL_NEEDLE_MM 0x00aaff
 #define UI_COLOR_DIAL_NEEDLE_HH 0xFF8800
 // #00aaffff
 
 // Dial colors (explicit, tweakable)
-#define UI_COLOR_DIAL_LABELS_HEX 0x00aaffff    // numbers
+#define UI_COLOR_DIAL_LABELS_HEX 0xf0f0f0      // numbers
 #define UI_COLOR_DIAL_TICKS_MAJOR_HEX 0xE0E0E0 // major ticks
 #define UI_COLOR_DIAL_TICKS_MINOR_HEX 0xA0A0A0 // minor ticks
 #define UI_COLOR_DIAL_MARKER_HEX 0x00AAFF      // small triangle marker (12 o'clock)
@@ -73,6 +73,24 @@ static constexpr uint32_t UI_COL_PAUSE_RUNNING_HEX = 0xFFA500;                 /
 static constexpr uint32_t UI_COL_PAUSE_WAIT_BLOCKED_HEX = UI_COLOR_DANGER_HEX; // red (WAIT, door open -> blocked)
 static constexpr uint32_t UI_COL_PAUSE_WAIT_READY_HEX = 0x00C000;              // green (WAIT, door closed -> can resume)
 static constexpr uint32_t UI_COL_PAUSE_DISABLED_HEX = 0x404040;                // grey (STOPPED)
+
+// --------------------------------------------------------
+// Temperature triangle markers (geometry)
+// --------------------------------------------------------
+// Temperature triangle markers (geometry + behavior)
+//int UI_TEMP_TARGET_TOLERANCE_C = 0; // +/- range around target
+static int ui_temp_target_tolerance_c = 3;
+
+static constexpr int UI_TEMP_TRI_W = 16;    // adjust later
+static constexpr int UI_TEMP_TRI_H = 10;    // adjust later
+static constexpr int UI_TEMP_TRI_GAP_Y = 4; // Abstand zur Bar
+static constexpr int UI_TEMP_LABEL_GAP_X = 8;
+
+// Temperature status colors (0xRRGGBB, will pass through ui_color_from_hex())
+constexpr uint32_t UI_COLOR_TEMP_COLD_HEX = 0x00AAFF; // light blue
+constexpr uint32_t UI_COLOR_TEMP_OK_HEX = 0x00C000;   // green
+constexpr uint32_t UI_COLOR_TEMP_HOT_HEX = 0xFFA500;  // orange
+
 // Page indices
 enum UiPageIndex : uint8_t
 {

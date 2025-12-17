@@ -8,7 +8,7 @@ static bool hasPreWaitSnapshot = false;
 
 static OvenProfile currentProfile = {
     .durationMinutes = 60, // 1 hour default
-    .targetTemperature = 70.0f,
+    .targetTemperature = 45.0f,
     .filamentId = 0};
 
 static OvenRuntimeState runtimeState = {
@@ -16,7 +16,9 @@ static OvenRuntimeState runtimeState = {
     .secondsRemaining = 60 * 60, // 1 hour in seconds
 
     .tempCurrent = 25.0f,
-    .tempTarget = 70.0f,
+    .tempTarget = 40.0f,
+
+    .tempToleranceC = 3.0f,
     .filamentId = 0,
 
     .fan12v_on = false,
@@ -174,16 +176,32 @@ void oven_tick(void)
     if (runtimeState.heater_on)
     {
         // warm up slowly
-        runtimeState.tempCurrent += 0.3f;
-        if (runtimeState.tempCurrent > runtimeState.tempTarget)
+        runtimeState.tempCurrent += 0.5f;
+        if (runtimeState.tempCurrent > runtimeState.tempTarget + runtimeState.tempToleranceC)
             runtimeState.heater_on = false;
     }
     else
     {
-        // cool down
-        runtimeState.tempCurrent -= 0.2f;
-        if (runtimeState.tempCurrent < 25.0f)
-            runtimeState.tempCurrent = 25.0f;
+        if (oven_is_running())
+        {
+            if (runtimeState.tempCurrent < runtimeState.tempTarget - runtimeState.tempToleranceC)
+            {
+                runtimeState.heater_on = true;
+                runtimeState.tempCurrent += 0.3f;
+            }
+            else
+            {
+                runtimeState.heater_on = false;
+                runtimeState.tempCurrent -= 0.1f;
+            }
+        }
+        else
+        {
+            // cool down
+            runtimeState.tempCurrent -= 0.2f;
+            if (runtimeState.tempCurrent < 25.0f)
+                runtimeState.tempCurrent = 25.0f;
+        }
     }
 
     // -------------------
