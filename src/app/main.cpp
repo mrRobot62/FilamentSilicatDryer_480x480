@@ -23,6 +23,7 @@ void setup()
     INFO("=== ESP32-S3 + ST7701 480x480 + LVGL 9.4.x + Touch ===\n");
     INFO("======================================================\n");
 
+    oven_init();
     ui_init();
     INFO("[MAIN] ui_init() OK\n");
 

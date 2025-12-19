@@ -44,10 +44,12 @@ static OvenRuntimeState runtimeState = {
  */
 void oven_init(void)
 {
-    // Later: configure GPIO, sensors, PWM, I2C, watchdog, ...
-    runtimeState.tempCurrent = 25.0f;
+    runtimeState.tempCurrent = 0.0f;
 
-    Serial.println(F("[OVEN] Init OK"));
+    // Ensure runtimeState.presetName + profile are consistent at boot
+    oven_select_preset(OVEN_DEFAULT_PRESET_INDEX);
+
+    INFO("[OVEN] Init OK\n");
 }
 
 /**
@@ -114,40 +116,52 @@ bool oven_is_running(void)
 
 // -------------- Profile --------------
 
-/**
- * setzt ein Ofen-Profile:
- * Anzahl der Minuten, Zieltemperatur, FilamentID
- *
- * @param OvenProfile *p
- */
-void oven_set_profile(const OvenProfile *p)
+void oven_select_preset(uint16_t index)
 {
-    if (!p)
+    if (index >= kPresetCount)
         return;
 
-    currentProfile = *p;
+    const FilamentPreset &p = kPresets[index];
 
-    runtimeState.filamentId = p->filamentId;
-    runtimeState.durationMinutes = p->durationMinutes;
-    runtimeState.tempTarget = p->targetTemperature;
+    currentProfile.durationMinutes = p.durationMin;
+    currentProfile.targetTemperature = p.dryTempC;
+    currentProfile.filamentId = index;
 
-    // Wenn der Ofen aktuell nicht läuft, Countdown direkt vorbereiten
-    if (!runtimeState.running)
-    {
-        runtimeState.secondsRemaining = runtimeState.durationMinutes * 60;
-    }
+    runtimeState.durationMinutes = p.durationMin;
+    runtimeState.secondsRemaining = p.durationMin * 60;
+    runtimeState.tempTarget = p.dryTempC;
+    runtimeState.filamentId = index;
+    runtimeState.rotaryOn = p.rotaryOn;
 
-    Serial.println(F("[OVEN] Profile updated"));
+    strncpy(runtimeState.presetName, p.name,
+            sizeof(runtimeState.presetName) - 1);
+    runtimeState.presetName[sizeof(runtimeState.presetName) - 1] = '\0';
+
+    // SILICA behavior
+    runtimeState.motor_on = p.rotaryOn;
+
+    Serial.print(F("[OVEN] Preset selected: "));
+    Serial.println(runtimeState.presetName);
 }
 
-/**
- * GETTER Ofen-Profile
- */
-void oven_get_profile(OvenProfile *pOut)
+uint16_t oven_get_preset_count(void)
 {
-    if (!pOut)
+    return kPresetCount;
+}
+
+void oven_get_preset_name(uint16_t index, char *out, size_t out_len)
+{
+    if (!out || out_len == 0)
         return;
-    *pOut = currentProfile;
+
+    if (index >= kPresetCount)
+    {
+        out[0] = '\0';
+        return;
+    }
+
+    std::strncpy(out, kPresets[index].name, out_len - 1);
+    out[out_len - 1] = '\0';
 }
 
 // -------------- Runtime --------------

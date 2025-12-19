@@ -71,8 +71,13 @@ typedef struct main_screen_widgets_t
     lv_obj_t *needleSS;
     lv_obj_t *needleMM;
     lv_obj_t *needleHH;
-    lv_obj_t *label_filament;
+
+    lv_obj_t *preset_box;        // NEW: green rounded box in dial center
+    lv_obj_t *label_preset_name; // NEW: preset name (top line)
+
+    lv_obj_t *label_preset_id; // keep: will become "#<id>" (second line, dimmed)
     lv_obj_t *label_time_in_dial;
+
     int32_t hours, minutes;
 
     // --------------------------------------------------------
@@ -164,16 +169,6 @@ static bool g_has_pre_wait_snapshot = false;
 static bool g_sim_door_override = false;
 static bool g_sim_door_open = false;
 static bool g_paused_by_door = false;
-
-// static lv_point_t tri_current_up[3] = {
-//     {0, UI_TEMP_TRI_HEIGHT_PX},
-//     {UI_TEMP_TRI_BASE_PX / 2, 0},
-//     {UI_TEMP_TRI_BASE_PX, UI_TEMP_TRI_HEIGHT_PX}};
-
-// static lv_point_t tri_target_down[3] = {
-//     {0, 0},
-//     {UI_TEMP_TRI_BASE_PX, 0},
-//     {UI_TEMP_TRI_BASE_PX / 2, UI_TEMP_TRI_HEIGHT_PX}};
 
 static void ui_set_pause_bg_hex(uint32_t rgb_hex)
 {
@@ -640,6 +635,131 @@ static void heater_pulse_stop(lv_obj_t *heater_icon)
     g_heater_pulse_active = false;
 }
 
+// -----------------------------
+// Preset label helpers (Step 2.5.2)
+// -----------------------------
+
+static void ui_label_set_singleline_clip(lv_obj_t *lbl)
+{
+    if (!lbl)
+        return;
+    lv_label_set_long_mode(lbl, LV_LABEL_LONG_CLIP); // one line, hard clip
+    lv_obj_set_width(lbl, LV_PCT(100));              // use parent width
+}
+
+static void ui_set_preset_name_text(const char *name)
+{
+    if (!ui.label_preset_name)
+        return;
+
+    const char *src = (name && name[0]) ? name : "—";
+
+    // Conservative: word-based truncation with "..."
+    // NOTE: Adjust these constexpr values as you like.
+    static constexpr int UI_PRESET_NAME_MAX_CHARS = 18;
+
+    static char buf[64];
+    std::snprintf(buf, sizeof(buf), "%s", src);
+
+    const int len = (int)std::strlen(buf);
+    if (len > UI_PRESET_NAME_MAX_CHARS)
+    {
+        // Cut at max chars
+        buf[UI_PRESET_NAME_MAX_CHARS] = '\0';
+
+        // Try to cut at last whitespace for nicer truncation
+        char *last_space = std::strrchr(buf, ' ');
+        if (last_space && last_space > buf + 4) // keep at least some chars
+        {
+            *last_space = '\0';
+        }
+
+        // Append ellipsis (ensure room)
+        const size_t cur = std::strlen(buf);
+        if (cur + 3 < sizeof(buf))
+        {
+            std::strcat(buf, "...");
+        }
+    }
+
+    lv_label_set_text(ui.label_preset_name, buf);
+}
+
+static void ui_set_preset_id(uint32_t id)
+{
+    if (!ui.label_preset_id)
+        return;
+
+    char filament_buf[16];
+    std::snprintf(filament_buf, sizeof(filament_buf), "#%u", (unsigned)id);
+    lv_label_set_text(ui.label_preset_id, filament_buf);
+}
+
+static const lv_font_t *pick_preset_font_for_width(const char *text, lv_coord_t max_w)
+{
+    if (!text || !*text)
+        return ui_preset_font_l();
+
+    const lv_font_t *fonts[] = {ui_preset_font_l(), ui_preset_font_m(), ui_preset_font_s()};
+
+    for (auto f : fonts)
+    {
+        lv_point_t sz;
+        lv_txt_get_size(&sz, text, f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (sz.x <= max_w)
+            return f;
+    }
+    return ui_preset_font_s();
+}
+
+static void preset_name_apply_fit(lv_obj_t *label, const char *text)
+{
+    if (!label || !text || !text[0])
+        return;
+
+    lv_obj_t *box = lv_obj_get_parent(label);
+    lv_obj_update_layout(box);
+
+    lv_coord_t box_w = lv_obj_get_width(box);
+    lv_coord_t pad_l = lv_obj_get_style_pad_left(box, LV_PART_MAIN);
+    lv_coord_t pad_r = lv_obj_get_style_pad_right(box, LV_PART_MAIN);
+    lv_coord_t border = lv_obj_get_style_border_width(box, LV_PART_MAIN);
+
+    lv_coord_t max_w = box_w - pad_l - pad_r - 2 * border;
+    if (max_w < 10)
+        max_w = 10;
+
+    const lv_font_t *font = ui_preset_font_s(); // fallback
+
+    lv_point_t sz;
+
+    lv_txt_get_size(&sz, text, ui_preset_font_l(), 0, 0,
+                    LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    if (sz.x <= max_w)
+        font = ui_preset_font_l();
+    else
+    {
+        lv_txt_get_size(&sz, text, ui_preset_font_m(), 0, 0,
+                        LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (sz.x <= max_w)
+            font = ui_preset_font_m();
+    }
+
+    lv_obj_set_style_text_font(label, font, LV_PART_MAIN);
+    lv_label_set_text(label, text);
+
+    // if (!label)
+    //     return;
+
+    // // Ensure label uses full inner width so center-alignment works correctly
+    // lv_obj_set_width(label, UI_PRESET_BOX_NAME_MAX_W);
+
+    // const lv_font_t *f = pick_preset_font_for_width(text, UI_PRESET_BOX_NAME_MAX_W);
+    // lv_obj_set_style_text_font(label, f, LV_PART_MAIN);
+
+    // // Center text inside the label
+    // lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+}
 //----------------------------------------------------
 //
 //----------------------------------------------------
@@ -913,19 +1033,6 @@ static void create_center_section(lv_obj_t *parent)
     // Dial radius (based on actual object size)
     lv_coord_t dial_r = lv_obj_get_width(ui.dial) / 2;
 
-    // Configurable constants
-    // static constexpr int NEEDLE_END_GAP_PX = 20;            // keep tip before numbers
-    // static constexpr float MINUTE_LEN_F = 0.50f;            // 1/2 radius
-    // static constexpr float HOUR_LEN_FACTOR = (2.0f / 3.0f); // 1/3 shorter than minute
-
-    // int rToMinute = (int)(dial_r - NEEDLE_END_GAP_PX);
-    // int lenMinute = (int)(dial_r * MINUTE_LEN_F);
-    // int rFromMinute = rToMinute - lenMinute;
-
-    // int lenHour = (int)(lenMinute * HOUR_LEN_FACTOR);
-    // int rToHour = rToMinute;
-    // int rFromHour = rToHour - lenHour;
-
     // UI_INFO("needleMM - mk_scale_needle_mutable \n");
     //  Minute needle: thin white
     ui.needleMM = mk_scale_needle_mutable(ui.root, g_minute_hand_points, 5, lv_color_hex(0xFFFFFF));
@@ -950,15 +1057,67 @@ static void create_center_section(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(ui.dial, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_opa(ui.dial, LV_OPA_TRANSP, 0);
 
-    // Filament label in the center of the dial
-    ui.label_filament = lv_label_create(ui.dial_container);
-    lv_label_set_text(ui.label_filament, "#---");
-    lv_obj_align(ui.label_filament, LV_ALIGN_CENTER, 0, -10);
+    // --------------------------------------------------------
+    // Preset box in dial center (NEW)
+    // --------------------------------------------------------
 
-    // Time label under filament label
-    ui.label_time_in_dial = lv_label_create(ui.dial_container);
-    lv_label_set_text(ui.label_time_in_dial, "00:00:00");
-    lv_obj_align(ui.label_time_in_dial, LV_ALIGN_CENTER, 0, 12);
+    // ui.preset_box = lv_obj_create(ui.dial_container);
+    ui.preset_box = lv_obj_create(ui.root);
+    lv_obj_clear_flag(ui.preset_box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(ui.preset_box, UI_PRESET_BOX_W, UI_PRESET_BOX_H);
+    lv_obj_add_flag(ui.preset_box, LV_OBJ_FLAG_IGNORE_LAYOUT);
+
+    // Center + optional offset
+    // lv_obj_align(ui.preset_box, LV_ALIGN_CENTER, 0, UI_PRESET_BOX_CENTER_Y_OFFSET);
+    lv_obj_align_to(ui.preset_box, ui.dial, LV_ALIGN_CENTER, 0, UI_PRESET_BOX_CENTER_Y_OFFSET);
+
+    // Style: green background, white border
+    lv_obj_set_style_radius(ui.preset_box, UI_PRESET_BOX_RADIUS, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.preset_box, ui_color_from_hex(UI_PRESET_BOX_BG_HEX), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui.preset_box, (lv_opa_t)UI_PRESET_BOX_BG_OPA, LV_PART_MAIN);
+
+    lv_obj_set_style_border_width(ui.preset_box, UI_PRESET_BOX_BORDER_W, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ui.preset_box, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_border_opa(ui.preset_box, (lv_opa_t)UI_PRESET_BOX_BORDER_OPA, LV_PART_MAIN);
+
+    lv_obj_set_style_pad_all(ui.preset_box, 6, LV_PART_MAIN);
+
+    // --- Top line: preset name (placeholder for now) ---
+    ui.label_preset_name = lv_label_create(ui.preset_box);
+    lv_label_set_text(ui.label_preset_name, "PRESET");
+
+    // IMPORTANT: give it a defined width, then center text inside it
+    lv_obj_set_width(ui.label_preset_name, UI_PRESET_BOX_NAME_MAX_W);
+    lv_obj_set_style_text_align(ui.label_preset_name, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_color(ui.label_preset_name, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_opa(ui.label_preset_name, (lv_opa_t)UI_PRESET_NAME_TEXT_OPA, LV_PART_MAIN);
+
+    lv_obj_align(ui.label_preset_name, LV_ALIGN_TOP_MID, 0, UI_PRESET_TEXT_PAD_TOP);
+
+    // initial fit for placeholder
+    preset_name_apply_fit(ui.label_preset_name, "PRESET");
+
+    // --- Second line: filament id (#<id>) dimmed ---
+    ui.label_preset_id = lv_label_create(ui.preset_box);
+    lv_label_set_text(ui.label_preset_id, "#---");
+    lv_obj_set_style_text_color(ui.label_preset_id, ui_color_from_hex(UI_PRESET_ID_HEX), LV_PART_MAIN);
+    lv_obj_set_style_text_opa(ui.label_preset_id, (lv_opa_t)UI_PRESET_ID_OPA, LV_PART_MAIN);
+    // lv_obj_align(ui.label_filament, LV_ALIGN_CENTER, 0, +(UI_PRESET_TEXT_GAP_Y + 8));
+    // lv_obj_align(ui.label_preset_id, LV_ALIGN_BOTTOM_MID, 0, -UI_PRESET_TEXT_PAD_BOTTOM);
+
+    // ID: dimmer
+    lv_obj_set_style_text_color(ui.label_preset_id, ui_color_from_hex(UI_PRESET_ID_HEX), 0);
+    lv_obj_set_style_text_opa(ui.label_preset_id, UI_PRESET_ID_OPA, 0);
+
+    // After creating ui.label_preset_name and ui.label_preset_id:
+    ui_label_set_singleline_clip(ui.label_preset_name);
+    //ui_label_set_singleline_clip(ui.label_preset_id);
+
+    // re-algin notwendig nachdem das single-line clipping gesetzt wurde
+    lv_obj_align(ui.label_preset_id, LV_ALIGN_BOTTOM_MID, 0, UI_PRESET_TEXT_PAD_BOTTOM);
+
+    // Make sure preset box is above needles
+    lv_obj_move_foreground(ui.preset_box);
 
     // --------------------------------------------------------
     // Start/Stop button container (right)
@@ -1095,23 +1254,6 @@ static void create_bottom_section(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(ui.temp_scale, LV_OPA_COVER, LV_PART_MAIN);
     // Indicator is not used as "fill" here; we will use separate markers.
 
-    // // Target temperature marker (thin line)
-    // ui.temp_marker_target = lv_obj_create(ui.bottom_container);
-    // lv_obj_set_size(ui.temp_marker_target, 4, UI_TEMP_SCALE_HEIGHT + 6);
-    // lv_obj_set_style_bg_color(ui.temp_marker_target, ui_color_from_hex(UI_COLOR_TEMP_TARGET_HEX), 0);
-    // lv_obj_set_style_bg_opa(ui.temp_marker_target, LV_OPA_COVER, 0);
-    // lv_obj_set_style_border_opa(ui.temp_marker_target, LV_OPA_TRANSP, 0);
-    // lv_obj_align_to(ui.temp_marker_target, ui.temp_scale, LV_ALIGN_OUT_TOP_LEFT, 0, -3);
-
-    // // Current temperature indicator (small rectangle above scale)
-    // ui.temp_indicator_current = lv_obj_create(ui.bottom_container);
-    // lv_obj_add_flag(ui.temp_indicator_current, LV_OBJ_FLAG_HIDDEN);
-    // lv_obj_set_size(ui.temp_indicator_current, 4, UI_TEMP_SCALE_HEIGHT);
-    // lv_obj_set_style_bg_color(ui.temp_indicator_current, ui_color_from_hex(UI_COLOR_TEMP_CURRENT_HEX), 0);
-    // lv_obj_set_style_bg_opa(ui.temp_indicator_current, LV_OPA_COVER, 0);
-    // lv_obj_set_style_border_opa(ui.temp_indicator_current, LV_OPA_TRANSP, 0);
-    // lv_obj_align_to(ui.temp_indicator_current, ui.temp_scale, LV_ALIGN_OUT_TOP_LEFT, 0, -3);
-
     // --------------------------------------------------------
     // New: triangle markers (PNG) + labels
     // --------------------------------------------------------
@@ -1145,11 +1287,6 @@ static void create_bottom_section(lv_obj_t *parent)
     lv_obj_set_style_text_color(ui.temp_label_current, lv_color_hex(0xFFFFFF), 0);
     lv_label_set_text(ui.temp_label_current, "-- °C");
     lv_obj_add_flag(ui.temp_label_current, LV_OBJ_FLAG_IGNORE_LAYOUT);
-
-    // // Current temperature label on the right
-    // ui.temp_label_current = lv_label_create(ui.bottom_container);
-    // lv_label_set_text(ui.temp_label_current, "-- °C");
-    // lv_obj_align(ui.temp_label_current, LV_ALIGN_RIGHT_MID, -UI_SIDE_PADDING, 0);
 }
 
 //
@@ -1193,21 +1330,52 @@ static void update_time_ui(const OvenRuntimeState &state)
 // update_dail
 //
 //----------------------------------------------------
+
 static void update_dial_ui(const OvenRuntimeState &state)
 {
-    // Filament label (placeholder: "#<id>")
+    // Ensure sizes/styles are resolved before measuring
+    lv_obj_update_layout(ui.preset_box);
+
+    // Compute available width inside the preset box (content area)
+    lv_coord_t box_w = lv_obj_get_width(ui.preset_box);
+
+    lv_coord_t pad_l = lv_obj_get_style_pad_left(ui.preset_box, LV_PART_MAIN);
+    lv_coord_t pad_r = lv_obj_get_style_pad_right(ui.preset_box, LV_PART_MAIN);
+    lv_coord_t border_w = lv_obj_get_style_border_width(ui.preset_box, LV_PART_MAIN);
+
+    lv_coord_t max_text_w = box_w - pad_l - pad_r - 2 * border_w;
+
+    // Safety clamp
+    if (max_text_w < 10)
+        max_text_w = 10;
+
+    // Preset name (top line)
+    if (ui.label_preset_name)
+    {
+        lv_label_set_text(ui.label_preset_name, state.presetName);
+        const char *name = state.presetName;
+
+        const lv_font_t *f = pick_preset_font_for_width(name, max_text_w);
+        lv_obj_set_style_text_font(ui.label_preset_name, f, LV_PART_MAIN);
+        // lv_label_set_text(ui.label_preset_name, name);
+
+        preset_name_apply_fit(ui.label_preset_name, name);
+
+        // aufbereitete Log-Ausgabe ob korrekt "gemessen" wurde
+        lv_point_t szL, szM, szS;
+        lv_txt_get_size(&szL, name, ui_preset_font_l(), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        lv_txt_get_size(&szM, name, ui_preset_font_m(), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        lv_txt_get_size(&szS, name, ui_preset_font_s(), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+
+        UI_INFO("[PRESET] name='%s' max_w=%d  L=%d M=%d S=%d\n",
+                name, (int)max_text_w, (int)szL.x, (int)szM.x, (int)szS.x);
+    }
+
+    // Filament id (second line)
     char filament_buf[16];
-    std::snprintf(filament_buf, sizeof(filament_buf), "#%u", static_cast<unsigned>(state.filamentId));
-    lv_label_set_text(ui.label_filament, filament_buf);
-
-    // Time label in dial (HH:MM:SS)
-    char time_buf[16];
-    format_hhmmss(state.secondsRemaining, time_buf, sizeof(time_buf));
-    lv_label_set_text(ui.label_time_in_dial, time_buf);
-
-    // TODO:
-    // Here you need to update your existing 360° scale / needle based on remaining/total time.
-    // This code just prepares the place where you hook into your custom dial drawing.
+    std::snprintf(filament_buf, sizeof(filament_buf), "#%u", (unsigned)state.filamentId);
+    if (ui.label_preset_id)
+        lv_label_set_text(ui.label_preset_id, filament_buf);
 }
 
 //----------------------------------------------------
@@ -1235,53 +1403,6 @@ static void update_temp_ui(const OvenRuntimeState &state)
         tgt = UI_TEMP_MIN_C;
     if (tgt > UI_TEMP_MAX_C)
         tgt = UI_TEMP_MAX_C;
-
-    // Update label
-    // char buf_cur[16];
-    // std::snprintf(buf_cur, sizeof(buf_cur), "%d °C", (int)cur);
-    // lv_label_set_text(ui.temp_label_current, buf_cur);
-
-    // // {
-    // //     const uint32_t hex = temp_status_color_hex(state.tempCurrent, state.tempTarget);
-    // //     lv_color_t col = ui_color_from_hex(hex);
-
-    // //     lv_obj_set_style_img_recolor(ui.temp_tri_current, col, LV_PART_MAIN);
-    // //     lv_obj_set_style_img_recolor_opa(ui.temp_tri_current, LV_OPA_COVER, LV_PART_MAIN);
-    // // }
-
-    // char buf_tgt[16];
-    // std::snprintf(buf_tgt, sizeof(buf_tgt), "%d °C", (int)tgt);
-    // lv_label_set_text(ui.temp_label_target, buf_tgt);
-
-    // const int tol = ui_temp_target_tolerance_c;
-
-    // uint32_t cur_col_hex = UI_COLOR_TEMP_COLD_HEX; // default
-    // if (cur < (tgt - tol))
-    // {
-    //     cur_col_hex = UI_COLOR_TEMP_COLD_HEX; // light blue
-    // }
-    // else if (cur <= (tgt + tol))
-    // {
-    //     cur_col_hex = UI_COLOR_TEMP_OK_HEX; // green
-    // }
-    // else
-    // {
-    //     cur_col_hex = UI_COLOR_TEMP_HOT_HEX; // orange
-    // }
-
-    // // target always red
-    // //
-    // // current depending on range
-    // lv_obj_set_style_img_recolor(ui.temp_tri_current, ui_color_from_hex(cur_col_hex), LV_PART_MAIN);
-
-    // // target always red
-    // lv_obj_set_style_img_recolor(ui.temp_tri_target,
-    //                              ui_color_from_hex(UI_COLOR_TEMP_TARGET_HEX),
-    //                              LV_PART_MAIN);
-
-    // // current color depending on range (cold/ok/hot)
-    // const uint32_t cur_hex = temp_status_color_hex(state.tempCurrent, state.tempTarget);
-    // lv_obj_set_style_img_recolor(ui.temp_tri_current, ui_color_from_hex(cur_hex), LV_PART_MAIN);
 
     // Update CURRENT label
     char buf_cur[16];

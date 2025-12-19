@@ -1,6 +1,7 @@
 #pragma once
 
 #include <lvgl.h>
+#include <cstring>
 #include <cstdio> // for snprintf
 
 #include "oven/oven.h" // Pfad ggf. anpassen zu deinem Projekt
@@ -78,7 +79,7 @@ static constexpr uint32_t UI_COL_PAUSE_DISABLED_HEX = 0x404040;                /
 // Temperature triangle markers (geometry)
 // --------------------------------------------------------
 // Temperature triangle markers (geometry + behavior)
-//int UI_TEMP_TARGET_TOLERANCE_C = 0; // +/- range around target
+// int UI_TEMP_TARGET_TOLERANCE_C = 0; // +/- range around target
 static int ui_temp_target_tolerance_c = 3;
 
 static constexpr int UI_TEMP_TRI_W = 16;    // adjust later
@@ -90,6 +91,78 @@ static constexpr int UI_TEMP_LABEL_GAP_X = 8;
 constexpr uint32_t UI_COLOR_TEMP_COLD_HEX = 0x00AAFF; // light blue
 constexpr uint32_t UI_COLOR_TEMP_OK_HEX = 0x00C000;   // green
 constexpr uint32_t UI_COLOR_TEMP_HOT_HEX = 0xFFA500;  // orange
+
+// --------------------------------------------------------
+// Preset display (center box in dial)
+// --------------------------------------------------------
+static constexpr int UI_PRESET_BOX_W = 180;
+static constexpr int UI_PRESET_BOX_H = 46;
+static constexpr int UI_PRESET_BOX_RADIUS = 10;
+static constexpr int UI_PRESET_BOX_BORDER_W = 1;
+
+static constexpr uint32_t UI_PRESET_BOX_BG_HEX = 0x00A000; // etwas dunkler
+static constexpr int UI_PRESET_BOX_BG_OPA = 200;           // dezenter
+static constexpr int UI_PRESET_BOX_BORDER_OPA = 200;       // border weniger hart
+
+static constexpr int UI_PRESET_BOX_CENTER_Y_OFFSET = 30; // 0=center, +above, -below
+
+static constexpr int UI_PRESET_TEXT_GAP_Y = 2;      // spacing between lines
+static constexpr int UI_PRESET_ID_TEXT_OPA = 170;   // dimmed white for "#id"
+static constexpr int UI_PRESET_NAME_TEXT_OPA = 255; // full white
+
+// --- Preset box text layout ---
+static constexpr int UI_PRESET_TEXT_PAD_TOP = 3;
+static constexpr int UI_PRESET_TEXT_PAD_BOTTOM = 2;
+static constexpr int UI_PRESET_TEXT_LINE_GAP = 2;
+
+// ID line (dimmer)
+static constexpr int UI_PRESET_ID_OPA = 180;           // 0..255
+static constexpr uint32_t UI_PRESET_ID_HEX = 0xE0E0E0; // slightly dimmed white
+
+// --------------------------------------------------------
+// Preset box (dial center) - geometry & typography
+// --------------------------------------------------------
+static constexpr int UI_PRESET_BOX_PAD_X = 10; // inner padding left/right
+static constexpr int UI_PRESET_BOX_NAME_MAX_W = UI_PRESET_BOX_W - (2 * UI_PRESET_BOX_PAD_X);
+
+// Font candidates (largest -> smallest). Fallbacks compile-safe.
+static inline const lv_font_t *UI_PRESET_FONT_L = LV_FONT_DEFAULT;
+static inline const lv_font_t *UI_PRESET_FONT_M = LV_FONT_DEFAULT;
+static inline const lv_font_t *UI_PRESET_FONT_S = LV_FONT_DEFAULT;
+
+// Font candidates (largest -> smallest). Compile-safe fallbacks.
+static inline const lv_font_t *ui_preset_font_l()
+{
+#if defined(LV_FONT_MONTSERRAT_22) && LV_FONT_MONTSERRAT_22
+    return &lv_font_montserrat_22;
+#elif defined(LV_FONT_MONTSERRAT_20) && LV_FONT_MONTSERRAT_20
+    return &lv_font_montserrat_20;
+#else
+    return LV_FONT_DEFAULT;
+#endif
+}
+
+static inline const lv_font_t *ui_preset_font_m()
+{
+#if defined(LV_FONT_MONTSERRAT_18) && LV_FONT_MONTSERRAT_18
+    return &lv_font_montserrat_18;
+#elif defined(LV_FONT_MONTSERRAT_16) && LV_FONT_MONTSERRAT_16
+    return &lv_font_montserrat_16;
+#else
+    return LV_FONT_DEFAULT;
+#endif
+}
+
+static inline const lv_font_t *ui_preset_font_s()
+{
+#if defined(LV_FONT_MONTSERRAT_14) && LV_FONT_MONTSERRAT_14
+    return &lv_font_montserrat_14;
+#elif defined(LV_FONT_MONTSERRAT_12) && LV_FONT_MONTSERRAT_12
+    return &lv_font_montserrat_12;
+#else
+    return LV_FONT_DEFAULT;
+#endif
+}
 
 // Page indices
 enum UiPageIndex : uint8_t
