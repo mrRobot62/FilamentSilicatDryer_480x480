@@ -544,6 +544,39 @@ static void ui_set_pause_label(const char *txt)
     lv_label_set_text(ui.label_btn_pause, txt);
 }
 
+
+static void fan230_toggle_event_cb(lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_CLICKED)
+        return;
+
+    // Toggle fan230 state
+    UI_INFO("[FAN230] 1 toggled (run_state=%d)\n", (int)g_run_state);
+    oven_fan230_toggle_manual();
+
+    UI_INFO("[FAN230] 2 toggled (run_state=%d)\n", (int)g_run_state);
+
+    // Refresh icons immediately
+    update_actuator_icons(g_last_runtime);
+}
+
+
+static void lamp_toggle_event_cb(lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_CLICKED)
+        return;
+
+    // Toggle lamp state
+    oven_lamp_toggle_manual();
+
+    UI_INFO("[LAMP] toggled (run_state=%d)\n", (int)g_run_state);
+
+    // Refresh icons immediately
+    update_actuator_icons(g_last_runtime);
+}
+
 static void door_debug_toggle_event_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
@@ -935,6 +968,8 @@ static void create_center_section(lv_obj_t *parent)
     ui.icon_fan230 = lv_image_create(ui.icons_container);
     lv_image_set_src(ui.icon_fan230, &fan230v_fast_wht);
     lv_obj_set_size(ui.icon_fan230, 32, 32);
+    lv_obj_add_flag(ui.icon_fan230, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui.icon_fan230, fan230_toggle_event_cb, LV_EVENT_CLICKED, nullptr);
 
     ui.icon_fan230_slow = lv_image_create(ui.icons_container);
     lv_image_set_src(ui.icon_fan230_slow, &fan230v_low_wht);
@@ -960,6 +995,7 @@ static void create_center_section(lv_obj_t *parent)
     lv_obj_set_size(ui.icon_lamp, 32, 32);
     // Lamp is user-interactive (touch toggles state), so keep its event callback wiring
     lv_obj_add_flag(ui.icon_lamp, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui.icon_lamp, lamp_toggle_event_cb, LV_EVENT_CLICKED, nullptr);
 
     //
     // Dial container (center)
@@ -1111,7 +1147,7 @@ static void create_center_section(lv_obj_t *parent)
 
     // After creating ui.label_preset_name and ui.label_preset_id:
     ui_label_set_singleline_clip(ui.label_preset_name);
-    //ui_label_set_singleline_clip(ui.label_preset_id);
+    // ui_label_set_singleline_clip(ui.label_preset_id);
 
     // re-algin notwendig nachdem das single-line clipping gesetzt wurde
     lv_obj_align(ui.label_preset_id, LV_ALIGN_BOTTOM_MID, 0, UI_PRESET_TEXT_PAD_BOTTOM);
@@ -1367,8 +1403,8 @@ static void update_dial_ui(const OvenRuntimeState &state)
         lv_txt_get_size(&szM, name, ui_preset_font_m(), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
         lv_txt_get_size(&szS, name, ui_preset_font_s(), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
 
-        UI_INFO("[PRESET] name='%s' max_w=%d  L=%d M=%d S=%d\n",
-                name, (int)max_text_w, (int)szL.x, (int)szM.x, (int)szS.x);
+        // UI_DBG("[PRESET] name='%s' max_w=%d  L=%d M=%d S=%d\n",
+        //         name, (int)max_text_w, (int)szL.x, (int)szM.x, (int)szS.x);
     }
 
     // Filament id (second line)

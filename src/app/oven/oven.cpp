@@ -252,15 +252,19 @@ void oven_tick(void)
 // *****************************************************
 // ---------------------------------------------------
 /** FAN230 manuell togglen ON/OFF */
-void oven_command_toggle_fan230_manual(void)
+void oven_fan230_toggle_manual(void)
 {
+    // OVEN_INFO("[OVEN] oven_fan230_toggle_manual called\n");
     if (!runtimeState.fan230_manual_allowed)
+        return;
+
+    // OVEN_INFO("[OVEN] oven_fan230_toggle_manual proceeding\n");
+    if (oven_is_running())
         return;
 
     runtimeState.fan230_on = !runtimeState.fan230_on;
 
-    Serial.print(F("[OVEN] Fan230 toggled: "));
-    Serial.println(runtimeState.fan230_on ? "ON" : "OFF");
+    OVEN_INFO("[OVEN] Fan230 toggled: ", (runtimeState.fan230_on ? "ON" : "OFF"));
 }
 
 /** Silicat-Motor toggeln ON/OFF */
@@ -276,7 +280,7 @@ void oven_command_toggle_motor_manual(void)
 }
 
 /** Lampe toggeln ON/OFF */
-void oven_command_toggle_lamp_manual(void)
+void oven_lamp_toggle_manual(void)
 {
     if (!runtimeState.lamp_manual_allowed)
         return;

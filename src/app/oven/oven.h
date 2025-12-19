@@ -94,7 +94,7 @@ static constexpr FilamentPreset kPresets[] = {
 
 static constexpr uint16_t kPresetCount =
     sizeof(kPresets) / sizeof(kPresets[0]);
-static constexpr uint16_t OVEN_DEFAULT_PRESET_INDEX = 26; // PLA
+static constexpr uint16_t OVEN_DEFAULT_PRESET_INDEX = 5; // PLA
 
 // Initialization – called from setup()
 void oven_init(void);
@@ -115,9 +115,11 @@ bool oven_is_running(void);
 void oven_get_runtime_state(OvenRuntimeState *stateOut);
 
 // Manual commands triggered by icon buttons on the main screen
-void oven_command_toggle_fan230_manual(void);
 void oven_command_toggle_motor_manual(void);
-void oven_command_toggle_lamp_manual(void);
+
+
+void oven_fan230_toggle_manual(void);
+void oven_lamp_toggle_manual(void);
 
 // Pause/Resume (WAIT mode)
 void oven_pause_wait(void);
