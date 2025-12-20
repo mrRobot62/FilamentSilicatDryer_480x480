@@ -2,6 +2,7 @@
 #include "ui.h"
 #include "screens/screen_main.h"
 #include "ui_events.h"
+#include "screens/screen_manager.h"
 
 // Hier die EINZIGE Definition:
 UiControls g_ui;
@@ -152,13 +153,20 @@ void ui_init(void)
     UI_INFO("[UI] (6) LVGL input device (touch) created\n");
 
     // 7) UI erzeugen
-    // --- Main Screen erzeugen
-    g_ui.screenMain = screen_main_create();
-    UI_INFO("[UI] (7) screen_main created\n");
+    // Screen-Manager initialisieren
+    screen_manager_init(lv_scr_act());
+    UI_INFO("[UI] Screen manager initialized\n");
 
-    // --- Laden (sichtbar machen)
-    lv_screen_load(g_ui.screenMain);
-    UI_INFO("[UI] screen_main loaded\n");
+    // --- Main Screen erzeugen
+    // g_ui.screenMain = screen_main_create();
+    // // screen_manager
+    // screen_manager_init(g_ui.screenMain);
+
+    // UI_INFO("[UI] (7) screen_main created\n");
+
+    // // --- Laden (sichtbar machen)
+    // lv_screen_load(g_ui.screenMain);
+    // UI_INFO("[UI] screen_main loaded\n");
 
     // update_needle(ui->needleMM, g_minute_hand_points, calc_minute_angle(ui->minutes), 40, 68);
     // update_needle(ui->needleHH, g_hour_hand_points, calc_hour_angle(ui->hours, ui->minutes), 40, 60);

@@ -41,6 +41,11 @@ typedef struct main_screen_widgets_t
     lv_obj_t *bottom_container;
 
     // --------------------------------------------------------
+    // Swipe screens
+    // --------------------------------------------------------
+    lv_obj_t *swipe_hit;
+    lv_obj_t *s_swipe_target;
+    // --------------------------------------------------------
     // Top bar
     // --------------------------------------------------------
     lv_obj_t *time_bar;
@@ -544,7 +549,6 @@ static void ui_set_pause_label(const char *txt)
     lv_label_set_text(ui.label_btn_pause, txt);
 }
 
-
 static void fan230_toggle_event_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
@@ -560,7 +564,6 @@ static void fan230_toggle_event_cb(lv_event_t *e)
     // Refresh icons immediately
     update_actuator_icons(g_last_runtime);
 }
-
 
 static void lamp_toggle_event_cb(lv_event_t *e)
 {
@@ -797,19 +800,30 @@ static void preset_name_apply_fit(lv_obj_t *label, const char *text)
 //
 //----------------------------------------------------
 // Public API: create the main screen
-lv_obj_t *screen_main_create(void)
+lv_obj_t *screen_main_create(lv_obj_t *parent)
 {
+    // // Root object
+    // if (ui.root != nullptr)
+    // {
+    //     UI_INFO("return screen_main_create()\n");
+    //     return ui.root;
+    // }
 
-    // Root object
-    if (ui.root != nullptr)
-    {
-        UI_INFO("return screen_main_create()\n");
-        return ui.root;
-    }
+    // ui.root = lv_obj_create(nullptr);
+    // // ui.root = lv_screen_active();
+    // lv_obj_clear_flag(ui.root, LV_OBJ_FLAG_SCROLLABLE);
 
-    ui.root = lv_obj_create(nullptr);
-    // ui.root = lv_screen_active();
-    lv_obj_clear_flag(ui.root, LV_OBJ_FLAG_SCROLLABLE);
+    if (ui.root)
+        return ui.root;              // optional caching, ok
+    ui.root = lv_obj_create(parent); // create own screen container as child of app root
+
+    lv_obj_remove_style_all(ui.root);
+    lv_obj_set_size(ui.root, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT);
+    lv_obj_center(ui.root);
+
+    lv_obj_set_style_bg_color(ui.root, ui_color_from_hex(UI_COLOR_BG_HEX), 0);
+    lv_obj_set_style_bg_opa(ui.root, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_all(ui.root, 0, 0);
 
     lv_obj_set_size(ui.root, UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT);
     lv_obj_center(ui.root);
@@ -817,7 +831,6 @@ lv_obj_t *screen_main_create(void)
     lv_obj_set_style_bg_color(ui.root, ui_color_from_hex(UI_COLOR_BG_HEX), 0);
     lv_obj_set_style_bg_opa(ui.root, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(ui.root, 0, 0);
-    UI_DBG("[screen_main_create screen_main_create] screen-addr: %d\n", ui.root);
 
     lv_style_init(&style_dial_border);
     lv_style_set_border_width(&style_dial_border, 1);
@@ -826,13 +839,20 @@ lv_obj_t *screen_main_create(void)
     lv_style_set_radius(&style_dial_border, 12); // Optional: leicht abgerundet
     lv_style_set_pad_all(&style_dial_border, 0);
 
+    // IMPORTANT: disable scrolling in this container (we only use gestures)
+    lv_obj_clear_flag(ui.root, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(ui.root, LV_DIR_NONE);
+
+    // IMPORTANT: allow gestures to bubble up to the app root (screen_manager)
+    lv_obj_add_flag(ui.root, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
     // Create sub sections
     create_top_bar(ui.root);
     create_center_section(ui.root);
     create_page_indicator(ui.root);
     create_bottom_section(ui.root);
 
-    UI_DBG("[screen_main_create screen_main_create] screen-addr: %d\n", ui.root);
+    UI_DBG("[screen_main_create] screen-addr: %d\n", ui.root);
     return ui.root;
 }
 
@@ -1235,6 +1255,12 @@ static void create_page_indicator(lv_obj_t *parent)
     lv_obj_set_size(ui.page_indicator_panel, 100, 24); // width will auto-fit for 3 dots
     lv_obj_center(ui.page_indicator_panel);
 
+    // after creating ui.page_indicator_panel
+    lv_obj_add_flag(ui.page_indicator_panel, LV_OBJ_FLAG_CLICKABLE);
+
+    // at the end:
+    ui.s_swipe_target = ui.page_indicator_panel;
+
     lv_obj_set_style_radius(ui.page_indicator_panel, 12, 0);
     lv_obj_set_style_bg_color(ui.page_indicator_panel, ui_color_from_hex(UI_COLOR_PANEL_BG_HEX), 0);
     lv_obj_set_style_bg_opa(ui.page_indicator_panel, LV_OPA_COVER, 0);
@@ -1263,6 +1289,20 @@ static void create_page_indicator(lv_obj_t *parent)
                              : ui_color_from_hex(UI_COLOR_PAGE_DOT_INACTIVE_HEX);
         lv_obj_set_style_bg_color(ui.page_dots[i], col, 0);
     }
+
+    // Swipe hit area (wide, invisible, click target)
+    ui.swipe_hit = lv_obj_create(ui.page_indicator_container);
+    lv_obj_remove_style_all(ui.swipe_hit);
+    lv_obj_set_size(ui.swipe_hit, 360, UI_PAGE_INDICATOR_HEIGHT); // middle width
+    lv_obj_align(ui.swipe_hit, LV_ALIGN_CENTER, 0, 0);
+    // lv_obj_set_style_bg_opa(ui.swipe_hit, LV_OPA_TRANSP, 0);
+    lv_obj_add_flag(ui.swipe_hit, LV_OBJ_FLAG_CLICKABLE);
+    // Very subtle swipe hint background
+    lv_obj_set_style_bg_color(ui.swipe_hit, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_bg_opa(ui.swipe_hit, 15, 0); // 
+    lv_obj_set_style_radius(ui.swipe_hit, 8, 0);
+    // Expose swipe target to screen_manager
+    ui.s_swipe_target = ui.swipe_hit;
 }
 
 //----------------------------------------------------
@@ -1731,6 +1771,11 @@ static void pause_button_event_cb(lv_event_t *e)
         UI_INFO("[WAIT] resumed\n");
         return;
     }
+}
+
+lv_obj_t *screen_main_get_swipe_target(void)
+{
+    return ui.s_swipe_target;
 }
 
 // END OF FILE
