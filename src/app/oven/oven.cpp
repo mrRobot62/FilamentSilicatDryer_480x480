@@ -37,6 +37,20 @@ static OvenRuntimeState runtimeState = {
 
 // -------------- Basic API --------------
 
+int oven_get_current_preset_index(void)
+{
+    return runtimeState.filamentId;
+}
+
+const FilamentPreset *oven_get_preset(uint16_t index)
+{
+    if (index >= kPresetCount)
+    {
+        return &kPresets[0]; // return CUSTOM as fallback
+    }
+    return &kPresets[index];
+}
+
 /**
  * Ofen-Initialisierung
  *
@@ -360,6 +374,28 @@ bool oven_resume_from_wait(void)
 
     Serial.println(F("[OVEN] RESUME from WAIT"));
     return true;
+}
+
+void oven_set_runtime_duration_minutes(uint16_t duration_min)
+{
+    if (duration_min == 0)
+        return;
+
+    runtimeState.durationMinutes = duration_min;
+    runtimeState.secondsRemaining = duration_min * 60;
+
+    Serial.print(F("[OVEN] Runtime duration set to "));
+    Serial.print(duration_min);
+    Serial.println(F(" minutes"));
+}
+
+void oven_set_runtime_temp_target(uint16_t temp_c)
+{
+    runtimeState.tempTarget = static_cast<float>(temp_c);
+
+    Serial.print(F("[OVEN] Runtime target temperature set to "));
+    Serial.print(temp_c);
+    Serial.println(F(" °C"));
 }
 
 // ---------------------------------------------------

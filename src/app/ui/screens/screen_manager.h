@@ -25,6 +25,8 @@ extern "C"
     // get the currently active screen
     ScreenId screen_manager_current(void);
 
+    void screen_manager_go_home(void);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

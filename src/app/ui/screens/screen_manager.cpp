@@ -36,16 +36,44 @@ static constexpr int kSwipeMaxDyPx = 40;
 
 static ScreenId next_id(ScreenId id)
 {
+    const bool running = oven_is_running();
+
+    if (running)
+    {
+        // While running: only MAIN <-> LOG
+        if (id == SCREEN_MAIN)
+            return SCREEN_LOG;
+        if (id == SCREEN_LOG)
+            return SCREEN_LOG; // clamp at LOG
+        // if somehow in CONFIG while running, treat as MAIN -> LOG
+        return SCREEN_LOG;
+    }
+
+    // Not running: MAIN -> CONFIG -> LOG (clamped)
     const int last = SCREEN_COUNT - 1;
     if ((int)id >= last)
-        return (ScreenId)last; // stay at last screen
+        return (ScreenId)last;
     return (ScreenId)((int)id + 1);
 }
 
 static ScreenId prev_id(ScreenId id)
 {
+    const bool running = oven_is_running();
+
+    if (running)
+    {
+        // While running: only MAIN <-> LOG
+        if (id == SCREEN_LOG)
+            return SCREEN_MAIN;
+        if (id == SCREEN_MAIN)
+            return SCREEN_MAIN; // clamp at MAIN
+        // if somehow in CONFIG while running, go back to MAIN
+        return SCREEN_MAIN;
+    }
+
+    // Not running: LOG -> CONFIG -> MAIN (clamped)
     if ((int)id <= 0)
-        return (ScreenId)0; // stay at first screen
+        return (ScreenId)0;
     return (ScreenId)((int)id - 1);
 }
 
@@ -63,8 +91,8 @@ static void app_swipe_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
 
-    if (!navigation_allowed())
-        return;
+    // if (!navigation_allowed())
+    //     return;
 
     lv_indev_t *indev = lv_indev_active();
     if (!indev)
@@ -208,4 +236,9 @@ void screen_manager_init(lv_obj_t *screen_parent)
     /* Default screen after boot */
     screen_manager_show(SCREEN_MAIN);
     UI_DBG("[SCR_MANAGER] done. screen-addr: %d\n", s_app_root);
+}
+
+void screen_manager_go_home(void)
+{
+    screen_manager_show(SCREEN_MAIN);
 }

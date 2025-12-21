@@ -117,7 +117,6 @@ void oven_get_runtime_state(OvenRuntimeState *stateOut);
 // Manual commands triggered by icon buttons on the main screen
 void oven_command_toggle_motor_manual(void);
 
-
 void oven_fan230_toggle_manual(void);
 void oven_lamp_toggle_manual(void);
 
@@ -129,5 +128,10 @@ bool oven_is_waiting(void);
 uint16_t oven_get_preset_count(void);
 void oven_get_preset_name(uint16_t index, char *out, size_t out_len);
 void oven_select_preset(uint16_t index);
+int oven_get_current_preset_index(void);
+const FilamentPreset *oven_get_preset(uint16_t index);
 
+// setters for runtime adjustments (non-persistent)
+void oven_set_runtime_duration_minutes(uint16_t duration_min);
+void oven_set_runtime_temp_target(uint16_t temp_c);
 // END OF FILE

@@ -6,6 +6,7 @@
 
 #include "oven/oven.h" // Pfad ggf. anpassen zu deinem Projekt
 #include "log_ui.h"
+#include "screen_manager.h"
 
 // Layout constants (geometry)
 #define UI_SCREEN_WIDTH 480
@@ -92,3 +93,9 @@ static config_screen_widgets_t ui_config;
 
 lv_obj_t *screen_config_create(lv_obj_t *parent);
 lv_obj_t *screen_config_get_swipe_target(void);
+
+static void create_config_rollers(lv_obj_t *parent);
+static void filament_roller_event_cb(lv_event_t *e);
+
+static void load_preset_to_widgets(int preset_index);
+static void set_roller_value_silent(lv_obj_t *roller, int value);
