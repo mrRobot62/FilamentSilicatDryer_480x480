@@ -1,5 +1,6 @@
 #include "screen_config.h"
 #include "screen_base.h"
+#include "../icons/icons_32x32.h"
 
 // -----------------------------------------------------------------------------
 // Forward declarations (local)
@@ -21,24 +22,86 @@ static void btn_clear_event_cb(lv_event_t *e);
 static void update_save_enabled(void);
 static void save_state_timer_cb(lv_timer_t *t);
 
+static void create_icons(lv_obj_t *parent);
+static void icon_toggle_event_cb(lv_event_t *e);
+
+// static void set_icon_visual(lv_obj_t *icon, bool on, bool special_red = false);
+static void update_icons_enabled(void);
+static void icons_state_timer_cb(lv_timer_t *t);
+static void icon_set_state(lv_obj_t *img, bool enabled = false, bool manual_on = false);
+
+static void icon_click_cb(lv_event_t *e);
+static void icon_fan230_cb(lv_event_t *e);
+static void icon_fan230_slow_cb(lv_event_t *e);
+static void icon_heater_cb(lv_event_t *e);
+static void icon_motor_cb(lv_event_t *e);
+static void icon_lamp_cb(lv_event_t *e);
+
+// runtime cache (for UI only)
+static bool s_fan230 = false;
+static bool s_fan230_slow = false;
+static bool s_heater = false;
+static bool s_motor = false;
+static bool s_lamp = false;
+
 // Prevent feedback loop when loading preset into rollers
 static bool s_updating_widgets = false;
 constexpr int LV_OPA_15 = 15;
 
+// Icon colors for CONFIG screen
+static constexpr uint32_t ICON_OFF_HEX = 0xFFFFFF;      // white
+static constexpr uint32_t ICON_ON_HEX = 0xFF8A00;       // orange (manual override ON)
+static constexpr uint32_t ICON_DISABLED_HEX = 0x707070; // gray
+
 // -----------------------------------------------------------------------------
 // PRIVATE Helpers
 // -----------------------------------------------------------------------------
-static void update_save_enabled(void)
+static void icon_set_color(lv_obj_t *img, uint32_t hex)
 {
-    if (!ui_config.btn_save)
+    if (!img)
+        return;
+    lv_obj_set_style_img_recolor(img, lv_color_hex(hex), 0);
+    lv_obj_set_style_img_recolor_opa(img, LV_OPA_COVER, 0);
+}
+
+static void icon_set_state(lv_obj_t *img, bool enabled, bool manual_on)
+{
+    if (!img)
         return;
 
-    const bool can_save = !oven_is_running();
-    if (can_save)
-        lv_obj_clear_state(ui_config.btn_save, LV_STATE_DISABLED);
+    if (!enabled)
+        icon_set_color(img, ICON_DISABLED_HEX);
+    else if (manual_on)
+        icon_set_color(img, ICON_ON_HEX);
     else
-        lv_obj_add_state(ui_config.btn_save, LV_STATE_DISABLED);
+        icon_set_color(img, ICON_OFF_HEX);
 }
+
+// Creates an lv_img using the same pipeline as screen_main (PNG 32x32)
+static lv_obj_t *create_icon_img(lv_obj_t *parent, const lv_img_dsc_t *dsc)
+{
+    lv_obj_t *img = lv_img_create(parent);
+    lv_img_set_src(img, dsc);
+
+    // Keep consistent with screen_main icon behavior:
+    // recolor controls the displayed color
+    lv_obj_set_style_img_recolor_opa(img, LV_OPA_COVER, 0);
+    lv_obj_set_style_img_recolor(img, lv_color_hex(ICON_OFF_HEX), 0);
+
+    return img;
+}
+
+// static void update_save_enabled(void)
+// {
+//     if (!ui_config.btn_save)
+//         return;
+
+//     const bool can_save = !oven_is_running();
+//     if (can_save)
+//         lv_obj_clear_state(ui_config.btn_save, LV_STATE_DISABLED);
+//     else
+//         lv_obj_add_state(ui_config.btn_save, LV_STATE_DISABLED);
+// }
 
 static void set_roller_value_silent(lv_obj_t *roller, int value)
 {
@@ -88,6 +151,96 @@ static void load_preset_to_widgets(int preset_index)
         lv_label_set_text(ui_config.label_info_message, buf);
     }
     s_updating_widgets = false;
+}
+
+static void update_icons_enabled(void)
+{
+    const bool enabled = !oven_is_running();
+
+    lv_obj_t *toggles[] = {
+        ui_config.icon_fan230,
+        ui_config.icon_fan230_slow,
+        ui_config.icon_heater,
+        ui_config.icon_motor,
+        ui_config.icon_lamp};
+
+    for (size_t i = 0; i < sizeof(toggles) / sizeof(toggles[0]); ++i)
+    {
+        if (!toggles[i])
+            continue;
+        if (enabled)
+            lv_obj_clear_state(toggles[i], LV_STATE_DISABLED);
+        else
+            lv_obj_add_state(toggles[i], LV_STATE_DISABLED);
+    }
+}
+
+static void update_icon_enable_state(void)
+{
+    const bool enabled = !oven_is_running();
+
+    // Toggleables: if running => disabled gray, and clicks ignored
+    icon_set_state(ui_config.icon_fan230, enabled, s_fan230);
+    icon_set_state(ui_config.icon_fan230_slow, enabled, s_fan230_slow);
+    icon_set_state(ui_config.icon_heater, enabled, s_heater);
+    icon_set_state(ui_config.icon_motor, enabled, s_motor);
+    icon_set_state(ui_config.icon_lamp, enabled, s_lamp);
+
+    // Always-disabled display icons
+    icon_set_state(ui_config.icon_fan12v, false, false);
+    icon_set_state(ui_config.icon_door, false, false);
+}
+
+static void update_icon_enabled(void)
+{
+    const bool enable_toggles = !oven_is_running();
+
+    // fan12v and door are always disabled in config
+    if (ui_config.icon_fan12v)
+        lv_obj_clear_flag(ui_config.icon_fan12v, LV_OBJ_FLAG_CLICKABLE);
+    if (ui_config.icon_door)
+        lv_obj_clear_flag(ui_config.icon_door, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *toggles[] = {
+        ui_config.icon_fan230,
+        ui_config.icon_fan230_slow,
+        ui_config.icon_heater,
+        ui_config.icon_motor,
+        ui_config.icon_lamp};
+
+    for (size_t i = 0; i < sizeof(toggles) / sizeof(toggles[0]); ++i)
+    {
+        if (!toggles[i])
+            continue;
+
+        if (enable_toggles)
+            lv_obj_clear_state(toggles[i], LV_STATE_DISABLED);
+        else
+            lv_obj_add_state(toggles[i], LV_STATE_DISABLED);
+    }
+}
+
+static void update_icon_colors(void)
+{
+    const bool enable_toggles = !oven_is_running();
+
+    // disabled ones always gray
+    icon_set_color(ui_config.icon_fan12v, ICON_DISABLED_HEX);
+    icon_set_color(ui_config.icon_door, ICON_DISABLED_HEX);
+
+    // toggleables: gray when disabled, else OFF/ON
+    auto color_for = [&](bool on) -> uint32_t
+    {
+        if (!enable_toggles)
+            return ICON_DISABLED_HEX;
+        return on ? ICON_ON_HEX : ICON_OFF_HEX;
+    };
+
+    icon_set_color(ui_config.icon_fan230, color_for(s_fan230));
+    icon_set_color(ui_config.icon_fan230_slow, color_for(s_fan230_slow));
+    icon_set_color(ui_config.icon_heater, color_for(s_heater));
+    icon_set_color(ui_config.icon_motor, color_for(s_motor));
+    icon_set_color(ui_config.icon_lamp, color_for(s_lamp));
 }
 
 // -----------------------------------------------------------------------------
@@ -229,9 +382,98 @@ static void create_buttons(lv_obj_t *parent)
     lv_obj_add_event_cb(ui_config.btn_clear, btn_clear_event_cb, LV_EVENT_CLICKED, NULL);
 }
 
+static void create_icons(lv_obj_t *parent)
+{
+    ui_config.icons_container = lv_obj_create(ui_config.center_container);
+    lv_obj_clear_flag(ui_config.icons_container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(ui_config.icons_container, UI_SIDE_PADDING, 300);
+    lv_obj_align(ui_config.icons_container, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_style_bg_opa(ui_config.icons_container, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_opa(ui_config.icons_container, LV_OPA_TRANSP, 0);
+
+    lv_obj_set_flex_flow(ui_config.icons_container, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(ui_config.icons_container,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+
+    // // Same container behavior as screen_main
+    // lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
+    // lv_obj_set_style_bg_opa(parent, LV_OPA_TRANSP, 0);
+    // lv_obj_set_style_border_opa(parent, LV_OPA_TRANSP, 0);
+
+    // lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
+    // lv_obj_set_flex_align(parent,
+    //                       LV_FLEX_ALIGN_CENTER,
+    //                       LV_FLEX_ALIGN_CENTER,
+    //                       LV_FLEX_ALIGN_CENTER);
+
+    // --- Create 32x32 icons (same sources as screen_main) ---
+    ui_config.icon_fan12v = lv_image_create(ui_config.icons_container);
+    lv_image_set_src(ui_config.icon_fan12v, &fan12v_wht);
+    lv_obj_set_size(ui_config.icon_fan12v, 32, 32);
+
+    ui_config.icon_fan230 = lv_image_create(ui_config.icons_container);
+    lv_image_set_src(ui_config.icon_fan230, &fan230v_fast_wht);
+    lv_obj_set_size(ui_config.icon_fan230, 32, 32);
+    lv_obj_add_flag(ui_config.icon_fan230, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_config.icon_fan230, icon_fan230_cb, LV_EVENT_CLICKED, nullptr);
+
+    ui_config.icon_fan230_slow = lv_image_create(ui_config.icons_container);
+    lv_image_set_src(ui_config.icon_fan230_slow, &fan230v_low_wht);
+    lv_obj_set_size(ui_config.icon_fan230_slow, 32, 32);
+    lv_obj_add_flag(ui_config.icon_fan230_slow, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_config.icon_fan230_slow, icon_fan230_slow_cb, LV_EVENT_CLICKED, nullptr);
+
+    ui_config.icon_heater = lv_image_create(ui_config.icons_container);
+    lv_image_set_src(ui_config.icon_heater, &heater_wht);
+    lv_obj_set_size(ui_config.icon_heater, 32, 32);
+    lv_obj_add_flag(ui_config.icon_heater, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_config.icon_heater, icon_heater_cb, LV_EVENT_CLICKED, nullptr);
+
+    ui_config.icon_door = lv_image_create(ui_config.icons_container);
+    lv_image_set_src(ui_config.icon_door, &door_open_wht);
+    lv_obj_set_size(ui_config.icon_door, 32, 32);
+    // Door is display-only in config (no click handler)
+
+    ui_config.icon_motor = lv_image_create(ui_config.icons_container);
+    lv_image_set_src(ui_config.icon_motor, &motor230v);
+    lv_obj_set_size(ui_config.icon_motor, 32, 32);
+    lv_obj_add_flag(ui_config.icon_motor, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_config.icon_motor, icon_motor_cb, LV_EVENT_CLICKED, nullptr);
+
+    ui_config.icon_lamp = lv_image_create(ui_config.icons_container);
+    lv_image_set_src(ui_config.icon_lamp, &lamp230v_wht);
+    lv_obj_set_size(ui_config.icon_lamp, 32, 32);
+    lv_obj_add_flag(ui_config.icon_lamp, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui_config.icon_lamp, icon_lamp_cb, LV_EVENT_CLICKED, nullptr);
+
+    // Initial state: fan12v + door disabled, others OFF (white)
+    update_icon_enabled();
+    update_icon_colors();
+}
+
 // -----------------------------------------------------------------------------
-// Event-Callbacks
+// Event-Callback
 // -----------------------------------------------------------------------------
+static void update_save_enabled(void)
+{
+    if (!ui_config.btn_save)
+        return;
+
+    const bool can_save = !oven_is_running();
+    if (can_save)
+        lv_obj_clear_state(ui_config.btn_save, LV_STATE_DISABLED);
+    else
+        lv_obj_add_state(ui_config.btn_save, LV_STATE_DISABLED);
+}
+
+static void save_state_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    update_save_enabled();
+}
+
 static void btn_save_event_cb(lv_event_t *e)
 {
     (void)e;
@@ -268,12 +510,30 @@ static void btn_clear_event_cb(lv_event_t *e)
 
     if (ui_config.label_info_message)
         lv_label_set_text(ui_config.label_info_message, "Cleared (runtime)");
+
+    s_fan230 = s_fan230_slow = s_heater = s_motor = s_lamp = false;
+    icon_set_state(ui_config.icon_fan230, false);
+    icon_set_state(ui_config.icon_fan230_slow, false);
+    icon_set_state(ui_config.icon_heater, false);
+    icon_set_state(ui_config.icon_motor, false);
+    icon_set_state(ui_config.icon_lamp, false);
+
+    oven_set_runtime_actuator_fan230(false);
+
+    oven_set_runtime_actuator_fan230_slow(false);
+    oven_set_runtime_actuator_heater(false);
+    oven_set_runtime_actuator_motor(false);
+    oven_set_runtime_actuator_lamp(false);
+
+    s_fan230 = s_fan230_slow = s_heater = s_motor = s_lamp = false;
+    update_icon_enable_state();
 }
 
-static void save_state_timer_cb(lv_timer_t *t)
+static void icons_timer_cb(lv_timer_t *t)
 {
     (void)t;
-    update_save_enabled();
+    update_icon_enabled();
+    update_icon_colors();
 }
 
 static void filament_roller_event_cb(lv_event_t *e)
@@ -309,6 +569,111 @@ static void mm_roller_event_cb(lv_event_t *e)
     apply_runtime_from_widgets();
 }
 
+static void icon_toggle_event_cb(lv_event_t *e)
+{
+    if (oven_is_running())
+    {
+        UI_WARN("[screen_config] icon toggle blocked (oven running)\n");
+        return;
+    }
+
+    lv_obj_t *target = (lv_obj_t *)lv_event_get_target(e);
+    const int id = (int)(intptr_t)lv_event_get_user_data(e);
+
+    switch (id)
+    {
+    case 1: // fan230
+        s_fan230 = !s_fan230;
+        icon_set_state(ui_config.icon_fan230, s_fan230);
+        oven_set_runtime_actuator_fan230(s_fan230);
+        break;
+
+    case 2: // fan230 slow
+        s_fan230_slow = !s_fan230_slow;
+        icon_set_state(ui_config.icon_fan230_slow, s_fan230_slow);
+        oven_set_runtime_actuator_fan230_slow(s_fan230_slow);
+        break;
+
+    case 3: // heater
+        s_heater = !s_heater;
+        icon_set_state(ui_config.icon_heater, s_heater);
+        oven_set_runtime_actuator_heater(s_heater);
+        break;
+
+    case 4: // motor
+        s_motor = !s_motor;
+        icon_set_state(ui_config.icon_motor, s_motor);
+        oven_set_runtime_actuator_motor(s_motor);
+        break;
+
+    case 5: // lamp
+        s_lamp = !s_lamp;
+        icon_set_state(ui_config.icon_lamp, s_lamp);
+        oven_set_runtime_actuator_lamp(s_lamp);
+        break;
+
+    default:
+        break;
+    }
+
+    (void)target;
+}
+
+static void icon_fan230_cb(lv_event_t *e)
+{
+    (void)e;
+    if (oven_is_running())
+        return;
+    s_fan230 = !s_fan230;
+    update_icon_colors();
+    // TODO next: oven_set_runtime_actuator_fan230(s_fan230);
+}
+
+static void icon_fan230_slow_cb(lv_event_t *e)
+{
+    (void)e;
+    if (oven_is_running())
+        return;
+    s_fan230_slow = !s_fan230_slow;
+    update_icon_colors();
+    // TODO next: oven_set_runtime_actuator_fan230_slow(s_fan230_slow);
+}
+
+static void icon_heater_cb(lv_event_t *e)
+{
+    (void)e;
+    if (oven_is_running())
+        return;
+    s_heater = !s_heater;
+    update_icon_colors();
+    // TODO next: oven_set_runtime_actuator_heater(s_heater);
+}
+
+static void icon_motor_cb(lv_event_t *e)
+{
+    (void)e;
+    if (oven_is_running())
+        return;
+    s_motor = !s_motor;
+    update_icon_colors();
+    // TODO next: oven_set_runtime_actuator_motor(s_motor);
+}
+
+static void icon_lamp_cb(lv_event_t *e)
+{
+    (void)e;
+    if (oven_is_running())
+        return;
+    s_lamp = !s_lamp;
+    update_icon_colors();
+    // TODO next: oven_set_runtime_actuator_lamp(s_lamp);
+}
+
+static void icons_state_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+    update_icons_enabled();
+}
 // -----------------------------------------------------------------------------
 // HELPERS
 // -----------------------------------------------------------------------------
@@ -381,6 +746,17 @@ lv_obj_t *screen_config_create(lv_obj_t *parent)
     // Update SAVE enabled state periodically (running may change)
     lv_timer_create(save_state_timer_cb, 250, NULL);
     update_save_enabled();
+
+    // create_icons(ui_config.icons_container);
+
+    // // Update icon enabled state periodically (running may change)
+    // lv_timer_create(icons_state_timer_cb, 250, NULL);
+    // update_icons_enabled();
+
+    create_icons(ui_config.icons_container);
+    lv_timer_create(icons_state_timer_cb, 250, NULL);
+    update_icons_enabled();
+    update_icon_colors();
 
     // ----------- PLACEHOLDERS
     // Simple placeholders so the screen is clearly visible

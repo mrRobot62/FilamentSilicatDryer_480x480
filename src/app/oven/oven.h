@@ -134,4 +134,14 @@ const FilamentPreset *oven_get_preset(uint16_t index);
 // setters for runtime adjustments (non-persistent)
 void oven_set_runtime_duration_minutes(uint16_t duration_min);
 void oven_set_runtime_temp_target(uint16_t temp_c);
+
+// setters for runtime actuator states (non-persistent)
+// fan12V is never manually controlled
+// door sensor is read-only
+void oven_set_runtime_actuator_fan230(bool on);
+void oven_set_runtime_actuator_fan230_slow(bool on);
+void oven_set_runtime_actuator_heater(bool on);
+void oven_set_runtime_actuator_motor(bool on);
+void oven_set_runtime_actuator_lamp(bool on);
+
 // END OF FILE

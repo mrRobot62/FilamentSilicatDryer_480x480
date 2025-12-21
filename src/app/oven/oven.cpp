@@ -63,7 +63,7 @@ void oven_init(void)
     // Ensure runtimeState.presetName + profile are consistent at boot
     oven_select_preset(OVEN_DEFAULT_PRESET_INDEX);
 
-    INFO("[OVEN] Init OK\n");
+    OVEN_INFO("[OVEN] Init OK\n");
 }
 
 /**
@@ -93,7 +93,7 @@ void oven_start(void)
     runtimeState.fan12v_on = true;
     runtimeState.fan230_slow_on = true;
 
-    Serial.println(F("[OVEN] START"));
+    OVEN_INFO("[OVEN] START\n");
 }
 
 /**
@@ -117,7 +117,7 @@ void oven_stop(void)
     runtimeState.fan230_slow_on = false;
     runtimeState.motor_on = false;
 
-    Serial.println(F("[OVEN] STOP"));
+    OVEN_INFO("[OVEN] STOP\n");
 }
 
 /**
@@ -154,8 +154,7 @@ void oven_select_preset(uint16_t index)
     // SILICA behavior
     runtimeState.motor_on = p.rotaryOn;
 
-    Serial.print(F("[OVEN] Preset selected: "));
-    Serial.println(runtimeState.presetName);
+    OVEN_INFO("[OVEN] Preset selected: ", runtimeState.presetName);
 }
 
 uint16_t oven_get_preset_count(void)
@@ -289,8 +288,7 @@ void oven_command_toggle_motor_manual(void)
 
     runtimeState.motor_on = !runtimeState.motor_on;
 
-    Serial.print(F("[OVEN] Motor toggled: "));
-    Serial.println(runtimeState.motor_on ? "ON" : "OFF");
+    OVEN_INFO("[OVEN] Motor toggled: ", (runtimeState.motor_on ? "ON" : "OFF"));
 }
 
 /** Lampe toggeln ON/OFF */
@@ -301,8 +299,7 @@ void oven_lamp_toggle_manual(void)
 
     runtimeState.lamp_on = !runtimeState.lamp_on;
 
-    Serial.print(F("[OVEN] Lamp toggled: "));
-    Serial.println(runtimeState.lamp_on ? "ON" : "OFF");
+    OVEN_INFO("[OVEN] Lamp toggled: ", (runtimeState.lamp_on ? "ON" : "OFF"));
 }
 
 bool oven_is_waiting(void)
@@ -335,7 +332,7 @@ void oven_pause_wait(void)
     runtimeState.fan230_slow_on = true;
     runtimeState.lamp_on = true;
 
-    Serial.println(F("[OVEN] WAIT (paused)"));
+    OVEN_INFO("[OVEN] WAIT (paused)\n");
 }
 
 bool oven_resume_from_wait(void)
@@ -346,7 +343,7 @@ bool oven_resume_from_wait(void)
     // Safety rule: never resume when door open
     if (runtimeState.door_open)
     {
-        Serial.println(F("[OVEN] RESUME blocked: door open"));
+        OVEN_WARN("[OVEN] RESUME blocked: door open\n");
         return false;
     }
 
@@ -372,7 +369,7 @@ bool oven_resume_from_wait(void)
     runtimeState.running = true;
     waiting = false;
 
-    Serial.println(F("[OVEN] RESUME from WAIT"));
+    OVEN_INFO("[OVEN] RESUME from WAIT\n");
     return true;
 }
 
@@ -384,19 +381,47 @@ void oven_set_runtime_duration_minutes(uint16_t duration_min)
     runtimeState.durationMinutes = duration_min;
     runtimeState.secondsRemaining = duration_min * 60;
 
-    Serial.print(F("[OVEN] Runtime duration set to "));
-    Serial.print(duration_min);
-    Serial.println(F(" minutes"));
+    OVEN_INFO("[OVEN] Runtime duration set to %d minutes\n", duration_min);
 }
 
 void oven_set_runtime_temp_target(uint16_t temp_c)
 {
     runtimeState.tempTarget = static_cast<float>(temp_c);
-
-    Serial.print(F("[OVEN] Runtime target temperature set to "));
-    Serial.print(temp_c);
-    Serial.println(F(" °C"));
+    OVEN_INFO("[OVEN] Runtime target temperature set to %d °C\n", temp_c);
 }
 
+void oven_set_runtime_actuator_fan230(bool on)
+{
+    runtimeState.fan230_on = on;
+    if (on)
+        runtimeState.fan230_slow_on = false; // optional mutual exclusion
+    OVEN_INFO("[OVEN] Runtime actuator fan230 set to %s\n", on ? "ON" : "OFF");
+}
+
+void oven_set_runtime_actuator_fan230_slow(bool on)
+{
+    runtimeState.fan230_slow_on = on;
+    if (on)
+        runtimeState.fan230_on = false; // optional mutual exclusion
+    OVEN_INFO("[OVEN] Runtime actuator fan230_slow set to %s\n", on ? "ON" : "OFF");
+}
+
+void oven_set_runtime_actuator_heater(bool on)
+{
+    runtimeState.heater_on = on;
+    OVEN_INFO("[OVEN] Runtime actuator heater set to %s\n", on ? "ON" : "OFF");
+}
+
+void oven_set_runtime_actuator_motor(bool on)
+{
+    runtimeState.motor_on = on;
+    OVEN_INFO("[OVEN] Runtime actuator motor set to %s\n", on ? "ON" : "OFF");
+}
+
+void oven_set_runtime_actuator_lamp(bool on)
+{
+    runtimeState.lamp_on = on;
+    OVEN_INFO("[OVEN] Runtime actuator lamp set to %s\n", on ? "ON" : "OFF");
+}
 // ---------------------------------------------------
 // END OF FILE

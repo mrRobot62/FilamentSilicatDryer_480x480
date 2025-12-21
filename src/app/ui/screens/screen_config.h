@@ -42,6 +42,22 @@ typedef struct config_screen_widgets_t
     lv_obj_t *button_container;
 
     // --------------------------------------------------------
+    // config_container structure
+    // --------------------------------------------------------
+
+    lv_obj_t *zone_a;
+    lv_obj_t *zone_b;
+    lv_obj_t *zone_c;
+
+    lv_obj_t *time_group;
+    lv_obj_t *temp_group;
+
+    lv_obj_t *label_filament;
+    lv_obj_t *label_time;
+    lv_obj_t *label_temp;
+    lv_obj_t *label_time_colon;
+
+    // --------------------------------------------------------
     // Icons
     // --------------------------------------------------------
     // --------------------------------------------------------
