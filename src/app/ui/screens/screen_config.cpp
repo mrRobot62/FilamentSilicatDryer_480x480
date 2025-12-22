@@ -2,6 +2,8 @@
 #include "screen_base.h"
 #include "../icons/icons_32x32.h"
 
+#define CFG_STAGE 60
+
 // -----------------------------------------------------------------------------
 // Forward declarations (local)
 // -----------------------------------------------------------------------------
@@ -47,15 +49,144 @@ static bool s_lamp = false;
 // Prevent feedback loop when loading preset into rollers
 static bool s_updating_widgets = false;
 constexpr int LV_OPA_15 = 15;
+constexpr int LV_OPA_25 = 25;
+constexpr int LV_OPA_35 = 35;
 
 // Icon colors for CONFIG screen
 static constexpr uint32_t ICON_OFF_HEX = 0xFFFFFF;      // white
 static constexpr uint32_t ICON_ON_HEX = 0xFF8A00;       // orange (manual override ON)
 static constexpr uint32_t ICON_DISABLED_HEX = 0x707070; // gray
 
+static constexpr int kRollerH = 108;    // common roller height (tune later)
+static constexpr int kRollerTimeW = 55; // width for HH/MM rollers
+static constexpr int kRollerTempW = 75; // width for HH/MM rollers
+
+static bool s_screen_ready = false;
+
+// Common geometry
+static constexpr int kCardW_Fil = 340;
+static constexpr int kCardW_Small = 165;
+static constexpr int kCardH = 152; // tuned for title + 3-row roller
+static constexpr int kZoneB_H = kCardH;
+
+// general Page geometry
+static constexpr int BASE_TOP_H = 40;
+static constexpr int BASE_BOTTOM_H = 60;
+static constexpr int BASE_PAGE_INDICATOR_H = 40;
+static constexpr int BASE_CENTER_H = (480 - BASE_TOP_H - BASE_BOTTOM_H - BASE_PAGE_INDICATOR_H);
+static constexpr int BASE_SIDE_W = 60;
+
 // -----------------------------------------------------------------------------
 // PRIVATE Helpers
 // -----------------------------------------------------------------------------
+
+static void style_roller_green(lv_obj_t *roller)
+{
+    // Selected row background (green)
+    lv_obj_set_style_bg_color(roller, lv_color_hex(0x00A000), LV_PART_SELECTED);
+    lv_obj_set_style_bg_opa(roller, LV_OPA_COVER, LV_PART_SELECTED);
+
+    // Selected text
+    lv_obj_set_style_text_color(roller, lv_color_white(), LV_PART_SELECTED);
+    lv_obj_set_style_text_opa(roller, LV_OPA_COVER, LV_PART_SELECTED);
+}
+
+// Rounded "card" with title label (FILAMENT / TIME / TEMP)
+
+static void dump_obj(const char *tag, lv_obj_t *o)
+{
+    if (!o)
+    {
+        UI_INFO("%s: <null>\n", tag);
+        return;
+    }
+    UI_INFO("SIZE from %s: obj=%p valid=%d w=%d h=%d\n",
+            tag, (void *)o, lv_obj_is_valid(o),
+            (int)lv_obj_get_width(o), (int)lv_obj_get_height(o));
+
+    lv_area_t a;
+    lv_obj_get_content_coords(o, &a);
+    UI_INFO("Coords from %s: content_coords: x1=%d y1=%d x2=%d y2=%d cw=%d ch=%d\n",
+            tag, (int)a.x1, (int)a.y1, (int)a.x2, (int)a.y2,
+            (int)(a.x2 - a.x1 + 1), (int)(a.y2 - a.y1 + 1));
+}
+
+static lv_obj_t *create_card(lv_obj_t *parent, int w, int h, const char *title, lv_obj_t **out_content)
+{
+    if (out_content)
+        *out_content = nullptr;
+
+    UI_INFO("[CFG] card '%s' parent=%p w=%d h=%d\n", title, (void *)parent, w, h);
+    if (!parent)
+    {
+        UI_ERR("[CFG] card '%s' parent NULL!\n", title);
+        return nullptr;
+    }
+    lv_obj_t *card = lv_obj_create(parent);
+    if (!card)
+    {
+        UI_ERR("[screen_config] create_card: lv_obj_create(card) failed for '%s'\n", title);
+        return nullptr;
+    }
+    UI_INFO("[CFG] card '%s' card=%p\n", title, (void *)card);
+
+    if (!parent)
+    {
+        UI_ERR("[CFG] card '%s' parent NULL!\n", title);
+        return nullptr;
+    }
+    lv_obj_remove_style_all(card);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(card, w, h);
+
+    lv_obj_set_style_radius(card, 14, 0);
+    lv_obj_set_style_border_width(card, 2, 0);
+    lv_obj_set_style_border_color(card, lv_color_hex(0x404040), 0);
+
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x202020), 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+
+    lv_obj_set_style_pad_left(card, 10, 0);
+    lv_obj_set_style_pad_right(card, 10, 0);
+    lv_obj_set_style_pad_top(card, 10, 0);
+    lv_obj_set_style_pad_bottom(card, 10, 0);
+    lv_obj_set_style_pad_row(card, 6, 0);
+
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+
+    lv_obj_t *lbl = lv_label_create(card);
+    lv_label_set_text(lbl, title);
+    lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
+    lv_obj_set_style_text_opa(lbl, LV_OPA_70, 0);
+    UI_INFO("[CFG] card '%s' lbl=%p\n", title, (void *)lbl);
+
+    // Content container (centered block under title)
+    lv_obj_t *content = lv_obj_create(card);
+    if (!content)
+    {
+        UI_ERR("[screen_config] create_card: lv_obj_create(content) failed for '%s'\n", title);
+        // Fallback: caller can attach children directly to card
+        if (out_content)
+            *out_content = card;
+        return card;
+    }
+    UI_INFO("[CFG] card '%s' content=%p\n", title, (void *)content);
+
+    lv_obj_remove_style_all(content);
+    lv_obj_set_width(content, LV_PCT(100));
+    //    lv_obj_set_height(content, LV_SIZE_CONTENT);
+    // lv_obj_set_height(content, LV_FLEX_GROW); // take remaining space
+    lv_obj_set_flex_grow(content, 1);
+
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    if (out_content)
+        *out_content = content;
+    return card;
+}
+
 static void icon_set_color(lv_obj_t *img, uint32_t hex)
 {
     if (!img)
@@ -91,18 +222,6 @@ static lv_obj_t *create_icon_img(lv_obj_t *parent, const lv_img_dsc_t *dsc)
     return img;
 }
 
-// static void update_save_enabled(void)
-// {
-//     if (!ui_config.btn_save)
-//         return;
-
-//     const bool can_save = !oven_is_running();
-//     if (can_save)
-//         lv_obj_clear_state(ui_config.btn_save, LV_STATE_DISABLED);
-//     else
-//         lv_obj_add_state(ui_config.btn_save, LV_STATE_DISABLED);
-// }
-
 static void set_roller_value_silent(lv_obj_t *roller, int value)
 {
     // Using animation off reduces flicker
@@ -112,17 +231,27 @@ static void set_roller_value_silent(lv_obj_t *roller, int value)
 static void load_preset_to_widgets(int preset_index)
 {
     const FilamentPreset *p = oven_get_preset(preset_index);
+    // If stage/testing hasn't created these widgets yet, do nothing.
+    if (!ui_config.roller_drying_temp || !ui_config.roller_time_hh || !ui_config.roller_time_mm)
+    {
+        UI_WARN("[CFG] load_preset_to_widgets skipped (rollers not created)\n");
+        return;
+    }
+
     s_updating_widgets = true;
     if (!p)
+    {
+        s_updating_widgets = false;
         return;
+    }
 
     // Temperature: temp roller has options starting at 20
     int temp = (int)p->dryTempC;
-    if (temp < 20)
-        temp = 20;
+    if (temp < 0)
+        temp = 0;
     if (temp > 120)
         temp = 120;
-    set_roller_value_silent(ui_config.roller_drying_temp, temp - 20);
+    set_roller_value_silent(ui_config.roller_drying_temp, temp);
 
     // Time: assume preset minutes
     int minutes = (int)p->durationMin;
@@ -248,25 +377,41 @@ static void update_icon_colors(void)
 // -----------------------------------------------------------------------------
 static void create_config_rollers(lv_obj_t *parent)
 {
-    // Layout: simple vertical stack inside middle container
-    lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(parent, 10, 0);
 
-    // ---------- Filament preset roller ----------
-    ui_config.roller_filament_type = lv_roller_create(parent);
+    // Root layout for middle container
+    // lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
+    // - only debug
+    lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_OFF);
+
+    lv_obj_set_style_bg_opa(parent, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_opa(parent, LV_OPA_TRANSP, 0);
+
+    lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+
+    // Fix top clipping + spacing between groups
+    lv_obj_set_style_pad_top(parent, 4, 0);    // war 4
+    lv_obj_set_style_pad_bottom(parent, 4, 0); // NEU: wichtig!
+    lv_obj_set_style_pad_row(parent, 6, 0);    // war 4 (klein bisschen mehr Luft)
+
+    // ------------------------------------------------------------
+    // Card A: FILAMENT
+    // ------------------------------------------------------------
+    lv_obj_t *fil_content = nullptr;
+    lv_obj_t *card_fil = create_card(parent, kCardW_Fil, kCardH, "FILAMENT", &fil_content);
+    if (!fil_content)
+        fil_content = card_fil;
+
+    ui_config.roller_filament_type = lv_roller_create(fil_content);
     lv_obj_set_width(ui_config.roller_filament_type, 340);
-    lv_roller_set_visible_row_count(ui_config.roller_filament_type, 4);
+    lv_obj_set_height(ui_config.roller_filament_type, kRollerH);
+    lv_roller_set_visible_row_count(ui_config.roller_filament_type, 3);
+    style_roller_green(ui_config.roller_filament_type);
 
     // Build roller options from presets
-    // Assumption: oven exposes preset list/count OR you have constants in oven.h.
-    // We'll use two functions you should already have or can add easily:
-    //   int oven_preset_count(void);
-    //   const FilamentPreset* oven_preset_get(int idx);
-    //
-    // If you don't have them yet, we can stub them next step, but try this first.
     const int n = oven_get_preset_count();
-    static char opts[1024];
+    static char opts[2048];
     opts[0] = '\0';
 
     for (int i = 0; i < n; ++i)
@@ -275,13 +420,11 @@ static void create_config_rollers(lv_obj_t *parent)
         if (!p)
             continue;
 
-        // One line per preset
         char line[64];
         std::snprintf(line, sizeof(line), "%s\n", p->name);
         std::strncat(opts, line, sizeof(opts) - std::strlen(opts) - 1);
     }
 
-    // Remove trailing newline if present (LVGL tolerates both, but clean is nice)
     size_t len = std::strlen(opts);
     if (len > 0 && opts[len - 1] == '\n')
         opts[len - 1] = '\0';
@@ -289,30 +432,63 @@ static void create_config_rollers(lv_obj_t *parent)
     lv_roller_set_options(ui_config.roller_filament_type, opts, LV_ROLLER_MODE_NORMAL);
     lv_obj_add_event_cb(ui_config.roller_filament_type, filament_roller_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    // ---------- Temperature roller ----------
-    ui_config.roller_drying_temp = lv_roller_create(parent);
-    lv_obj_set_width(ui_config.roller_drying_temp, 340);
-    lv_roller_set_visible_row_count(ui_config.roller_drying_temp, 3);
+    // ------------------------------------------------------------
+    // Zone B: TIME + TEMP row  (STAGE 50..60)  -- NO time_row
+    // ------------------------------------------------------------
+    // 50: create zone_b only
+    lv_obj_t *zone_b = lv_obj_create(parent);
+    lv_obj_remove_style_all(zone_b);
+    lv_obj_clear_flag(zone_b, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(zone_b, 360, kZoneB_H);
 
-    // Temp options 20..120 (1°C steps) – adjust later if you want
-    static char temp_opts[1024];
-    temp_opts[0] = '\0';
-    for (int t = 20; t <= 120; ++t)
-    {
-        char line[8];
-        std::snprintf(line, sizeof(line), "%d\n", t);
-        std::strncat(temp_opts, line, sizeof(temp_opts) - std::strlen(temp_opts) - 1);
-    }
-    len = std::strlen(temp_opts);
-    if (len > 0 && temp_opts[len - 1] == '\n')
-        temp_opts[len - 1] = '\0';
-    lv_roller_set_options(ui_config.roller_drying_temp, temp_opts, LV_ROLLER_MODE_NORMAL);
+    lv_obj_set_flex_flow(zone_b, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(zone_b,
+//                          LV_FLEX_ALIGN_SPACE_BETWEEN,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_START);
 
-    // ---------- Time HH roller ----------
-    ui_config.roller_time_hh = lv_roller_create(parent);
-    lv_obj_set_width(ui_config.roller_time_hh, 160);
+    // 51: create TIME card only
+    lv_obj_t *time_content = nullptr;
+    lv_obj_t *card_time = create_card(zone_b, kCardW_Small, kCardH, "TIME HH:MM", &time_content);
+    if (!time_content)
+        time_content = card_time;
+
+    // Kill Flex for content; we place children manually
+    lv_obj_clear_flag(time_content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_layout(time_content, LV_LAYOUT_NONE);
+    lv_obj_set_size(time_content, LV_PCT(100), kRollerH);
+
+    // 52: (legacy) time_row removed -> layout update / sanity only
+    lv_obj_update_layout(parent);
+    lv_obj_update_layout(zone_b);
+    lv_obj_update_layout(card_time);
+    lv_obj_update_layout(time_content);
+
+#if (CFG_STAGE == 52)
+    return;
+#endif
+
+    // 53: create HH roller (NO options)
+    ui_config.roller_time_hh = lv_roller_create(time_content);
+    lv_obj_set_size(ui_config.roller_time_hh, kRollerTimeW, kRollerH);
     lv_roller_set_visible_row_count(ui_config.roller_time_hh, 3);
 
+    // manual placement (left)
+    lv_obj_align(ui_config.roller_time_hh, LV_ALIGN_LEFT_MID, 0, 0);
+
+#if (CFG_STAGE == 53)
+    return;
+#endif
+
+    // 54: style HH roller + basic placement params (no flex)
+    style_roller_green(ui_config.roller_time_hh);
+
+#if (CFG_STAGE == 54)
+    return;
+#endif
+
+    // 55: set HH options
     static char hh_opts[256];
     hh_opts[0] = '\0';
     for (int h = 0; h <= 24; ++h)
@@ -321,17 +497,38 @@ static void create_config_rollers(lv_obj_t *parent)
         std::snprintf(line, sizeof(line), "%02d\n", h);
         std::strncat(hh_opts, line, sizeof(hh_opts) - std::strlen(hh_opts) - 1);
     }
-    len = std::strlen(hh_opts);
-    if (len > 0 && hh_opts[len - 1] == '\n')
-        hh_opts[len - 1] = '\0';
+    size_t len_hh = std::strlen(hh_opts);
+    if (len_hh > 0 && hh_opts[len_hh - 1] == '\n')
+        hh_opts[len_hh - 1] = '\0';
     lv_roller_set_options(ui_config.roller_time_hh, hh_opts, LV_ROLLER_MODE_NORMAL);
 
-    // ---------- Time MM roller ----------
-    ui_config.roller_time_mm = lv_roller_create(parent);
-    lv_obj_set_width(ui_config.roller_time_mm, 160);
-    lv_roller_set_visible_row_count(ui_config.roller_time_mm, 3);
+#if (CFG_STAGE == 55)
+    return;
+#endif
 
-    static char mm_opts[128];
+    // 56: add colon (center between rollers)
+    lv_obj_t *lbl_colon = lv_label_create(time_content);
+    lv_label_set_text(lbl_colon, ":");
+    lv_obj_set_style_text_color(lbl_colon, lv_color_white(), 0);
+    lv_obj_set_style_text_opa(lbl_colon, LV_OPA_90, 0);
+
+    // place colon right after HH roller
+    lv_obj_align_to(lbl_colon, ui_config.roller_time_hh, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
+
+#if (CFG_STAGE == 56)
+    return;
+#endif
+
+    // 57: create MM roller + options
+    ui_config.roller_time_mm = lv_roller_create(time_content);
+    lv_obj_set_size(ui_config.roller_time_mm, kRollerTimeW, kRollerH);
+    lv_roller_set_visible_row_count(ui_config.roller_time_mm, 3);
+    style_roller_green(ui_config.roller_time_mm);
+
+    // place MM after colon
+    lv_obj_align_to(ui_config.roller_time_mm, lbl_colon, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
+
+    static char mm_opts[256];
     mm_opts[0] = '\0';
     for (int m = 0; m <= 55; m += 5)
     {
@@ -339,21 +536,68 @@ static void create_config_rollers(lv_obj_t *parent)
         std::snprintf(line, sizeof(line), "%02d\n", m);
         std::strncat(mm_opts, line, sizeof(mm_opts) - std::strlen(mm_opts) - 1);
     }
-    len = std::strlen(mm_opts);
-    if (len > 0 && mm_opts[len - 1] == '\n')
-        mm_opts[len - 1] = '\0';
+    size_t len_mm = std::strlen(mm_opts);
+    if (len_mm > 0 && mm_opts[len_mm - 1] == '\n')
+        mm_opts[len_mm - 1] = '\0';
     lv_roller_set_options(ui_config.roller_time_mm, mm_opts, LV_ROLLER_MODE_NORMAL);
 
-    // Optional: preload currently active preset (if you have an API)
-    // Otherwise default to preset 0 for now.
-    int idx = oven_get_current_preset_index(); // if you have it
+#if (CFG_STAGE == 57)
+    return;
+#endif
+
+    // 58: create TEMP card only
+    lv_obj_t *temp_content = nullptr;
+    lv_obj_t *card_temp = create_card(zone_b, kCardW_Small, kCardH, "DRYING TEMP", &temp_content);
+    if (!temp_content)
+        temp_content = card_temp;
+
+    lv_obj_clear_flag(temp_content, LV_OBJ_FLAG_SCROLLABLE);
+    // (TEMP can stay flex-column from create_card; no change needed)
+
+#if (CFG_STAGE == 58)
+    return;
+#endif
+
+    // 59: create TEMP roller (NO options yet)
+    ui_config.roller_drying_temp = lv_roller_create(temp_content);
+    lv_obj_set_width(ui_config.roller_drying_temp, kRollerTempW);
+    lv_obj_set_height(ui_config.roller_drying_temp, kRollerH);
+    lv_roller_set_visible_row_count(ui_config.roller_drying_temp, 3);
+
+#if (CFG_STAGE == 59)
+    return;
+#endif
+
+    // 60: style + set TEMP options
+    style_roller_green(ui_config.roller_drying_temp);
+
+    static char temp_opts[1024];
+    temp_opts[0] = '\0';
+    for (int t = 0; t <= 120; ++t)
+    {
+        char line[12];
+        std::snprintf(line, sizeof(line), "%d°\n", t);
+        std::strncat(temp_opts, line, sizeof(temp_opts) - std::strlen(temp_opts) - 1);
+    }
+    size_t len_t = std::strlen(temp_opts);
+    if (len_t > 0 && temp_opts[len_t - 1] == '\n')
+        temp_opts[len_t - 1] = '\0';
+    lv_roller_set_options(ui_config.roller_drying_temp, temp_opts, LV_ROLLER_MODE_NORMAL);
+
+#if (CFG_STAGE == 60)
+    return;
+#endif
+
+    lv_obj_add_event_cb(ui_config.roller_time_hh, hh_roller_event_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_add_event_cb(ui_config.roller_time_mm, mm_roller_event_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_add_event_cb(ui_config.roller_drying_temp, temp_roller_event_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+
+    // ------------------------------------------------------------
+    // Preload selected preset and load values to widgets
+    // ------------------------------------------------------------
+    int idx = oven_get_current_preset_index();
     if (idx < 0 || idx >= n)
         idx = 0;
-
-    // Event callbacks
-    lv_obj_add_event_cb(ui_config.roller_drying_temp, temp_roller_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_add_event_cb(ui_config.roller_time_hh, hh_roller_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_add_event_cb(ui_config.roller_time_mm, mm_roller_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     set_roller_value_silent(ui_config.roller_filament_type, idx);
     load_preset_to_widgets(idx);
@@ -384,71 +628,69 @@ static void create_buttons(lv_obj_t *parent)
 
 static void create_icons(lv_obj_t *parent)
 {
-    ui_config.icons_container = lv_obj_create(ui_config.center_container);
-    lv_obj_clear_flag(ui_config.icons_container, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(ui_config.icons_container, UI_SIDE_PADDING, 300);
-    lv_obj_align(ui_config.icons_container, LV_ALIGN_LEFT_MID, 0, 0);
-    lv_obj_set_style_bg_opa(ui_config.icons_container, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_opa(ui_config.icons_container, LV_OPA_TRANSP, 0);
+    // parent is base.left (the left column from screen_base)
+    // We create ONE inner container for spacing, inside that left column.
+    lv_obj_t *icon_col = lv_obj_create(parent);
+    lv_obj_remove_style_all(icon_col);
 
-    lv_obj_set_flex_flow(ui_config.icons_container, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(ui_config.icons_container,
+    // Fill the left column (or set fixed height if you prefer)
+    lv_obj_set_size(icon_col, LV_PCT(100), LV_PCT(100));
+    lv_obj_center(icon_col);
+
+    lv_obj_set_style_bg_opa(icon_col, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_opa(icon_col, LV_OPA_TRANSP, 0);
+
+    lv_obj_set_flex_flow(icon_col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(icon_col,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
 
-    // // Same container behavior as screen_main
-    // lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
-    // lv_obj_set_style_bg_opa(parent, LV_OPA_TRANSP, 0);
-    // lv_obj_set_style_border_opa(parent, LV_OPA_TRANSP, 0);
+    // This is the spacing between icons (same purpose as before)
+    lv_obj_set_style_pad_row(icon_col, 16, 0);
 
-    // lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
-    // lv_obj_set_flex_align(parent,
-    //                       LV_FLEX_ALIGN_CENTER,
-    //                       LV_FLEX_ALIGN_CENTER,
-    //                       LV_FLEX_ALIGN_CENTER);
+    // Keep ui_config.icons_container pointing to the column container
+    ui_config.icons_container = icon_col;
 
-    // --- Create 32x32 icons (same sources as screen_main) ---
-    ui_config.icon_fan12v = lv_image_create(ui_config.icons_container);
+    // --- Create icons (same pipeline as screen_main) ---
+    ui_config.icon_fan12v = lv_image_create(icon_col);
     lv_image_set_src(ui_config.icon_fan12v, &fan12v_wht);
     lv_obj_set_size(ui_config.icon_fan12v, 32, 32);
 
-    ui_config.icon_fan230 = lv_image_create(ui_config.icons_container);
+    ui_config.icon_fan230 = lv_image_create(icon_col);
     lv_image_set_src(ui_config.icon_fan230, &fan230v_fast_wht);
     lv_obj_set_size(ui_config.icon_fan230, 32, 32);
     lv_obj_add_flag(ui_config.icon_fan230, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ui_config.icon_fan230, icon_fan230_cb, LV_EVENT_CLICKED, nullptr);
 
-    ui_config.icon_fan230_slow = lv_image_create(ui_config.icons_container);
+    ui_config.icon_fan230_slow = lv_image_create(icon_col);
     lv_image_set_src(ui_config.icon_fan230_slow, &fan230v_low_wht);
     lv_obj_set_size(ui_config.icon_fan230_slow, 32, 32);
     lv_obj_add_flag(ui_config.icon_fan230_slow, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ui_config.icon_fan230_slow, icon_fan230_slow_cb, LV_EVENT_CLICKED, nullptr);
 
-    ui_config.icon_heater = lv_image_create(ui_config.icons_container);
+    ui_config.icon_heater = lv_image_create(icon_col);
     lv_image_set_src(ui_config.icon_heater, &heater_wht);
     lv_obj_set_size(ui_config.icon_heater, 32, 32);
     lv_obj_add_flag(ui_config.icon_heater, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ui_config.icon_heater, icon_heater_cb, LV_EVENT_CLICKED, nullptr);
 
-    ui_config.icon_door = lv_image_create(ui_config.icons_container);
+    ui_config.icon_door = lv_image_create(icon_col);
     lv_image_set_src(ui_config.icon_door, &door_open_wht);
     lv_obj_set_size(ui_config.icon_door, 32, 32);
-    // Door is display-only in config (no click handler)
 
-    ui_config.icon_motor = lv_image_create(ui_config.icons_container);
+    ui_config.icon_motor = lv_image_create(icon_col);
     lv_image_set_src(ui_config.icon_motor, &motor230v);
     lv_obj_set_size(ui_config.icon_motor, 32, 32);
     lv_obj_add_flag(ui_config.icon_motor, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ui_config.icon_motor, icon_motor_cb, LV_EVENT_CLICKED, nullptr);
 
-    ui_config.icon_lamp = lv_image_create(ui_config.icons_container);
+    ui_config.icon_lamp = lv_image_create(icon_col);
     lv_image_set_src(ui_config.icon_lamp, &lamp230v_wht);
     lv_obj_set_size(ui_config.icon_lamp, 32, 32);
     lv_obj_add_flag(ui_config.icon_lamp, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(ui_config.icon_lamp, icon_lamp_cb, LV_EVENT_CLICKED, nullptr);
 
-    // Initial state: fan12v + door disabled, others OFF (white)
     update_icon_enabled();
     update_icon_colors();
 }
@@ -477,7 +719,8 @@ static void save_state_timer_cb(lv_timer_t *t)
 static void btn_save_event_cb(lv_event_t *e)
 {
     (void)e;
-
+    if (!s_screen_ready || s_updating_widgets)
+        return;
     if (oven_is_running())
     {
         UI_WARN("[screen_config] SAVE blocked (oven running)\n");
@@ -494,6 +737,8 @@ static void btn_save_event_cb(lv_event_t *e)
 static void btn_clear_event_cb(lv_event_t *e)
 {
     (void)e;
+    if (!s_screen_ready || s_updating_widgets)
+        return;
     UI_INFO("[screen_config] CLEAR\n");
 
     // Neutral values
@@ -532,12 +777,16 @@ static void btn_clear_event_cb(lv_event_t *e)
 static void icons_timer_cb(lv_timer_t *t)
 {
     (void)t;
+    if (!s_screen_ready || s_updating_widgets)
+        return;
     update_icon_enabled();
     update_icon_colors();
 }
 
 static void filament_roller_event_cb(lv_event_t *e)
 {
+    if (!s_screen_ready || s_updating_widgets)
+        return;
     lv_obj_t *roller = (lv_obj_t *)lv_event_get_target(e);
     const int idx = lv_roller_get_selected(roller);
 
@@ -548,7 +797,7 @@ static void filament_roller_event_cb(lv_event_t *e)
 static void temp_roller_event_cb(lv_event_t *e)
 {
     (void)e;
-    if (s_updating_widgets)
+    if (!s_screen_ready || s_updating_widgets)
         return;
     apply_runtime_from_widgets();
 }
@@ -556,7 +805,7 @@ static void temp_roller_event_cb(lv_event_t *e)
 static void hh_roller_event_cb(lv_event_t *e)
 {
     (void)e;
-    if (s_updating_widgets)
+    if (!s_screen_ready || s_updating_widgets)
         return;
     apply_runtime_from_widgets();
 }
@@ -564,13 +813,15 @@ static void hh_roller_event_cb(lv_event_t *e)
 static void mm_roller_event_cb(lv_event_t *e)
 {
     (void)e;
-    if (s_updating_widgets)
+    if (!s_screen_ready || s_updating_widgets)
         return;
     apply_runtime_from_widgets();
 }
 
 static void icon_toggle_event_cb(lv_event_t *e)
 {
+    if (!s_screen_ready || s_updating_widgets)
+        return;
     if (oven_is_running())
     {
         UI_WARN("[screen_config] icon toggle blocked (oven running)\n");
@@ -622,6 +873,8 @@ static void icon_toggle_event_cb(lv_event_t *e)
 static void icon_fan230_cb(lv_event_t *e)
 {
     (void)e;
+    if (!s_screen_ready || s_updating_widgets)
+        return;
     if (oven_is_running())
         return;
     s_fan230 = !s_fan230;
@@ -632,6 +885,8 @@ static void icon_fan230_cb(lv_event_t *e)
 static void icon_fan230_slow_cb(lv_event_t *e)
 {
     (void)e;
+    if (!s_screen_ready || s_updating_widgets)
+        return;
     if (oven_is_running())
         return;
     s_fan230_slow = !s_fan230_slow;
@@ -642,6 +897,8 @@ static void icon_fan230_slow_cb(lv_event_t *e)
 static void icon_heater_cb(lv_event_t *e)
 {
     (void)e;
+    if (!s_screen_ready || s_updating_widgets)
+        return;
     if (oven_is_running())
         return;
     s_heater = !s_heater;
@@ -652,6 +909,8 @@ static void icon_heater_cb(lv_event_t *e)
 static void icon_motor_cb(lv_event_t *e)
 {
     (void)e;
+    if (!s_screen_ready || s_updating_widgets)
+        return;
     if (oven_is_running())
         return;
     s_motor = !s_motor;
@@ -662,6 +921,8 @@ static void icon_motor_cb(lv_event_t *e)
 static void icon_lamp_cb(lv_event_t *e)
 {
     (void)e;
+    if (!s_screen_ready || s_updating_widgets)
+        return;
     if (oven_is_running())
         return;
     s_lamp = !s_lamp;
@@ -672,6 +933,8 @@ static void icon_lamp_cb(lv_event_t *e)
 static void icons_state_timer_cb(lv_timer_t *t)
 {
     (void)t;
+    if (!s_screen_ready || s_updating_widgets)
+        return;
     update_icons_enabled();
 }
 // -----------------------------------------------------------------------------
@@ -682,7 +945,7 @@ static void apply_runtime_from_widgets(void)
 {
     // Temperature roller is 20..120 mapped by index 0..100
     const int temp_idx = lv_roller_get_selected(ui_config.roller_drying_temp);
-    const int temp_c = 20 + temp_idx;
+    const int temp_c = temp_idx;
 
     const int hh = lv_roller_get_selected(ui_config.roller_time_hh);
 
@@ -711,6 +974,11 @@ static void apply_runtime_from_widgets(void)
 // -----------------------------------------------------------------------------
 lv_obj_t *screen_config_create(lv_obj_t *parent)
 {
+    UI_INFO("[CFG] create enter parent=%p\n", (void *)parent);
+    s_screen_ready = false;
+    static lv_timer_t *s_tmr_save = nullptr;
+    static lv_timer_t *s_tmr_icons = nullptr;
+
     // Return existing instance
     if (ui_config.root != nullptr)
     {
@@ -722,8 +990,16 @@ lv_obj_t *screen_config_create(lv_obj_t *parent)
     ScreenBaseLayout base{};
     screen_base_create(&base, parent,
                        UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT,
-                       60, 60, 60, // top_h, page_h, bottom_h
-                       60, 360);   // side_w, center_w
+                       BASE_TOP_H, BASE_PAGE_INDICATOR_H, BASE_BOTTOM_H, // top_h, page_h, bottom_h
+                       BASE_SIDE_W, BASE_CENTER_H);                      // side_w, center_w
+
+    UI_INFO("[BASE-CFG] (1) base created root=%p top=%p center=%p page=%p bottom=%p left=%p mid=%p right=%p\n",
+            (void *)base.root,
+            (void *)base.top,
+            (void *)base.center,
+            (void *)base.page_indicator,
+            (void *)base.bottom,
+            (void *)base.left, (void *)base.middle, (void *)base.right);
 
     // ----------- ASSIGN containers
     // Assign base containers into ui_config
@@ -742,19 +1018,23 @@ lv_obj_t *screen_config_create(lv_obj_t *parent)
     create_page_indicator(ui_config.page_indicator_container);
     create_config_rollers(ui_config.config_container);
     create_buttons(ui_config.button_container);
+    if (!s_tmr_save)
+        s_tmr_save = lv_timer_create(save_state_timer_cb, 250, NULL);
 
-    // Update SAVE enabled state periodically (running may change)
-    lv_timer_create(save_state_timer_cb, 250, NULL);
     update_save_enabled();
 
-    // create_icons(ui_config.icons_container);
-
-    // // Update icon enabled state periodically (running may change)
-    // lv_timer_create(icons_state_timer_cb, 250, NULL);
-    // update_icons_enabled();
+    lv_obj_update_layout(base.root);
+    UI_INFO("[BASE-CFG] (2) SIZE: root=%d top=%d center=%d page=%d bottom=%d\n",
+            lv_obj_get_height(base.root),
+            lv_obj_get_height(base.top),
+            lv_obj_get_height(base.center),
+            lv_obj_get_height(base.page_indicator),
+            lv_obj_get_height(base.bottom));
 
     create_icons(ui_config.icons_container);
-    lv_timer_create(icons_state_timer_cb, 250, NULL);
+    // lv_timer_create(icons_state_timer_cb, 250, NULL);
+    if (!s_tmr_icons)
+        s_tmr_icons = lv_timer_create(icons_state_timer_cb, 250, NULL);
     update_icons_enabled();
     update_icon_colors();
 
@@ -763,12 +1043,9 @@ lv_obj_t *screen_config_create(lv_obj_t *parent)
     create_top_placeholder(ui_config.top_bar_container);
     create_bottom_placeholder(ui_config.bottom_container);
 
-    // Start a timer to update Save button state periodically
-    lv_timer_create(save_state_timer_cb, 250, nullptr);
-
     UI_INFO("[screen_config] created root=%p swipe_target=%p\n",
             (void *)ui_config.root, (void *)ui_config.s_swipe_target);
-
+    s_screen_ready = true;
     return ui_config.root;
 }
 
@@ -791,7 +1068,7 @@ static void create_page_indicator(lv_obj_t *parent)
     // Very subtle hint so user knows where to swipe
     // (you can tune LV_OPA_4..LV_OPA_10)
     lv_obj_set_style_bg_color(parent, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_bg_opa(parent, LV_OPA_15, 0);
+    lv_obj_set_style_bg_opa(parent, LV_OPA_35, 0);
     lv_obj_set_style_radius(parent, 10, 0);
 
     // Inner panel (rounded rectangle) + dots (optional visual consistency)
@@ -803,13 +1080,17 @@ static void create_page_indicator(lv_obj_t *parent)
     lv_obj_set_style_radius(ui_config.page_indicator_panel, 12, 0);
     lv_obj_set_style_bg_color(ui_config.page_indicator_panel, lv_color_hex(0x202020), 0);
     lv_obj_set_style_bg_opa(ui_config.page_indicator_panel, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_all(ui_config.page_indicator_panel, 4, 0);
+    lv_obj_set_style_pad_all(ui_config.page_indicator_panel, 2, 0);
 
     lv_obj_set_flex_flow(ui_config.page_indicator_panel, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(ui_config.page_indicator_panel,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
+
+     //                       LV_FLEX_ALIGN_CENTER,
+    //                       LV_FLEX_ALIGN_CENTER,
+    //                       LV_FLEX_ALIGN_CENTER);
 
     for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i)
     {
@@ -821,7 +1102,7 @@ static void create_page_indicator(lv_obj_t *parent)
         lv_obj_set_style_bg_color(ui_config.page_dots[i],
                                   (i == 1) ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x606060), 0);
         if (i > 0)
-            lv_obj_set_style_margin_left(ui_config.page_dots[i], 8, 0);
+            lv_obj_set_style_margin_left(ui_config.page_dots[i], 6, 0);
     }
 }
 

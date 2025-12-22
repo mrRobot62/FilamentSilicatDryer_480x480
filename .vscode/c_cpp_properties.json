@@ -626,6 +626,7 @@
                 "OVENWARN",
                 "UIINFO",
                 "UIDBG",
+                "UIWARN",
                 "EVENTINFO",
                 "EVENTDBG",
                 "ESP32_ARDUINO_LIB_BUILDER",
