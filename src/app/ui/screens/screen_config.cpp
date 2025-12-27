@@ -73,8 +73,9 @@ static constexpr int kZoneB_H = kCardH;
 static constexpr int BASE_TOP_H = 40;
 static constexpr int BASE_BOTTOM_H = 60;
 static constexpr int BASE_PAGE_INDICATOR_H = 40;
-static constexpr int BASE_CENTER_H = (480 - BASE_TOP_H - BASE_BOTTOM_H - BASE_PAGE_INDICATOR_H);
 static constexpr int BASE_SIDE_W = 60;
+static constexpr int BASE_CENTER_H = (480 - BASE_TOP_H - BASE_BOTTOM_H - BASE_PAGE_INDICATOR_H);
+static constexpr int BASE_CENTER_W = 480 - 2 * BASE_SIDE_W;
 
 // -----------------------------------------------------------------------------
 // PRIVATE Helpers
@@ -108,7 +109,7 @@ static void dump_obj(const char *tag, lv_obj_t *o) {
             (int)(a.x2 - a.x1 + 1), (int)(a.y2 - a.y1 + 1));
 }
 
-static lv_obj_t *create_card(lv_obj_t *parent, int w, int h, const char *title, lv_obj_t **out_content) {
+static lv_obj_t *create_card(lv_obj_t *parent, int w, int h, const char *title, lv_obj_t **out_content, lv_text_align_t lblAlign = LV_TEXT_ALIGN_CENTER) {
     if (out_content) {
         *out_content = nullptr;
     }
@@ -151,7 +152,10 @@ static lv_obj_t *create_card(lv_obj_t *parent, int w, int h, const char *title, 
 
     lv_obj_t *lbl = lv_label_create(card);
     lv_label_set_text(lbl, title);
+    lv_obj_set_width(lbl, LV_PCT(100));
+    lv_label_set_long_mode(lbl, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
+    lv_obj_set_style_text_align(lbl, lblAlign, 0);
     lv_obj_set_style_text_opa(lbl, LV_OPA_70, 0);
     UI_INFO("[CFG] card '%s' lbl=%p\n", title, (void *)lbl);
 
@@ -169,8 +173,6 @@ static lv_obj_t *create_card(lv_obj_t *parent, int w, int h, const char *title, 
 
     lv_obj_remove_style_all(content);
     lv_obj_set_width(content, LV_PCT(100));
-    //    lv_obj_set_height(content, LV_SIZE_CONTENT);
-    // lv_obj_set_height(content, LV_FLEX_GROW); // take remaining space
     lv_obj_set_flex_grow(content, 1);
 
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
@@ -272,7 +274,7 @@ static void load_preset_to_widgets(int preset_index) {
     // Bottom info message (optional)
     if (ui_config.label_info_message) {
         char buf[64];
-//        std::snprintf(buf, sizeof(buf), "Loaded preset: %s", p->name);
+        //        std::snprintf(buf, sizeof(buf), "Loaded preset: %s", p->name);
         std::snprintf(buf, sizeof(buf), "Loaded preset '%s' %02d:%02d with %3d°C to widgets\n", p->name, hh, mm5, temp);
         lv_label_set_text(ui_config.label_info_message, buf);
         UI_INFO(buf);
@@ -385,12 +387,15 @@ static void create_config_rollers(lv_obj_t *parent) {
     lv_obj_set_style_border_opa(parent, LV_OPA_TRANSP, 0);
 
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+    // lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     // Fix top clipping + spacing between groups
-    lv_obj_set_style_pad_top(parent, 4, 0);    // war 4
-    lv_obj_set_style_pad_bottom(parent, 4, 0); // NEU: wichtig!
-    lv_obj_set_style_pad_row(parent, 6, 0);    // war 4 (klein bisschen mehr Luft)
+    // lv_obj_set_style_pad_top(parent, 4, 0);    // war 4
+    // lv_obj_set_style_pad_left(parent, 4, 0);   // NEU: wichtig!
+    // lv_obj_set_style_pad_bottom(parent, 4, 0); // NEU: wichtig!
+    lv_obj_set_style_pad_all(parent, 8, 0); // NEU: wichtig!
+    lv_obj_set_style_pad_row(parent, 6, 0); // war 4 (klein bisschen mehr Luft)
 
     // ------------------------------------------------------------
     // Card A: FILAMENT
@@ -438,18 +443,24 @@ static void create_config_rollers(lv_obj_t *parent) {
     lv_obj_t *zone_b = lv_obj_create(parent);
     lv_obj_remove_style_all(zone_b);
     lv_obj_clear_flag(zone_b, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(zone_b, 360, kZoneB_H);
+    lv_obj_set_size(zone_b, BASE_CENTER_W, kZoneB_H);
 
     lv_obj_set_flex_flow(zone_b, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(zone_b,
                           //                          LV_FLEX_ALIGN_SPACE_BETWEEN,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START,
-                          LV_FLEX_ALIGN_START);
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
 
     // 51: create TIME card only
     lv_obj_t *time_content = nullptr;
-    lv_obj_t *card_time = create_card(zone_b, kCardW_Small, kCardH, "TIME HH:MM", &time_content);
+    lv_obj_t *card_time = create_card(
+        zone_b,
+        kCardW_Small,
+        kCardH,
+        "TIME HH:MM",
+        &time_content,
+        LV_TEXT_ALIGN_CENTER);
     if (!time_content) {
         time_content = card_time;
     }
@@ -991,7 +1002,7 @@ lv_obj_t *screen_config_create(lv_obj_t *parent) {
     screen_base_create(&base, parent,
                        UI_SCREEN_WIDTH, UI_SCREEN_HEIGHT,
                        BASE_TOP_H, BASE_PAGE_INDICATOR_H, BASE_BOTTOM_H, // top_h, page_h, bottom_h
-                       BASE_SIDE_W, BASE_CENTER_H);                      // side_w, center_w
+                       BASE_SIDE_W, BASE_CENTER_W);                      // side_w, center_w
 
     UI_INFO("[BASE-CFG] (1) base created root=%p top=%p center=%p page=%p bottom=%p left=%p mid=%p right=%p\n",
             (void *)base.root,

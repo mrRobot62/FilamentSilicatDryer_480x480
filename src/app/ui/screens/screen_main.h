@@ -6,6 +6,7 @@
 
 #include "oven/oven.h" // Pfad ggf. anpassen zu deinem Projekt
 #include "log_ui.h"
+#include "screen_base.h"
 
 // Forward-declare your OvenRuntimeState.
 // Adjust the include if you already have a header for this.
@@ -192,19 +193,6 @@ void screen_main_update_runtime(const OvenRuntimeState *state);
 
 // Called by your UI manager when the active screen changes
 void screen_main_set_active_page(uint8_t page_index);
-
-// Helpers
-// UI color helper: swaps R <-> B (because the panel path swaps channels)
-static lv_color_t ui_color_from_hex(uint32_t rgb_hex)
-{
-    // rgb_hex is 0xRRGGBB
-    uint32_t r = (rgb_hex >> 16) & 0xFF;
-    uint32_t g = (rgb_hex >> 8) & 0xFF;
-    uint32_t b = (rgb_hex >> 0) & 0xFF;
-
-    uint32_t swapped = (b << 16) | (g << 8) | (r << 0); // 0xBBGGRR
-    return lv_color_hex(swapped);
-}
 
 // Format seconds -> "HH:MM:SS"
 static void format_hhmmss(uint32_t seconds, char *buf, size_t buf_size)
