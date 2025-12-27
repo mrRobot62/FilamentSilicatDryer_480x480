@@ -1,11 +1,11 @@
 #pragma once
 
-#include <lvgl.h>
-#include <cstring>
 #include <cstdio> // for snprintf
+#include <cstring>
+#include <lvgl.h>
 
-#include "oven/oven.h" // Pfad ggf. anpassen zu deinem Projekt
 #include "log_ui.h"
+#include "oven/oven.h" // Pfad ggf. anpassen zu deinem Projekt
 #include "screen_base.h"
 
 // Forward-declare your OvenRuntimeState.
@@ -132,8 +132,7 @@ static inline const lv_font_t *UI_PRESET_FONT_M = LV_FONT_DEFAULT;
 static inline const lv_font_t *UI_PRESET_FONT_S = LV_FONT_DEFAULT;
 
 // Font candidates (largest -> smallest). Compile-safe fallbacks.
-static inline const lv_font_t *ui_preset_font_l()
-{
+static inline const lv_font_t *ui_preset_font_l() {
 #if defined(LV_FONT_MONTSERRAT_22) && LV_FONT_MONTSERRAT_22
     return &lv_font_montserrat_22;
 #elif defined(LV_FONT_MONTSERRAT_20) && LV_FONT_MONTSERRAT_20
@@ -143,8 +142,7 @@ static inline const lv_font_t *ui_preset_font_l()
 #endif
 }
 
-static inline const lv_font_t *ui_preset_font_m()
-{
+static inline const lv_font_t *ui_preset_font_m() {
 #if defined(LV_FONT_MONTSERRAT_18) && LV_FONT_MONTSERRAT_18
     return &lv_font_montserrat_18;
 #elif defined(LV_FONT_MONTSERRAT_16) && LV_FONT_MONTSERRAT_16
@@ -154,8 +152,7 @@ static inline const lv_font_t *ui_preset_font_m()
 #endif
 }
 
-static inline const lv_font_t *ui_preset_font_s()
-{
+static inline const lv_font_t *ui_preset_font_s() {
 #if defined(LV_FONT_MONTSERRAT_14) && LV_FONT_MONTSERRAT_14
     return &lv_font_montserrat_14;
 #elif defined(LV_FONT_MONTSERRAT_12) && LV_FONT_MONTSERRAT_12
@@ -166,8 +163,7 @@ static inline const lv_font_t *ui_preset_font_s()
 }
 
 // Page indices
-enum UiPageIndex : uint8_t
-{
+enum UiPageIndex : uint8_t {
     UI_PAGE_MAIN = 0,
     UI_PAGE_CONFIG = 1,
     UI_PAGE_LOG = 2,
@@ -178,57 +174,49 @@ enum UiPageIndex : uint8_t
 // lv_obj_t *screen_main_create(lv_obj_t *parent);
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
-    lv_obj_t *screen_main_create(lv_obj_t *parent);
-    lv_obj_t *screen_main_get_swipe_target(void); // NEW
+lv_obj_t *screen_main_create(lv_obj_t *parent);
+lv_obj_t *screen_main_get_swipe_target(void); // NEW
 
 #ifdef __cplusplus
 }
 #endif
 
 void screen_main_update_runtime(const OvenRuntimeState *state);
-
-// Called by your UI manager when the active screen changes
+void screen_main_refresh_from_runtime(void); // Called by your UI manager when the active screen changes
 void screen_main_set_active_page(uint8_t page_index);
 
 // Format seconds -> "HH:MM:SS"
-static void format_hhmmss(uint32_t seconds, char *buf, size_t buf_size)
-{
+static void format_hhmmss(uint32_t seconds, char *buf, size_t buf_size) {
     uint32_t h = seconds / 3600;
     uint32_t m = (seconds % 3600) / 60;
     uint32_t s = seconds % 60;
 
-    if (h > 99)
+    if (h > 99) {
         h = 99; // just in case
-
-    if (h > 0)
-    {
-        std::snprintf(buf, buf_size, "%02u:%02u:%02u", h, m, s);
     }
-    else
-    {
+
+    if (h > 0) {
+        std::snprintf(buf, buf_size, "%02u:%02u:%02u", h, m, s);
+    } else {
         std::snprintf(buf, buf_size, "%02u:%02u", m, s);
     }
 }
 
 // Format seconds -> "HH:MM" (for compact display)
-static void format_hhmm(uint32_t seconds, char *buf, size_t buf_size)
-{
+static void format_hhmm(uint32_t seconds, char *buf, size_t buf_size) {
     uint32_t h = seconds / 3600;
     uint32_t m = (seconds % 3600) / 60;
 
-    if (h > 99)
+    if (h > 99) {
         h = 99;
-
-    if (h > 0)
-    {
-        std::snprintf(buf, buf_size, "%02u:%02u", h, m);
     }
-    else
-    {
+
+    if (h > 0) {
+        std::snprintf(buf, buf_size, "%02u:%02u", h, m);
+    } else {
         std::snprintf(buf, buf_size, "00:%02u", m);
     }
 }

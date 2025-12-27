@@ -19,8 +19,7 @@ constexpr int COUNT_TICK_UPDATE_FREQ = 1000;
 // --------------------------------------------------------
 // States
 // --------------------------------------------------------
-enum class RunState : uint8_t
-{
+enum class RunState : uint8_t {
     STOPPED = 0,
     RUNNING,
     WAIT
@@ -28,8 +27,7 @@ enum class RunState : uint8_t
 
 // Internal widget storage
 // diese Struktur enthält alle Widgets von allen Screens
-typedef struct main_screen_widgets_t
-{
+typedef struct main_screen_widgets_t {
     lv_obj_t *root;
 
     // --------------------------------------------------------
@@ -175,21 +173,20 @@ static bool g_sim_door_override = false;
 static bool g_sim_door_open = false;
 static bool g_paused_by_door = false;
 
-static void ui_set_pause_bg_hex(uint32_t rgb_hex)
-{
-    if (!ui.btn_pause)
+static void ui_set_pause_bg_hex(uint32_t rgb_hex) {
+    if (!ui.btn_pause) {
         return;
+    }
     lv_obj_set_style_bg_color(ui.btn_pause, ui_color_from_hex(rgb_hex), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui.btn_pause, LV_OPA_COVER, LV_PART_MAIN);
 }
 
-static void pause_button_apply_ui(RunState st, bool door_open)
-{
-    if (!ui.btn_pause || !ui.label_btn_pause)
+static void pause_button_apply_ui(RunState st, bool door_open) {
+    if (!ui.btn_pause || !ui.label_btn_pause) {
         return;
+    }
 
-    switch (st)
-    {
+    switch (st) {
     case RunState::STOPPED:
         ui_set_pause_label("WAIT");
         ui_set_pause_enabled(false);
@@ -205,14 +202,11 @@ static void pause_button_apply_ui(RunState st, bool door_open)
     case RunState::WAIT:
         ui_set_pause_label("WAIT");
 
-        if (door_open)
-        {
+        if (door_open) {
             // blocked by door
             ui_set_pause_enabled(false);
             ui_set_pause_bg_hex(UI_COL_PAUSE_WAIT_BLOCKED_HEX);
-        }
-        else
-        {
+        } else {
             // ready to resume
             ui_set_pause_enabled(true);
             ui_set_pause_bg_hex(UI_COL_PAUSE_WAIT_READY_HEX);
@@ -221,26 +215,23 @@ static void pause_button_apply_ui(RunState st, bool door_open)
     }
 }
 
-static int calc_second_angle(int minute)
-{
+static int calc_second_angle(int minute) {
     return (90 - minute * 6);
 }
 
-static int calc_minute_angle(int minute)
-{
+static int calc_minute_angle(int minute) {
     return (90 - minute * 6);
 }
 
-static int calc_hour_angle(int hour, int minute)
-{
+static int calc_hour_angle(int hour, int minute) {
     float hm = (float)hour + (float)(minute / 60.0f);
     return (90 - (int)(hm * 30));
 }
 
-static void set_remaining_label_seconds(int remaining_seconds)
-{
-    if (remaining_seconds < 0)
+static void set_remaining_label_seconds(int remaining_seconds) {
+    if (remaining_seconds < 0) {
         remaining_seconds = 0;
+    }
 
     int hh = remaining_seconds / 3600;
     int mm = (remaining_seconds % 3600) / 60;
@@ -252,8 +243,7 @@ static void set_remaining_label_seconds(int remaining_seconds)
     lv_label_set_text(ui.time_label_remaining, buf);
 }
 
-static void update_needle(lv_obj_t *dial, lv_obj_t *needle, lv_point_precise_t *buf, int angle_deg, int rFrom, int rTo)
-{
+static void update_needle(lv_obj_t *dial, lv_obj_t *needle, lv_point_precise_t *buf, int angle_deg, int rFrom, int rTo) {
     lv_area_t a;
     lv_obj_get_coords(dial, &a);
 
@@ -271,21 +261,17 @@ static void update_needle(lv_obj_t *dial, lv_obj_t *needle, lv_point_precise_t *
     // With mutable points this is usually enough, but this also refreshes bounds reliably.
     lv_line_set_points(needle, buf, 2);
 }
-
-static void pause_button_update_enabled_by_door(bool door_open)
-{
-    if (!ui.btn_pause)
+static void pause_button_update_enabled_by_door(bool door_open) {
+    if (!ui.btn_pause) {
         return;
+    }
 
     // Door-open => Pause button must not be clickable (cannot resume)
     // Door-closed => Pause button may be clickable (depending on run state)
-    if (door_open)
-    {
+    if (door_open) {
         ui_set_pause_enabled(false);
         UI_INFO("[DOOR] btnPause DISABLED (door open)\n");
-    }
-    else
-    {
+    } else {
         // Only enable if we are in RUNNING or WAIT; STOPPED remains disabled elsewhere
         bool allow = (g_run_state == RunState::RUNNING) || (g_run_state == RunState::WAIT);
         ui_set_pause_enabled(allow);
@@ -293,13 +279,11 @@ static void pause_button_update_enabled_by_door(bool door_open)
     }
 }
 
-static bool get_effective_door_open(const OvenRuntimeState &state)
-{
+static bool get_effective_door_open(const OvenRuntimeState &state) {
     return g_sim_door_override ? g_sim_door_open : state.door_open;
 }
 
-static void set_needles_hms(int hh, int mm, int ss)
-{
+static void set_needles_hms(int hh, int mm, int ss) {
     update_needle(ui.dial, ui.needleMM, g_minute_hand_points,
                   calc_minute_angle(mm),
                   ui.needle_rFromMinute, ui.needle_rToMinute);
@@ -313,21 +297,40 @@ static void set_needles_hms(int hh, int mm, int ss)
                   ui.needle_rFromMinute, ui.needle_rToMinute);
 }
 
-static void countdown_tick_cb(lv_timer_t *t)
-{
-    if (g_total_seconds > 0)
-    {
+void screen_main_refresh_from_runtime(void) {
+    OvenRuntimeState st;
+    oven_get_runtime_state(&st);
+
+    if (!st.running) {
+        int totalMin = st.durationMinutes;
+        int hh = totalMin / 60;
+        int mm = totalMin % 60;
+
+        set_needles_hms(hh, mm, 0);
+    } else {
+        int sec = st.secondsRemaining;
+        int hh = sec / 3600;
+        int mm = (sec % 3600) / 60;
+        int ss = sec % 60;
+
+        set_needles_hms(hh, mm, ss);
+    }
+}
+
+static void countdown_tick_cb(lv_timer_t *t) {
+    if (g_total_seconds > 0) {
         int elapsed = g_total_seconds - g_remaining_seconds;
-        if (elapsed < 0)
+        if (elapsed < 0) {
             elapsed = 0;
-        if (elapsed > g_total_seconds)
+        }
+        if (elapsed > g_total_seconds) {
             elapsed = g_total_seconds;
+        }
 
         lv_bar_set_value(ui.time_bar, elapsed, LV_ANIM_OFF);
     }
 
-    if (g_remaining_seconds <= 0)
-    {
+    if (g_remaining_seconds <= 0) {
         // Countdown finished
         g_remaining_seconds = 0;
 
@@ -354,13 +357,14 @@ static void countdown_tick_cb(lv_timer_t *t)
 
     g_remaining_seconds--;
 
-    if (g_total_seconds > 0)
-    {
+    if (g_total_seconds > 0) {
         int elapsed = g_total_seconds - g_remaining_seconds;
-        if (elapsed < 0)
+        if (elapsed < 0) {
             elapsed = 0;
-        if (elapsed > g_total_seconds)
+        }
+        if (elapsed > g_total_seconds) {
             elapsed = g_total_seconds;
+        }
 
         lv_bar_set_value(ui.time_bar, elapsed, LV_ANIM_OFF);
     }
@@ -388,8 +392,7 @@ static void countdown_tick_cb(lv_timer_t *t)
                   angSS, ui.needle_rFromMinute, ui.needle_rToMinute);
 }
 
-static void needles_init_cb(lv_timer_t *t)
-{
+static void needles_init_cb(lv_timer_t *t) {
 
     // Force layout to be up-to-date
     lv_obj_update_layout(ui.root);
@@ -400,8 +403,7 @@ static void needles_init_cb(lv_timer_t *t)
 
     UI_INFO("[needles_init] dial size: %d x %d\n", (int)w, (int)h);
 
-    if (w <= 0 || h <= 0)
-    {
+    if (w <= 0 || h <= 0) {
         UI_INFO("[needles_init] dial not ready yet\n");
         return; // keep timer, try again next tick
     }
@@ -420,14 +422,18 @@ static void needles_init_cb(lv_timer_t *t)
     int rFromHour = rFromMinute;
     int rToHour = rFromHour + lenHour;
 
-    if (rToMinute < 1)
+    if (rToMinute < 1) {
         rToMinute = 1;
-    if (rFromMinute < 0)
+    }
+    if (rFromMinute < 0) {
         rFromMinute = 0;
-    if (rToHour < 1)
+    }
+    if (rToHour < 1) {
         rToHour = 1;
-    if (rFromHour < 0)
+    }
+    if (rFromHour < 0) {
         rFromHour = 0;
+    }
 
     ui.needle_rFromMinute = rFromMinute;
     ui.needle_rToMinute = rToMinute;
@@ -438,8 +444,8 @@ static void needles_init_cb(lv_timer_t *t)
     // -------------------------------------------------
     // Default time after screen creation: 01:50:00
     // -------------------------------------------------
-    int def_hh = 1;
-    int def_mm = 50;
+    int def_hh = 12;
+    int def_mm = 0;
     int def_ss = 0;
 
     // Initialize at 12 o'clock
@@ -468,8 +474,7 @@ static void needles_init_cb(lv_timer_t *t)
 static lv_obj_t *mk_scale_needle_mutable(lv_obj_t *parent,
                                          lv_point_precise_t *pts,
                                          uint8_t width,
-                                         lv_color_t color)
-{
+                                         lv_color_t color) {
     lv_obj_t *line = lv_line_create(parent);
 
     // Remove theme styles
@@ -504,12 +509,10 @@ static lv_obj_t *mk_scale_needle_mutable(lv_obj_t *parent,
 //
 //----------------------------------------------------
 
-static void countdown_stop_and_set_wait_ui(const char *why)
-{
+static void countdown_stop_and_set_wait_ui(const char *why) {
     UI_INFO("[WAIT] stop countdown: %s (tick=%p)\n", why, g_countdown_tick);
 
-    if (g_countdown_tick)
-    {
+    if (g_countdown_tick) {
         lv_timer_del(g_countdown_tick);
         g_countdown_tick = nullptr;
         UI_INFO("[WAIT] countdown timer deleted\n");
@@ -523,37 +526,34 @@ static void countdown_stop_and_set_wait_ui(const char *why)
     UI_INFO("[WAIT] state=WAIT, btnPause WAIT + DISABLED\n");
 }
 
-static void ui_set_pause_enabled(bool en)
-{
-    if (!ui.btn_pause)
+static void ui_set_pause_enabled(bool en) {
+    if (!ui.btn_pause) {
         return;
+    }
 
-    if (en)
-    {
+    if (en) {
         lv_obj_add_flag(ui.btn_pause, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_opa(ui.btn_pause, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(ui.btn_pause, LV_OPA_COVER, LV_PART_MAIN);
-    }
-    else
-    {
+    } else {
         lv_obj_clear_flag(ui.btn_pause, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_opa(ui.btn_pause, LV_OPA_40, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(ui.btn_pause, LV_OPA_40, LV_PART_MAIN);
     }
 }
 
-static void ui_set_pause_label(const char *txt)
-{
-    if (!ui.label_btn_pause)
+static void ui_set_pause_label(const char *txt) {
+    if (!ui.label_btn_pause) {
         return;
+    }
     lv_label_set_text(ui.label_btn_pause, txt);
 }
 
-static void fan230_toggle_event_cb(lv_event_t *e)
-{
+static void fan230_toggle_event_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_CLICKED)
+    if (code != LV_EVENT_CLICKED) {
         return;
+    }
 
     // Toggle fan230 state
     UI_INFO("[FAN230] 1 toggled (run_state=%d)\n", (int)g_run_state);
@@ -565,11 +565,11 @@ static void fan230_toggle_event_cb(lv_event_t *e)
     update_actuator_icons(g_last_runtime);
 }
 
-static void lamp_toggle_event_cb(lv_event_t *e)
-{
+static void lamp_toggle_event_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_CLICKED)
+    if (code != LV_EVENT_CLICKED) {
         return;
+    }
 
     // Toggle lamp state
     oven_lamp_toggle_manual();
@@ -580,11 +580,11 @@ static void lamp_toggle_event_cb(lv_event_t *e)
     update_actuator_icons(g_last_runtime);
 }
 
-static void door_debug_toggle_event_cb(lv_event_t *e)
-{
+static void door_debug_toggle_event_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
-    if (code != LV_EVENT_CLICKED)
+    if (code != LV_EVENT_CLICKED) {
         return;
+    }
 
     // Enable override and toggle simulated door
     g_sim_door_override = true;
@@ -597,8 +597,7 @@ static void door_debug_toggle_event_cb(lv_event_t *e)
             (int)door_open, (int)g_run_state, g_countdown_tick);
 
     // If door opens while running -> force WAIT immediately + stop oven (safety mock)
-    if (door_open && g_run_state == RunState::RUNNING)
-    {
+    if (door_open && g_run_state == RunState::RUNNING) {
         // snapshot for later resume (actuators etc.)
         g_pre_wait_snapshot = g_last_runtime;
         g_has_pre_wait_snapshot = true;
@@ -618,31 +617,31 @@ static void door_debug_toggle_event_cb(lv_event_t *e)
     update_actuator_icons(g_last_runtime);
 }
 
-static uint32_t temp_status_color_hex(float cur, float tgt)
-{
+static uint32_t temp_status_color_hex(float cur, float tgt) {
     const float lo = tgt - (float)ui_temp_target_tolerance_c;
     const float hi = tgt + (float)ui_temp_target_tolerance_c;
 
-    if (cur < lo)
+    if (cur < lo) {
         return UI_COLOR_TEMP_COLD_HEX; // blue
-    if (cur > hi)
+    }
+    if (cur > hi) {
         return UI_COLOR_TEMP_HOT_HEX; // orange
-    return UI_COLOR_TEMP_OK_HEX;      // green
+    }
+    return UI_COLOR_TEMP_OK_HEX; // green
 }
 
 static bool g_heater_pulse_active = false;
 
-static void heater_pulse_exec_cb(void *var, int32_t v)
-{
+static void heater_pulse_exec_cb(void *var, int32_t v) {
     lv_obj_t *obj = (lv_obj_t *)var;
     // Pulse only recolor opacity so the icon stays crisp and "alive"
     lv_obj_set_style_img_recolor_opa(obj, (lv_opa_t)v, LV_PART_MAIN);
 }
 
-static void heater_pulse_start(lv_obj_t *heater_icon)
-{
-    if (!heater_icon || g_heater_pulse_active)
+static void heater_pulse_start(lv_obj_t *heater_icon) {
+    if (!heater_icon || g_heater_pulse_active) {
         return;
+    }
 
     g_heater_pulse_active = true;
 
@@ -657,10 +656,10 @@ static void heater_pulse_start(lv_obj_t *heater_icon)
     lv_anim_start(&a);
 }
 
-static void heater_pulse_stop(lv_obj_t *heater_icon)
-{
-    if (!heater_icon || !g_heater_pulse_active)
+static void heater_pulse_stop(lv_obj_t *heater_icon) {
+    if (!heater_icon || !g_heater_pulse_active) {
         return;
+    }
 
     // Stop the animation targeting this var + exec_cb
     lv_anim_del(heater_icon, heater_pulse_exec_cb);
@@ -675,18 +674,18 @@ static void heater_pulse_stop(lv_obj_t *heater_icon)
 // Preset label helpers (Step 2.5.2)
 // -----------------------------
 
-static void ui_label_set_singleline_clip(lv_obj_t *lbl)
-{
-    if (!lbl)
+static void ui_label_set_singleline_clip(lv_obj_t *lbl) {
+    if (!lbl) {
         return;
+    }
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_CLIP); // one line, hard clip
     lv_obj_set_width(lbl, LV_PCT(100));              // use parent width
 }
 
-static void ui_set_preset_name_text(const char *name)
-{
-    if (!ui.label_preset_name)
+static void ui_set_preset_name_text(const char *name) {
+    if (!ui.label_preset_name) {
         return;
+    }
 
     const char *src = (name && name[0]) ? name : "—";
 
@@ -698,8 +697,7 @@ static void ui_set_preset_name_text(const char *name)
     std::snprintf(buf, sizeof(buf), "%s", src);
 
     const int len = (int)std::strlen(buf);
-    if (len > UI_PRESET_NAME_MAX_CHARS)
-    {
+    if (len > UI_PRESET_NAME_MAX_CHARS) {
         // Cut at max chars
         buf[UI_PRESET_NAME_MAX_CHARS] = '\0';
 
@@ -712,8 +710,7 @@ static void ui_set_preset_name_text(const char *name)
 
         // Append ellipsis (ensure room)
         const size_t cur = std::strlen(buf);
-        if (cur + 3 < sizeof(buf))
-        {
+        if (cur + 3 < sizeof(buf)) {
             std::strcat(buf, "...");
         }
     }
@@ -721,37 +718,37 @@ static void ui_set_preset_name_text(const char *name)
     lv_label_set_text(ui.label_preset_name, buf);
 }
 
-static void ui_set_preset_id(uint32_t id)
-{
-    if (!ui.label_preset_id)
+static void ui_set_preset_id(uint32_t id) {
+    if (!ui.label_preset_id) {
         return;
+    }
 
     char filament_buf[16];
     std::snprintf(filament_buf, sizeof(filament_buf), "#%u", (unsigned)id);
     lv_label_set_text(ui.label_preset_id, filament_buf);
 }
 
-static const lv_font_t *pick_preset_font_for_width(const char *text, lv_coord_t max_w)
-{
-    if (!text || !*text)
+static const lv_font_t *pick_preset_font_for_width(const char *text, lv_coord_t max_w) {
+    if (!text || !*text) {
         return ui_preset_font_l();
+    }
 
     const lv_font_t *fonts[] = {ui_preset_font_l(), ui_preset_font_m(), ui_preset_font_s()};
 
-    for (auto f : fonts)
-    {
+    for (auto f : fonts) {
         lv_point_t sz;
         lv_txt_get_size(&sz, text, f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        if (sz.x <= max_w)
+        if (sz.x <= max_w) {
             return f;
+        }
     }
     return ui_preset_font_s();
 }
 
-static void preset_name_apply_fit(lv_obj_t *label, const char *text)
-{
-    if (!label || !text || !text[0])
+static void preset_name_apply_fit(lv_obj_t *label, const char *text) {
+    if (!label || !text || !text[0]) {
         return;
+    }
 
     lv_obj_t *box = lv_obj_get_parent(label);
     lv_obj_update_layout(box);
@@ -762,8 +759,9 @@ static void preset_name_apply_fit(lv_obj_t *label, const char *text)
     lv_coord_t border = lv_obj_get_style_border_width(box, LV_PART_MAIN);
 
     lv_coord_t max_w = box_w - pad_l - pad_r - 2 * border;
-    if (max_w < 10)
+    if (max_w < 10) {
         max_w = 10;
+    }
 
     const lv_font_t *font = ui_preset_font_s(); // fallback
 
@@ -771,37 +769,25 @@ static void preset_name_apply_fit(lv_obj_t *label, const char *text)
 
     lv_txt_get_size(&sz, text, ui_preset_font_l(), 0, 0,
                     LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    if (sz.x <= max_w)
+    if (sz.x <= max_w) {
         font = ui_preset_font_l();
-    else
-    {
+    } else {
         lv_txt_get_size(&sz, text, ui_preset_font_m(), 0, 0,
                         LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        if (sz.x <= max_w)
+        if (sz.x <= max_w) {
             font = ui_preset_font_m();
+        }
     }
 
     lv_obj_set_style_text_font(label, font, LV_PART_MAIN);
     lv_label_set_text(label, text);
 
-    // if (!label)
-    //     return;
-
-    // // Ensure label uses full inner width so center-alignment works correctly
-    // lv_obj_set_width(label, UI_PRESET_BOX_NAME_MAX_W);
-
-    // const lv_font_t *f = pick_preset_font_for_width(text, UI_PRESET_BOX_NAME_MAX_W);
-    // lv_obj_set_style_text_font(label, f, LV_PART_MAIN);
-
-    // // Center text inside the label
-    // lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
 }
 //----------------------------------------------------
 //
 //----------------------------------------------------
 // Public API: create the main screen
-lv_obj_t *screen_main_create(lv_obj_t *parent)
-{
+lv_obj_t *screen_main_create(lv_obj_t *parent) {
     // // Root object
     // if (ui.root != nullptr)
     // {
@@ -813,8 +799,9 @@ lv_obj_t *screen_main_create(lv_obj_t *parent)
     // // ui.root = lv_screen_active();
     // lv_obj_clear_flag(ui.root, LV_OBJ_FLAG_SCROLLABLE);
 
-    if (ui.root)
-        return ui.root;              // optional caching, ok
+    if (ui.root) {
+        return ui.root; // optional caching, ok
+    }
     ui.root = lv_obj_create(parent); // create own screen container as child of app root
 
     lv_obj_remove_style_all(ui.root);
@@ -861,15 +848,14 @@ lv_obj_t *screen_main_create(lv_obj_t *parent)
 //----------------------------------------------------
 // Public API: runtime update
 //
-void screen_main_update_runtime(const OvenRuntimeState *state)
-{
-    if (!state)
+void screen_main_update_runtime(const OvenRuntimeState *state) {
+    if (!state) {
         return;
+    }
 
     static bool last_door_open = false;
 
-    if (state->door_open != last_door_open)
-    {
+    if (state->door_open != last_door_open) {
         UI_INFO("[DOOR] state changed: %d -> %d (running=%d)\n",
                 (int)last_door_open, (int)state->door_open, (int)state->running);
 
@@ -879,8 +865,7 @@ void screen_main_update_runtime(const OvenRuntimeState *state)
         pause_button_update_enabled_by_door(state->door_open);
 
         // If door opens while countdown is running -> force WAIT immediately
-        if (state->door_open)
-        {
+        if (state->door_open) {
             countdown_stop_and_set_wait_ui("door opened");
         }
     }
@@ -897,15 +882,12 @@ void screen_main_update_runtime(const OvenRuntimeState *state)
 }
 
 // Public API: page indicator update
-void screen_main_set_active_page(uint8_t page_index)
-{
-    if (page_index >= UI_PAGE_COUNT)
-    {
+void screen_main_set_active_page(uint8_t page_index) {
+    if (page_index >= UI_PAGE_COUNT) {
         return;
     }
 
-    for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i)
-    {
+    for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i) {
         lv_color_t col = (i == page_index)
                              ? ui_color_from_hex(UI_COLOR_PAGE_DOT_ACTIVE_HEX)
                              : ui_color_from_hex(UI_COLOR_PAGE_DOT_INACTIVE_HEX);
@@ -921,8 +903,7 @@ void screen_main_set_active_page(uint8_t page_index)
 //
 //----------------------------------------------------
 
-static void create_top_bar(lv_obj_t *parent)
-{
+static void create_top_bar(lv_obj_t *parent) {
     ui.top_bar_container = lv_obj_create(parent);
     lv_obj_clear_flag(ui.top_bar_container, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(ui.top_bar_container, UI_SCREEN_WIDTH, 50);
@@ -952,8 +933,7 @@ static void create_top_bar(lv_obj_t *parent)
 //----------------------------------------------------
 //
 //----------------------------------------------------
-static void create_center_section(lv_obj_t *parent)
-{
+static void create_center_section(lv_obj_t *parent) {
     ui.center_container = lv_obj_create(parent);
     lv_obj_clear_flag(ui.center_container, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(ui.center_container, UI_SCREEN_WIDTH, UI_DIAL_SIZE + 20);
@@ -1240,8 +1220,7 @@ static void create_center_section(lv_obj_t *parent)
 //----------------------------------------------------
 //
 //----------------------------------------------------
-static void create_page_indicator(lv_obj_t *parent)
-{
+static void create_page_indicator(lv_obj_t *parent) {
     ui.page_indicator_container = lv_obj_create(parent);
     lv_obj_set_size(ui.page_indicator_container, UI_SCREEN_WIDTH, UI_PAGE_INDICATOR_HEIGHT);
     lv_obj_align_to(ui.page_indicator_container, ui.center_container, LV_ALIGN_OUT_BOTTOM_MID, 0, 0);
@@ -1273,8 +1252,7 @@ static void create_page_indicator(lv_obj_t *parent)
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
 
-    for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i)
-    {
+    for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i) {
         ui.page_dots[i] = lv_obj_create(ui.page_indicator_panel);
         lv_obj_set_size(ui.page_dots[i], UI_PAGE_DOT_SIZE, UI_PAGE_DOT_SIZE);
 
@@ -1299,7 +1277,7 @@ static void create_page_indicator(lv_obj_t *parent)
     lv_obj_add_flag(ui.swipe_hit, LV_OBJ_FLAG_CLICKABLE);
     // Very subtle swipe hint background
     lv_obj_set_style_bg_color(ui.swipe_hit, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_bg_opa(ui.swipe_hit, 15, 0); // 
+    lv_obj_set_style_bg_opa(ui.swipe_hit, 15, 0); //
     lv_obj_set_style_radius(ui.swipe_hit, 8, 0);
     // Expose swipe target to screen_manager
     ui.s_swipe_target = ui.swipe_hit;
@@ -1308,8 +1286,7 @@ static void create_page_indicator(lv_obj_t *parent)
 //----------------------------------------------------
 // Bottom section creation (temperature scale)
 //----------------------------------------------------
-static void create_bottom_section(lv_obj_t *parent)
-{
+static void create_bottom_section(lv_obj_t *parent) {
     ui.bottom_container = lv_obj_create(parent);
     lv_obj_set_size(ui.bottom_container, UI_SCREEN_WIDTH, 70);
     lv_obj_align(ui.bottom_container, LV_ALIGN_BOTTOM_MID, 0, -UI_BOTTOM_PADDING);
@@ -1374,25 +1351,20 @@ static void create_bottom_section(lv_obj_t *parent)
 // aktualisiert die Heiz-Zeit HH:MM:SS
 // berechnet Restzeit
 //----------------------------------------------------
-static void update_time_ui(const OvenRuntimeState &state)
-{
+static void update_time_ui(const OvenRuntimeState &state) {
     const uint32_t totalSeconds = state.durationMinutes * 60;
     const uint32_t remaining = state.secondsRemaining;
 
     // UI countdown owns the top bar while running (prevents flicker with oven runtime updates)
-    if (g_countdown_tick != nullptr)
-    {
+    if (g_countdown_tick != nullptr) {
         return;
     }
 
-    if (totalSeconds > 0)
-    {
+    if (totalSeconds > 0) {
         uint32_t elapsed = (remaining <= totalSeconds) ? (totalSeconds - remaining) : totalSeconds;
         lv_bar_set_range(ui.time_bar, 0, totalSeconds);
         lv_bar_set_value(ui.time_bar, elapsed, LV_ANIM_OFF);
-    }
-    else
-    {
+    } else {
         lv_bar_set_range(ui.time_bar, 0, 1);
         lv_bar_set_value(ui.time_bar, 0, LV_ANIM_OFF);
     }
@@ -1407,8 +1379,7 @@ static void update_time_ui(const OvenRuntimeState &state)
 //
 //----------------------------------------------------
 
-static void update_dial_ui(const OvenRuntimeState &state)
-{
+static void update_dial_ui(const OvenRuntimeState &state) {
     // Ensure sizes/styles are resolved before measuring
     lv_obj_update_layout(ui.preset_box);
 
@@ -1422,12 +1393,12 @@ static void update_dial_ui(const OvenRuntimeState &state)
     lv_coord_t max_text_w = box_w - pad_l - pad_r - 2 * border_w;
 
     // Safety clamp
-    if (max_text_w < 10)
+    if (max_text_w < 10) {
         max_text_w = 10;
+    }
 
     // Preset name (top line)
-    if (ui.label_preset_name)
-    {
+    if (ui.label_preset_name) {
         lv_label_set_text(ui.label_preset_name, state.presetName);
         const char *name = state.presetName;
 
@@ -1450,8 +1421,9 @@ static void update_dial_ui(const OvenRuntimeState &state)
     // Filament id (second line)
     char filament_buf[16];
     std::snprintf(filament_buf, sizeof(filament_buf), "#%u", (unsigned)state.filamentId);
-    if (ui.label_preset_id)
+    if (ui.label_preset_id) {
         lv_label_set_text(ui.label_preset_id, filament_buf);
+    }
 }
 
 //----------------------------------------------------
@@ -1459,8 +1431,7 @@ static void update_dial_ui(const OvenRuntimeState &state)
 // update der aktuellen Temperatur-Labels
 // update der Scale-für IST-Temperatur
 //----------------------------------------------------
-static void update_temp_ui(const OvenRuntimeState &state)
-{
+static void update_temp_ui(const OvenRuntimeState &state) {
     float cur_f = state.tempCurrent;
     float tgt_f = state.tempTarget;
 
@@ -1471,14 +1442,18 @@ static void update_temp_ui(const OvenRuntimeState &state)
     // cur = (int16_t)state.temp_current;
     // tgt = (int16_t)state.temp_target;
 
-    if (cur < UI_TEMP_MIN_C)
+    if (cur < UI_TEMP_MIN_C) {
         cur = UI_TEMP_MIN_C;
-    if (cur > UI_TEMP_MAX_C)
+    }
+    if (cur > UI_TEMP_MAX_C) {
         cur = UI_TEMP_MAX_C;
-    if (tgt < UI_TEMP_MIN_C)
+    }
+    if (tgt < UI_TEMP_MIN_C) {
         tgt = UI_TEMP_MIN_C;
-    if (tgt > UI_TEMP_MAX_C)
+    }
+    if (tgt > UI_TEMP_MAX_C) {
         tgt = UI_TEMP_MAX_C;
+    }
 
     // Update CURRENT label
     char buf_cur[16];
@@ -1519,13 +1494,14 @@ static void update_temp_ui(const OvenRuntimeState &state)
     lv_coord_t scale_w = lv_obj_get_width(ui.temp_scale);
     lv_coord_t scale_h = lv_obj_get_height(ui.temp_scale);
 
-    auto value_to_x = [&](int16_t value) -> lv_coord_t
-    {
+    auto value_to_x = [&](int16_t value) -> lv_coord_t {
         float t = (float)(value - UI_TEMP_MIN_C) / (float)(UI_TEMP_MAX_C - UI_TEMP_MIN_C);
-        if (t < 0.0f)
+        if (t < 0.0f) {
             t = 0.0f;
-        if (t > 1.0f)
+        }
+        if (t > 1.0f) {
             t = 1.0f;
+        }
         return scale_x + (lv_coord_t)(t * (float)scale_w);
     };
 
@@ -1558,23 +1534,17 @@ static void update_temp_ui(const OvenRuntimeState &state)
 // führt update für Icons for (Farbwechsel)
 // Icons signalisieren lediglich ON/OFF
 //----------------------------------------------------
-static void update_actuator_icons(const OvenRuntimeState &state)
-{
-    auto set_icon_state = [](lv_obj_t *obj, lv_color_t on_color, bool on)
-    {
-        if (!obj)
-        {
+static void update_actuator_icons(const OvenRuntimeState &state) {
+    auto set_icon_state = [](lv_obj_t *obj, lv_color_t on_color, bool on) {
+        if (!obj) {
             return;
         }
 
-        if (on)
-        {
+        if (on) {
             // Recolor the white icon to the given ON color
             lv_obj_set_style_img_recolor(obj, on_color, LV_PART_MAIN);
             lv_obj_set_style_img_recolor_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
-        }
-        else
-        {
+        } else {
             // OFF: show original white icon (no recolor)
             lv_obj_set_style_img_recolor_opa(obj, LV_OPA_TRANSP, LV_PART_MAIN);
         }
@@ -1585,24 +1555,20 @@ static void update_actuator_icons(const OvenRuntimeState &state)
     const lv_color_t col_door_open = ui_color_from_hex(UI_COLOR_ICON_DOOR_OPEN_HEX); // z.B. rot
 
     // Door always reflects reality
-    if (state.heater_on && g_run_state != RunState::WAIT)
-    {
+    if (state.heater_on && g_run_state != RunState::WAIT) {
         const uint32_t hex = temp_status_color_hex(state.tempCurrent, state.tempTarget);
         set_icon_state(ui.icon_heater, ui_color_from_hex(hex), true);
 
         // Subtle pulse while heating
         heater_pulse_start(ui.icon_heater);
-    }
-    else
-    {
+    } else {
         // No heating (or WAIT): no pulse
         heater_pulse_stop(ui.icon_heater);
         set_icon_state(ui.icon_heater, col_on, false);
     }
 
     // WAIT override: show safe-state regardless of the real actuator bits
-    if (g_run_state == RunState::WAIT)
-    {
+    if (g_run_state == RunState::WAIT) {
         set_icon_state(ui.icon_fan230, col_on, false);     // OFF
         set_icon_state(ui.icon_fan230_slow, col_on, true); // ON
         set_icon_state(ui.icon_fan12v, col_on, true);      // ON
@@ -1630,24 +1596,19 @@ static void update_actuator_icons(const OvenRuntimeState &state)
     set_icon_state(ui.icon_lamp, col_on, state.lamp_on);
 }
 
-static void update_start_button_ui(void)
-{
-    if (!ui.btn_start || !ui.label_btn_start)
-    {
+static void update_start_button_ui(void) {
+    if (!ui.btn_start || !ui.label_btn_start) {
         return;
     }
 
     const bool running = (g_run_state != RunState::STOPPED);
 
-    if (running)
-    {
+    if (running) {
         // Oven is running: button should be red and show STOP
         lv_label_set_text(ui.label_btn_start, "STOP");
         lv_obj_set_style_bg_color(ui.btn_start, ui_color_from_hex(UI_COLOR_DANGER_HEX), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(ui.btn_start, LV_OPA_COVER, LV_PART_MAIN);
-    }
-    else
-    {
+    } else {
         // Oven is stopped: button should be orange and show START
         lv_label_set_text(ui.label_btn_start, "START");
         lv_obj_set_style_bg_color(ui.btn_start, ui_color_from_hex(0xFFA500), LV_PART_MAIN);
@@ -1662,36 +1623,32 @@ static void update_start_button_ui(void)
 // start_button_event_cb
 //
 //----------------------------------------------------
-static void start_button_event_cb(lv_event_t *e)
-{
+static void start_button_event_cb(lv_event_t *e) {
     LV_UNUSED(e);
     lv_event_code_t code = lv_event_get_code(e);
 
     // Wichtig: irgendein Log, das du sicher siehst
     UI_INFO("start_button_event_cb(): code=%d\n", (int)code);
 
-    if (g_run_state != RunState::STOPPED)
-    {
+    if (g_run_state != RunState::STOPPED) {
         // STOP from RUNNING or WAIT
         oven_stop();
 
-        if (g_countdown_tick)
-        {
+        if (g_countdown_tick) {
             lv_timer_del(g_countdown_tick);
             g_countdown_tick = nullptr;
         }
+        g_run_state = RunState::STOPPED;
 
-        // Reset to default preset time (temporary until config is wired)
-        int h = 1;
-        int m = 50;
-        g_remaining_seconds = h * 3600 + m * 60;
-        g_total_seconds = g_remaining_seconds;
 
-        set_needles_hms(h, m, 0);
-        set_remaining_label_seconds(g_remaining_seconds);
+        // g_remaining_seconds = h * 3600 + m * 60;
+        // g_total_seconds = g_remaining_seconds;
 
-        lv_bar_set_range(ui.time_bar, 0, g_total_seconds);
-        lv_bar_set_value(ui.time_bar, 0, LV_ANIM_OFF);
+        // set_needles_hms(h, m, 0);
+        // set_remaining_label_seconds(g_remaining_seconds);
+
+        // lv_bar_set_range(ui.time_bar, 0, g_total_seconds);
+        // lv_bar_set_value(ui.time_bar, 0, LV_ANIM_OFF);
 
         g_run_state = RunState::STOPPED;
         UI_INFO("OVEN_STOPPED\n");
@@ -1701,17 +1658,14 @@ static void start_button_event_cb(lv_event_t *e)
     oven_start();
     g_run_state = RunState::RUNNING;
     UI_INFO("OVEN_STARTED\n");
+    screen_main_refresh_from_runtime();
 
-    // Example: ui->hours / ui->minutes come from your config
-
-    if (g_remaining_seconds <= 0)
-    {
+    if (g_remaining_seconds <= 0) {
         UI_INFO("[COUNTDOWN] nothing to start (remaining_seconds=%d)\n", g_remaining_seconds);
         return;
     }
 
-    if (g_countdown_tick)
-    {
+    if (g_countdown_tick) {
         lv_timer_del(g_countdown_tick);
     }
 
@@ -1727,15 +1681,12 @@ static void start_button_event_cb(lv_event_t *e)
     UI_INFO("[COUNTDOWN] started: %d seconds\n", g_remaining_seconds);
 }
 
-static void pause_button_event_cb(lv_event_t *e)
-{
+static void pause_button_event_cb(lv_event_t *e) {
     LV_UNUSED(e);
 
-    if (g_run_state == RunState::RUNNING)
-    {
+    if (g_run_state == RunState::RUNNING) {
         // Enter WAIT: stop countdown timer, snapshot runtime
-        if (g_countdown_tick)
-        {
+        if (g_countdown_tick) {
             lv_timer_del(g_countdown_tick);
             g_countdown_tick = nullptr;
         }
@@ -1749,32 +1700,29 @@ static void pause_button_event_cb(lv_event_t *e)
         return;
     }
 
-    if (g_run_state == RunState::WAIT)
-    {
-        if (get_effective_door_open(g_last_runtime))
-        {
+    if (g_run_state == RunState::WAIT) {
+        if (get_effective_door_open(g_last_runtime)) {
             UI_INFO("[WAIT] cannot resume: door open\n");
             return;
         }
 
-        if (!oven_resume_from_wait())
-        {
+        if (!oven_resume_from_wait()) {
             UI_INFO("[WAIT] resume rejected by oven\n");
             return;
         }
 
         g_run_state = RunState::RUNNING;
 
-        if (!g_countdown_tick)
+        if (!g_countdown_tick) {
             g_countdown_tick = lv_timer_create(countdown_tick_cb, COUNT_TICK_UPDATE_FREQ, &ui);
+        }
 
         UI_INFO("[WAIT] resumed\n");
         return;
     }
 }
 
-lv_obj_t *screen_main_get_swipe_target(void)
-{
+lv_obj_t *screen_main_get_swipe_target(void) {
     return ui.s_swipe_target;
 }
 

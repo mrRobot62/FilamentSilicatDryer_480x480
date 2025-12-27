@@ -1,8 +1,8 @@
 #include "screen_manager.h"
 
-#include "screen_main.h"
 #include "screen_config.h"
 #include "screen_log.h"
+#include "screen_main.h"
 
 #include "oven/oven.h" // bool oven_is_running()
 
@@ -34,51 +34,52 @@ static constexpr int kSwipeMaxDyPx = 40;
  * Helpers
  * ==========================================================================*/
 
-static ScreenId next_id(ScreenId id)
-{
+static ScreenId next_id(ScreenId id) {
     const bool running = oven_is_running();
 
-    if (running)
-    {
+    if (running) {
         // While running: only MAIN <-> LOG
-        if (id == SCREEN_MAIN)
+        if (id == SCREEN_MAIN) {
             return SCREEN_LOG;
-        if (id == SCREEN_LOG)
+        }
+        if (id == SCREEN_LOG) {
             return SCREEN_LOG; // clamp at LOG
+        }
         // if somehow in CONFIG while running, treat as MAIN -> LOG
         return SCREEN_LOG;
     }
 
     // Not running: MAIN -> CONFIG -> LOG (clamped)
     const int last = SCREEN_COUNT - 1;
-    if ((int)id >= last)
+    if ((int)id >= last) {
         return (ScreenId)last;
+    }
     return (ScreenId)((int)id + 1);
 }
 
-static ScreenId prev_id(ScreenId id)
-{
+static ScreenId prev_id(ScreenId id) {
     const bool running = oven_is_running();
 
-    if (running)
-    {
+    if (running) {
         // While running: only MAIN <-> LOG
-        if (id == SCREEN_LOG)
+        if (id == SCREEN_LOG) {
             return SCREEN_MAIN;
-        if (id == SCREEN_MAIN)
+        }
+        if (id == SCREEN_MAIN) {
             return SCREEN_MAIN; // clamp at MAIN
+        }
         // if somehow in CONFIG while running, go back to MAIN
         return SCREEN_MAIN;
     }
 
     // Not running: LOG -> CONFIG -> MAIN (clamped)
-    if ((int)id <= 0)
+    if ((int)id <= 0) {
         return (ScreenId)0;
+    }
     return (ScreenId)((int)id - 1);
 }
 
-static bool navigation_allowed(void)
-{
+static bool navigation_allowed(void) {
     // Navigation disabled while oven is running
     return !oven_is_running();
 }
@@ -87,59 +88,56 @@ static bool navigation_allowed(void)
  * Swipe callback (PRESSED + PRESSING based)
  * ==========================================================================*/
 
-static void app_swipe_cb(lv_event_t *e)
-{
+static void app_swipe_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
 
     // if (!navigation_allowed())
     //     return;
 
     lv_indev_t *indev = lv_indev_active();
-    if (!indev)
+    if (!indev) {
         return;
+    }
 
     lv_point_t p;
     lv_indev_get_point(indev, &p);
 
-    if (code == LV_EVENT_PRESSED)
-    {
+    if (code == LV_EVENT_PRESSED) {
         s_swipe_start = p;
         s_swipe_active = true;
         s_swipe_fired = false;
         return;
     }
 
-    if (code == LV_EVENT_PRESSING)
-    {
-        if (!s_swipe_active || s_swipe_fired)
+    if (code == LV_EVENT_PRESSING) {
+        if (!s_swipe_active || s_swipe_fired) {
             return;
+        }
 
         int dx = p.x - s_swipe_start.x;
         int dy = p.y - s_swipe_start.y;
 
-        if (abs(dy) > kSwipeMaxDyPx)
+        if (abs(dy) > kSwipeMaxDyPx) {
             return;
+        }
 
-        if (abs(dx) < kSwipeMinDxPx)
+        if (abs(dx) < kSwipeMinDxPx) {
             return;
+        }
 
         s_swipe_fired = true;
 
-        if (dx < 0)
-        {
+        if (dx < 0) {
             UI_INFO("[ScreenManager] SWIPE LEFT\n");
             screen_manager_show(next_id(s_current));
-        }
-        else
-        {
+        } else {
             UI_INFO("[ScreenManager] SWIPE RIGHT\n");
             screen_manager_show(prev_id(s_current));
         }
         return;
     }
 
-    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST)
-    {
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
         s_swipe_active = false;
         return;
     }
@@ -149,10 +147,10 @@ static void app_swipe_cb(lv_event_t *e)
  * Attach swipe handler to a dedicated swipe target
  * ==========================================================================*/
 
-static void attach_swipe_target(lv_obj_t *obj)
-{
-    if (!obj)
+static void attach_swipe_target(lv_obj_t *obj) {
+    if (!obj) {
         return;
+    }
 
     // Needs to receive pointer events
     lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
@@ -167,36 +165,39 @@ static void attach_swipe_target(lv_obj_t *obj)
  * Public API
  * ==========================================================================*/
 
-lv_obj_t *screen_manager_app_root(void)
-{
+lv_obj_t *screen_manager_app_root(void) {
     return s_app_root;
 }
 
-ScreenId screen_manager_current(void)
-{
+ScreenId screen_manager_current(void) {
     return s_current;
 }
 
-void screen_manager_show(ScreenId id)
-{
+void screen_manager_show(ScreenId id) {
     UI_INFO("[ScreenManager] show(%d) cur=%d ptr=%p\n",
             (int)id, (int)s_current, (void *)s_screens[id]);
-    if (!s_app_root)
+    if (!s_app_root) {
         return;
-    if (id < 0 || id >= SCREEN_COUNT)
+    }
+    if (id < 0 || id >= SCREEN_COUNT) {
         return;
-    if (!s_screens[id])
+    }
+    if (!s_screens[id]) {
         return;
+    }
 
-    for (int i = 0; i < SCREEN_COUNT; ++i)
-    {
-        if (s_screens[i])
+    for (int i = 0; i < SCREEN_COUNT; ++i) {
+        if (s_screens[i]) {
             lv_obj_add_flag(s_screens[i], LV_OBJ_FLAG_HIDDEN);
+        }
     }
 
     lv_obj_clear_flag(s_screens[id], LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_screens[id]);
 
+    if (id == SCREEN_MAIN) {
+        screen_main_refresh_from_runtime();
+    }
     s_current = id;
 
     UI_INFO("[ScreenManager] screens: main=%p cfg=%p log=%p current:%p\n",
@@ -205,8 +206,7 @@ void screen_manager_show(ScreenId id)
             (void *)s_screens[SCREEN_LOG]);
 }
 
-void screen_manager_init(lv_obj_t *screen_parent)
-{
+void screen_manager_init(lv_obj_t *screen_parent) {
     s_parent = screen_parent ? screen_parent : lv_scr_act();
 
     /* App root */
@@ -222,10 +222,10 @@ void screen_manager_init(lv_obj_t *screen_parent)
     s_screens[SCREEN_LOG] = screen_log_create(s_app_root);
 
     /* Hide all initially */
-    for (int i = 0; i < SCREEN_COUNT; ++i)
-    {
-        if (s_screens[i])
+    for (int i = 0; i < SCREEN_COUNT; ++i) {
+        if (s_screens[i]) {
             lv_obj_add_flag(s_screens[i], LV_OBJ_FLAG_HIDDEN);
+        }
     }
 
     /* Attach swipe only to dedicated swipe zones */
@@ -238,7 +238,6 @@ void screen_manager_init(lv_obj_t *screen_parent)
     UI_DBG("[SCR_MANAGER] done. screen-addr: %d\n", s_app_root);
 }
 
-void screen_manager_go_home(void)
-{
+void screen_manager_go_home(void) {
     screen_manager_show(SCREEN_MAIN);
 }

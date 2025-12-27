@@ -736,6 +736,8 @@ static void btn_save_event_cb(lv_event_t *e) {
         UI_WARN("[screen_config] SAVE blocked (oven running)\n");
         return;
     }
+    // final sync (belt & suspenders)
+    apply_runtime_from_widgets();
 
     UI_INFO("[screen_config] SAVE -> go home\n");
     if (ui_config.label_info_message) {
@@ -799,11 +801,21 @@ static void filament_roller_event_cb(lv_event_t *e) {
     if (!s_screen_ready || s_updating_widgets) {
         return;
     }
+
     lv_obj_t *roller = (lv_obj_t *)lv_event_get_target(e);
     const int idx = lv_roller_get_selected(roller);
 
     UI_INFO("[screen_config] preset selected index=%d\n", idx);
+
+    // 1) Set runtime to this preset (id/name/rotary)
+    oven_select_preset((uint16_t)idx);
+
+    // 2) Load preset defaults into widgets
     load_preset_to_widgets(idx);
+
+    // Optional: also write the loaded defaults to runtime immediately
+    // (safe because widgets now match preset values)
+    apply_runtime_from_widgets();
 }
 
 static void temp_roller_event_cb(lv_event_t *e) {
@@ -957,21 +969,31 @@ static void icons_state_timer_cb(lv_timer_t *t) {
 // -----------------------------------------------------------------------------
 
 static void apply_runtime_from_widgets(void) {
-    // Temperature roller is 20..120 mapped by index 0..100
-    const int temp_idx = lv_roller_get_selected(ui_config.roller_drying_temp);
-    const int temp_c = temp_idx;
+    if (!ui_config.roller_filament_type ||
+        !ui_config.roller_time_hh ||
+        !ui_config.roller_time_mm ||
+        !ui_config.roller_drying_temp) {
+        return;
+    }
 
+    // Filament type / preset
+    const int preset_idx = lv_roller_get_selected(ui_config.roller_filament_type);
+    oven_select_preset((uint16_t)preset_idx); // sets filamentId, presetName, rotaryOn (and maybe defaults)
+
+    // HH:MM
     const int hh = lv_roller_get_selected(ui_config.roller_time_hh);
-
-    // MM roller uses 0..55 in 5-min steps => idx 0..11
     const int mm5 = lv_roller_get_selected(ui_config.roller_time_mm);
     const int mm = mm5 * 5;
 
     const int duration_min = hh * 60 + mm;
 
+    // Temperature roller is 20..120 mapped by index 0..100
+    const int temp_idx = lv_roller_get_selected(ui_config.roller_drying_temp);
+    const int temp_c = temp_idx;
+
     // Apply to runtime only (no persistence)
-    oven_set_runtime_temp_target((uint16_t)temp_c);
     oven_set_runtime_duration_minutes((uint16_t)duration_min);
+    oven_set_runtime_temp_target((uint16_t)temp_c);
 
     if (ui_config.label_info_message) {
         char buf[64];
