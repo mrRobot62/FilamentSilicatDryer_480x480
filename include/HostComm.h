@@ -1,14 +1,13 @@
 #pragma once
 
-#include <Arduino.h>
 #include "protocol.h"
+#include <Arduino.h>
 
-class HostComm
-{
-public:
+class HostComm {
+  public:
     explicit HostComm(HardwareSerial &serial);
 
-    void begin(uint32_t baudrate);
+    void begin(uint32_t baudrate, uint8_t rx, uint8_t tx);
     void loop(); // non-blocking, safe to call alongside LVGL
 
     // Commands to client
@@ -34,8 +33,9 @@ public:
     // In HostComm.h (public):
     void processLine(const String &line);
 
-private:
+  private:
     HardwareSerial &_serial;
+    uint8_t _rx, _tx;
     String _rxBuffer;
 
     uint16_t _localOutputsMask;

@@ -301,95 +301,135 @@ void screen_main_refresh_from_runtime(void) {
     OvenRuntimeState st;
     oven_get_runtime_state(&st);
 
+    // Ensure dial coords are valid after screen switch / unhide
+    lv_obj_update_layout(ui.root);
+    lv_obj_update_layout(ui.dial);
+
+    int hh = 0, mm = 0, ss = 0;
+
     if (!st.running) {
-        int totalMin = st.durationMinutes;
-        int hh = totalMin / 60;
-        int mm = totalMin % 60;
+        // STOPPED: runtime holds the configured total duration
+        const int totalSec = (int)st.durationMinutes * 60;
+        g_total_seconds = totalSec;
+        g_remaining_seconds = totalSec;
 
-        set_needles_hms(hh, mm, 0);
+        hh = g_remaining_seconds / 3600;
+        mm = (g_remaining_seconds % 3600) / 60;
+        ss = 0;
+
+        // Progressbar reset (0 elapsed)
+        lv_bar_set_range(ui.time_bar, 0, (g_total_seconds > 0) ? g_total_seconds : 1);
+        lv_bar_set_value(ui.time_bar, 0, LV_ANIM_OFF);
+
     } else {
-        int sec = st.secondsRemaining;
-        int hh = sec / 3600;
-        int mm = (sec % 3600) / 60;
-        int ss = sec % 60;
+        // RUNNING: runtime holds remaining seconds
+        const int rem = (int)st.secondsRemaining;
+        g_remaining_seconds = (rem < 0) ? 0 : rem;
 
-        set_needles_hms(hh, mm, ss);
+        // If durationMinutes is valid, use it as total; else fall back to remaining
+        int totalSec = (int)st.durationMinutes * 60;
+        if (totalSec <= 0) {
+            totalSec = g_remaining_seconds;
+        }
+        g_total_seconds = totalSec;
+
+        hh = g_remaining_seconds / 3600;
+        mm = (g_remaining_seconds % 3600) / 60;
+        ss = g_remaining_seconds % 60;
+
+        // Progressbar: elapsed = total - remaining
+        int elapsed = g_total_seconds - g_remaining_seconds;
+        if (elapsed < 0) {
+            elapsed = 0;
+        }
+        if (elapsed > g_total_seconds) {
+            elapsed = g_total_seconds;
+        }
+
+        lv_bar_set_range(ui.time_bar, 0, (g_total_seconds > 0) ? g_total_seconds : 1);
+        lv_bar_set_value(ui.time_bar, elapsed, LV_ANIM_OFF);
     }
+
+    // Dial is 12h styled -> wrap hour hand nicely
+    const int hh12 = hh % 12;
+
+    set_needles_hms(hh12, mm, ss);
+    set_remaining_label_seconds(g_remaining_seconds);
 }
 
 static void countdown_tick_cb(lv_timer_t *t) {
-    if (g_total_seconds > 0) {
-        int elapsed = g_total_seconds - g_remaining_seconds;
-        if (elapsed < 0) {
-            elapsed = 0;
-        }
-        if (elapsed > g_total_seconds) {
-            elapsed = g_total_seconds;
-        }
+    // if (g_total_seconds > 0) {
+    //     int elapsed = g_total_seconds - g_remaining_seconds;
+    //     if (elapsed < 0) {
+    //         elapsed = 0;
+    //     }
+    //     if (elapsed > g_total_seconds) {
+    //         elapsed = g_total_seconds;
+    //     }
 
-        lv_bar_set_value(ui.time_bar, elapsed, LV_ANIM_OFF);
-    }
+    //     lv_bar_set_value(ui.time_bar, elapsed, LV_ANIM_OFF);
+    // }
 
-    if (g_remaining_seconds <= 0) {
-        // Countdown finished
-        g_remaining_seconds = 0;
+    // if (g_remaining_seconds <= 0) {
+    //     // Countdown finished
+    //     g_remaining_seconds = 0;
 
-        update_needle(ui.dial, ui.needleMM, g_minute_hand_points,
-                      calc_minute_angle(0),
-                      ui.needle_rFromMinute, ui.needle_rToMinute);
+    //     update_needle(ui.dial, ui.needleMM, g_minute_hand_points,
+    //                   calc_minute_angle(0),
+    //                   ui.needle_rFromMinute, ui.needle_rToMinute);
 
-        update_needle(ui.dial, ui.needleHH, g_hour_hand_points,
-                      calc_hour_angle(0, 0),
-                      ui.needle_rFromHour, ui.needle_rToHour);
+    //     update_needle(ui.dial, ui.needleHH, g_hour_hand_points,
+    //                   calc_hour_angle(0, 0),
+    //                   ui.needle_rFromHour, ui.needle_rToHour);
 
-        update_needle(ui.dial, ui.needleSS, g_second_hand_points,
-                      calc_minute_angle(0),
-                      ui.needle_rFromMinute, ui.needle_rToMinute);
+    //     update_needle(ui.dial, ui.needleSS, g_second_hand_points,
+    //                   calc_minute_angle(0),
+    //                   ui.needle_rFromMinute, ui.needle_rToMinute);
 
-        lv_timer_del(g_countdown_tick);
-        g_countdown_tick = nullptr;
+    //     lv_timer_del(g_countdown_tick);
+    //     g_countdown_tick = nullptr;
 
-        UI_INFO("*************************************\n");
-        UI_INFO("[COUNTDOWN] finished\n");
-        UI_INFO("*************************************\n");
-        return;
-    }
+    //     UI_INFO("*************************************\n");
+    //     UI_INFO("[COUNTDOWN] finished\n");
+    //     UI_INFO("*************************************\n");
+    //     return;
+    // }
 
-    g_remaining_seconds--;
+    // g_remaining_seconds--;
 
-    if (g_total_seconds > 0) {
-        int elapsed = g_total_seconds - g_remaining_seconds;
-        if (elapsed < 0) {
-            elapsed = 0;
-        }
-        if (elapsed > g_total_seconds) {
-            elapsed = g_total_seconds;
-        }
+    // if (g_total_seconds > 0) {
+    //     int elapsed = g_total_seconds - g_remaining_seconds;
+    //     if (elapsed < 0) {
+    //         elapsed = 0;
+    //     }
+    //     if (elapsed > g_total_seconds) {
+    //         elapsed = g_total_seconds;
+    //     }
 
-        lv_bar_set_value(ui.time_bar, elapsed, LV_ANIM_OFF);
-    }
+    //     lv_bar_set_value(ui.time_bar, elapsed, LV_ANIM_OFF);
+    // }
 
-    set_remaining_label_seconds(g_remaining_seconds);
+    // set_remaining_label_seconds(g_remaining_seconds);
 
-    // --- derive HH / MM / SS ---
-    int hh = g_remaining_seconds / 3600;
-    int mm = (g_remaining_seconds % 3600) / 60;
-    int ss = g_remaining_seconds % 60;
+    // // --- derive HH / MM / SS ---
+    // int hh = g_remaining_seconds / 3600;
+    // int mm = (g_remaining_seconds % 3600) / 60;
+    // int ss = g_remaining_seconds % 60;
 
-    // --- compute angles ---
-    int angMM = calc_minute_angle(mm);
-    int angHH = calc_hour_angle(hh, mm);
-    int angSS = calc_minute_angle(ss);
+    // // --- compute angles ---
+    // int angMM = calc_minute_angle(mm);
+    // int angHH = calc_hour_angle(hh, mm);
+    // int angSS = calc_minute_angle(ss);
 
-    // --- update needles ---
-    update_needle(ui.dial, ui.needleMM, g_minute_hand_points,
-                  angMM, ui.needle_rFromMinute, ui.needle_rToMinute);
+    // // --- update needles ---
+    // update_needle(ui.dial, ui.needleMM, g_minute_hand_points,
+    //               angMM, ui.needle_rFromMinute, ui.needle_rToMinute);
 
-    update_needle(ui.dial, ui.needleHH, g_hour_hand_points,
-                  angHH, ui.needle_rFromHour, ui.needle_rToHour);
+    // update_needle(ui.dial, ui.needleHH, g_hour_hand_points,
+    //               angHH, ui.needle_rFromHour, ui.needle_rToHour);
 
-    update_needle(ui.dial, ui.needleSS, g_second_hand_points,
-                  angSS, ui.needle_rFromMinute, ui.needle_rToMinute);
+    // update_needle(ui.dial, ui.needleSS, g_second_hand_points,
+    //               angSS, ui.needle_rFromMinute, ui.needle_rToMinute);
 }
 
 static void needles_init_cb(lv_timer_t *t) {
@@ -781,7 +821,6 @@ static void preset_name_apply_fit(lv_obj_t *label, const char *text) {
 
     lv_obj_set_style_text_font(label, font, LV_PART_MAIN);
     lv_label_set_text(label, text);
-
 }
 //----------------------------------------------------
 //
@@ -877,7 +916,7 @@ void screen_main_update_runtime(const OvenRuntimeState *state) {
     update_temp_ui(*state);
     update_actuator_icons(*state);
     update_start_button_ui();
-
+    screen_main_refresh_from_runtime();
     pause_button_apply_ui(g_run_state, get_effective_door_open(g_last_runtime));
 }
 
@@ -1638,17 +1677,6 @@ static void start_button_event_cb(lv_event_t *e) {
             lv_timer_del(g_countdown_tick);
             g_countdown_tick = nullptr;
         }
-        g_run_state = RunState::STOPPED;
-
-
-        // g_remaining_seconds = h * 3600 + m * 60;
-        // g_total_seconds = g_remaining_seconds;
-
-        // set_needles_hms(h, m, 0);
-        // set_remaining_label_seconds(g_remaining_seconds);
-
-        // lv_bar_set_range(ui.time_bar, 0, g_total_seconds);
-        // lv_bar_set_value(ui.time_bar, 0, LV_ANIM_OFF);
 
         g_run_state = RunState::STOPPED;
         UI_INFO("OVEN_STOPPED\n");
@@ -1665,9 +1693,9 @@ static void start_button_event_cb(lv_event_t *e) {
         return;
     }
 
-    if (g_countdown_tick) {
-        lv_timer_del(g_countdown_tick);
-    }
+    // if (g_countdown_tick) {
+    //     lv_timer_del(g_countdown_tick);
+    //}
 
     g_total_seconds = g_remaining_seconds;
 
@@ -1676,7 +1704,8 @@ static void start_button_event_cb(lv_event_t *e) {
 
     set_remaining_label_seconds(g_remaining_seconds);
 
-    g_countdown_tick = lv_timer_create(countdown_tick_cb, COUNT_TICK_UPDATE_FREQ, &ui);
+    // deprecated: oven_tick ist ausschließlich für die Zeit zuständig
+    // g_countdown_tick = lv_timer_create(countdown_tick_cb, COUNT_TICK_UPDATE_FREQ, &ui);
     pause_button_apply_ui(g_run_state, get_effective_door_open(g_last_runtime));
     UI_INFO("[COUNTDOWN] started: %d seconds\n", g_remaining_seconds);
 }
@@ -1696,7 +1725,7 @@ static void pause_button_event_cb(lv_event_t *e) {
 
         g_run_state = RunState::WAIT;
 
-        UI_INFO("[WAIT] entered\n");
+        UI_INFO("[WAIT] (pause_button_event_cb) entered\n");
         return;
     }
 
@@ -1713,9 +1742,10 @@ static void pause_button_event_cb(lv_event_t *e) {
 
         g_run_state = RunState::RUNNING;
 
-        if (!g_countdown_tick) {
-            g_countdown_tick = lv_timer_create(countdown_tick_cb, COUNT_TICK_UPDATE_FREQ, &ui);
-        }
+        // deprecated: oven_tick ist ausschließlich für die Zeit zuständig
+        // if (!g_countdown_tick) {
+        //     g_countdown_tick = lv_timer_create(countdown_tick_cb, COUNT_TICK_UPDATE_FREQ, &ui);
+        // }
 
         UI_INFO("[WAIT] resumed\n");
         return;

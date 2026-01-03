@@ -1,21 +1,24 @@
 #pragma once
-#include <Arduino.h>
+#include "HostComm.h"
 #include "log_oven.h"
 #include "protocol.h"
-#include "HostComm.h"
-#include <stdint.h>
-#include <stdbool.h>
+#include <Arduino.h>
 #include <cstring>
+#include <stdbool.h>
+#include <stdint.h>
 
-#define OVEN_P0_FAN12V P0        // PIN 5 auf Stecker
-#define OVEN_P1_FAN230V P1       // PIN 7 auf Stecker
-#define OVEN_P2_FAN230V_SLOW P2  // PIN 10 auf Stecker
-#define OVEN_P3_LAMP P3          // PIN 8 auf Stecker
-#define OVEN_P4_SILICAT_MOTOR P4 // PIN 9 auf Stecker
-#define OVEN_P5_DOOR_SENSOR P5   // PIN 12 auf Stecker
-#define OVEN_P6_HEATER P6        // PINT 6 auf stecker
+enum class OVEN_CONNECTOR : uint16_t {
+    FAN12V = 1u << 0,        // bit 0
+    FAN230V = 1u << 1,       // bit 1
+    FAN230V_SLOW = 1u << 2,  // bit 2
+    SILICAT_MOTOR = 1u << 3, // bit 3
+    HEATER = 1u << 4,        // bit 4
+    LAMP = 1u << 5,          // bit 5
+    DOOR_ACTIVE = 1u << 6    // bit 6
+};
 
 // Drying profile configuration
+constexpr uint32_t kStatusPollIntervalMs = 2000; // request STATUS every 2 seconds
 
 typedef struct
 {
@@ -59,6 +62,12 @@ typedef struct
 
     bool running;
 
+    // Communication diagnostics (host-side)
+    bool commAlive;
+    uint32_t lastStatusAgeMs;
+    uint32_t statusRxCount;
+    uint32_t commErrorCount;
+
 } OvenRuntimeState;
 
 static constexpr FilamentPreset kPresets[] = {
@@ -91,6 +100,16 @@ static constexpr FilamentPreset kPresets[] = {
     {"Spec-TPU 82A", 42.5f, 300, false}, // 25
     {"Spec-WOOD-Composite", 45.0f, 300, false},
 };
+
+static uint16_t g_remoteOutputsMask = 0;  // last STATUS mask (truth)
+static uint16_t g_lastCommandMask = 0;    // last SET mask we sent
+static uint16_t g_preWaitCommandMask = 0; // snapshot before WAIT
+
+static uint32_t g_lastStatusRxMs = 0;
+static uint32_t g_statusRxCount = 0;
+static uint32_t g_commErrorCount = 0;
+
+static constexpr uint32_t kCommAliveTimeoutMs = 1500; // tune as needed
 
 static constexpr uint16_t kPresetCount =
     sizeof(kPresets) / sizeof(kPresets[0]);
@@ -143,5 +162,9 @@ void oven_set_runtime_actuator_fan230_slow(bool on);
 void oven_set_runtime_actuator_heater(bool on);
 void oven_set_runtime_actuator_motor(bool on);
 void oven_set_runtime_actuator_lamp(bool on);
+
+// Communication link (Host <-> Client over UART)
+void oven_comm_init(HardwareSerial &serial, uint32_t baudrate, uint8_t rx, uint8_t tx);
+void oven_comm_poll(void);
 
 // END OF FILE

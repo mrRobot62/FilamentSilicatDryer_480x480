@@ -20,9 +20,10 @@
  */
 HostComm::HostComm(HardwareSerial &serial)
     : _serial(serial),
+      _rx(0),
+      _tx(0),
       _rxBuffer(),
-      _localOutputsMask(0)
-{
+      _localOutputsMask(0) {
     // Initialize remote status with known defaults
     _remoteStatus.outputsMask = 0;
     _remoteStatus.adcRaw[0] = 0;
@@ -46,9 +47,8 @@ HostComm::HostComm(HardwareSerial &serial)
  *
  * @param baudrate UART baud rate (must match the client side).
  */
-void HostComm::begin(uint32_t baudrate)
-{
-    _serial.begin(baudrate);
+void HostComm::begin(uint32_t baudrate, uint8_t rx, uint8_t tx) {
+    _serial.begin(baudrate, SERIAL_8N1, _rx, _tx);
 }
 
 /**
@@ -69,32 +69,25 @@ void HostComm::begin(uint32_t baudrate)
  * The implementation is fully non-blocking and uses no delays,
  * so it is safe to run alongside LVGL or any real-time GUI loop.
  */
-void HostComm::loop()
-{
+void HostComm::loop() {
     // Read all currently available characters from the UART
-    while (_serial.available() > 0)
-    {
+    while (_serial.available() > 0) {
         char c = static_cast<char>(_serial.read());
 
         // We treat '\r' as optional and ignore it,
         // and use '\n' as the end-of-line separator.
-        if (c == '\r')
-        {
+        if (c == '\r') {
             continue;
         }
 
-        if (c == '\n')
-        {
+        if (c == '\n') {
             // End of line reached: process the collected line if not empty
-            if (_rxBuffer.length() > 0)
-            {
+            if (_rxBuffer.length() > 0) {
                 String line = _rxBuffer;
                 _rxBuffer = "";
                 handleIncomingLine(line);
             }
-        }
-        else
-        {
+        } else {
             // Accumulate character into buffer
             _rxBuffer += c;
         }
@@ -115,8 +108,7 @@ void HostComm::loop()
  *
  * @param mask 16-bit mask representing the desired digital states.
  */
-void HostComm::setOutputsMask(uint16_t mask)
-{
+void HostComm::setOutputsMask(uint16_t mask) {
     _localOutputsMask = mask;
     _lastSetAcked = false; // wait for a fresh ACK from the client
 
@@ -137,8 +129,7 @@ void HostComm::setOutputsMask(uint16_t mask)
  * After reception and successful parsing, hasNewStatus() will become true
  * and getRemoteStatus() will return updated values.
  */
-void HostComm::requestStatus()
-{
+void HostComm::requestStatus() {
     String msg = ProtocolCodec::buildHostGetStatus();
     _serial.print(msg);
 }
@@ -154,8 +145,7 @@ void HostComm::requestStatus()
  *
  * This is optional but can be used to check if the link is alive.
  */
-void HostComm::sendPing()
-{
+void HostComm::sendPing() {
     String msg = ProtocolCodec::buildHostPing();
     _serial.print(msg);
 }
@@ -168,8 +158,7 @@ void HostComm::sendPing()
  *
  * @return 16-bit local outputs mask.
  */
-uint16_t HostComm::getLocalOutputsMask() const
-{
+uint16_t HostComm::getLocalOutputsMask() const {
     return _localOutputsMask;
 }
 
@@ -182,8 +171,7 @@ uint16_t HostComm::getLocalOutputsMask() const
  *
  * @return 16-bit outputs mask as reported by the client.
  */
-uint16_t HostComm::getRemoteOutputsMask() const
-{
+uint16_t HostComm::getRemoteOutputsMask() const {
     return _remoteStatus.outputsMask;
 }
 
@@ -200,8 +188,7 @@ uint16_t HostComm::getRemoteOutputsMask() const
  *
  * @return const ProtocolStatus& reference.
  */
-const ProtocolStatus &HostComm::getRemoteStatus() const
-{
+const ProtocolStatus &HostComm::getRemoteStatus() const {
     return _remoteStatus;
 }
 
@@ -217,16 +204,14 @@ const ProtocolStatus &HostComm::getRemoteStatus() const
  * @return true if new status is available.
  * @return false otherwise.
  */
-bool HostComm::hasNewStatus() const
-{
+bool HostComm::hasNewStatus() const {
     return _newStatus;
 }
 
 /**
  * @brief Clear the "new status" flag after processing the data.
  */
-void HostComm::clearNewStatusFlag()
-{
+void HostComm::clearNewStatusFlag() {
     _newStatus = false;
 }
 
@@ -242,8 +227,7 @@ void HostComm::clearNewStatusFlag()
  * @return true if the last SET has been ACKed.
  * @return false otherwise.
  */
-bool HostComm::lastSetAcked() const
-{
+bool HostComm::lastSetAcked() const {
     return _lastSetAcked;
 }
 
@@ -252,8 +236,7 @@ bool HostComm::lastSetAcked() const
  *
  * Use this if you want to detect a new ACK event after another SET.
  */
-void HostComm::clearLastSetAckFlag()
-{
+void HostComm::clearLastSetAckFlag() {
     _lastSetAcked = false;
 }
 
@@ -270,16 +253,14 @@ void HostComm::clearLastSetAckFlag()
  * @return true if an error was detected.
  * @return false otherwise.
  */
-bool HostComm::hasCommError() const
-{
+bool HostComm::hasCommError() const {
     return _commError;
 }
 
 /**
  * @brief Clear the communication error flag.
  */
-void HostComm::clearCommErrorFlag()
-{
+void HostComm::clearCommErrorFlag() {
     _commError = false;
 }
 
@@ -295,8 +276,7 @@ void HostComm::clearCommErrorFlag()
  *
  * @param line A single complete protocol line, without trailing \r or \n.
  */
-void HostComm::handleIncomingLine(const String &line)
-{
+void HostComm::handleIncomingLine(const String &line) {
     ProtocolMessageType type;
     ProtocolStatus statusTmp;
     uint16_t mask = 0;
@@ -305,16 +285,14 @@ void HostComm::handleIncomingLine(const String &line)
     uint16_t maskC = 0;
     // Try to parse the line according to the agreed protocol
     bool ok = ProtocolCodec::parseLine(line, type, statusTmp, mask, errorCode, maskB, maskC);
-    if (!ok)
-    {
+    if (!ok) {
         // Any parsing problem is treated as a communication error
         _commError = true;
         return;
     }
 
     // Handle message depending on its type
-    switch (type)
-    {
+    switch (type) {
     case ProtocolMessageType::ClientAckSet:
         // Client confirmed a SET command:
         // we set the flag and optionally synchronize the remote outputsMask.
@@ -350,8 +328,7 @@ void HostComm::handleIncomingLine(const String &line)
 }
 
 // In HostComm.cpp:
-void HostComm::processLine(const String &line)
-{
+void HostComm::processLine(const String &line) {
     handleIncomingLine(line);
 }
 

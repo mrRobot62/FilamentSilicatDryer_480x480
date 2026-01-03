@@ -8,20 +8,24 @@
 
 #include "log_core.h"
 #include "ui.h"
-#include "ui_events.h"
 #include "ui/screens/screen_main.h"
+#include "ui_events.h"
 
 static uint32_t last_beat = 0;
 static uint32_t last_tick_ms = 0;
+// Host UART pins on ESP32-S3
+constexpr int HOST_RX_PIN = 2;  // IO02 = relay2
+constexpr int HOST_TX_PIN = 40; // IO40 = relay1
 
-void setup()
-{
+void setup() {
     Serial.begin(115200);
     delay(4000); // damit du sicher die Setup-Logs siehst
 
     INFO("======================================================\n");
     INFO("=== ESP32-S3 + ST7701 480x480 + LVGL 9.4.x + Touch ===\n");
     INFO("======================================================\n");
+
+    oven_comm_init(Serial2, 115200, HOST_RX_PIN, HOST_TX_PIN);
 
     oven_init();
     ui_init();
@@ -30,8 +34,7 @@ void setup()
     last_tick_ms = millis();
 }
 
-void loop()
-{
+void loop() {
 
     static uint32_t last_ui_update = 0;
 
@@ -45,16 +48,14 @@ void loop()
     oven_tick();
 
     // UI update (4Hz)
-    if (now - last_ui_update >= 250)
-    {
+    if (now - last_ui_update >= 250) {
         last_ui_update = now;
 
         OvenRuntimeState st;
         oven_get_runtime_state(&st);
 
         // Debug-Log, damit wir sehen, dass UI-Update läuft
-        if (now - last_ui_update >= 1000)
-        {
+        if (now - last_ui_update >= 1000) {
             INFO("UI update: remaining=%lus, duration=%umin",
                  (unsigned long)st.secondsRemaining,
                  (unsigned int)st.durationMinutes);
