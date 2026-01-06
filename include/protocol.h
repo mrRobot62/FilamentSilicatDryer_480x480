@@ -1,14 +1,13 @@
 #pragma once
+#warning "HOST BUILD: using include/protocol.h"
 
-#include <Arduino.h>
 #include "log_core.h"
+#include <Arduino.h>
 
-inline const char *bits16ToStr(uint16_t value)
-{
+inline const char *bits16ToStr(uint16_t value) {
     static char buf[17]; // 16 bits + '\0'
 
-    for (int i = 0; i < 16; ++i)
-    {
+    for (int i = 0; i < 16; ++i) {
         buf[i] = (value & (1 << (15 - i))) ? '1' : '0';
     }
 
@@ -17,15 +16,13 @@ inline const char *bits16ToStr(uint16_t value)
 }
 
 // Holds status data exchanged between host and client
-struct ProtocolStatus
-{
+struct ProtocolStatus {
     uint16_t outputsMask; // 16-bit digital states CH0–CH15
     uint16_t adcRaw[4];   // adcRaw[0..3] for analog channels (CH12–CH15)
     int16_t tempRaw;      // temperature in 0.25°C steps (tempRaw = °C * 4)
 };
 
-enum class ProtocolMessageType : uint8_t
-{
+enum class ProtocolMessageType : uint8_t {
     Unknown = 0,
     // Host -> Client
     HostUpd, // H;UPD;SSSS;CCCC
@@ -45,9 +42,8 @@ enum class ProtocolMessageType : uint8_t
     ClientRst,
 };
 
-class ProtocolCodec
-{
-public:
+class ProtocolCodec {
+  public:
     // Parse a single line (without trailing CR/LF).
     // Fills type, status, mask, errorCode as applicable.
     // Returns true on success, false on parse error.
@@ -81,7 +77,7 @@ public:
     static String buildClientAckUpd(uint16_t newMask);
     static String buildClientAckTog(uint16_t newMask);
 
-private:
+  private:
     static String toHex4(uint16_t value);
     static bool parseHex4(const String &text, uint16_t &value);
 };

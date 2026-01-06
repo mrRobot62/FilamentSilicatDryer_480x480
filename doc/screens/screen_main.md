@@ -92,6 +92,29 @@ Statusfarbe:
 
 ---
 
+## Blockaufbau der Screens
+```mermaid
+block
+  columns 1
+
+  %% Top bar
+  TOP["TOP BAR\nheight = top_h"]
+
+  %% Center area as horizontal block
+  block:center
+    columns 3
+    LEFT["LEFT/ICONS"]
+    MIDDLE["MIDDLE/CONTENT"]
+    RIGHT["RIGHT/BUTTONS"]
+  end
+
+  %% Page indicator
+  PAGE["PAGE INDICATOR / SWIPE ZONE\nheight = page_h"]
+
+  %% Bottom bar
+  BOTTOM["BOTTOM BAR\nheight = bottom_h"]
+```
+
 ## Mermaid Prozess-Ablauf
 
 ```mermaid

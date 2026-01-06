@@ -11,49 +11,53 @@
  * - Format strings follow printf-style formatting.
  */
 
-inline void logPrintPrefix(const char *tag, const char *level)
-{
-  Serial.print("[");
-  Serial.print(tag);
-  Serial.print("/");
-  Serial.print(level);
-  Serial.print("] ");
+inline void logPrintPrefix(const char *tag, const char *level) {
+    Serial.print("[");
+    Serial.print(tag);
+    Serial.print("/");
+    Serial.print(level);
+    Serial.print("] ");
 }
 
-inline void logVPrintf(const char *tag, const char *level, const char *fmt, va_list args)
-{
-  logPrintPrefix(tag, level);
-  Serial.vprintf(fmt, args);
+inline void logVPrintf(const char *tag, const char *level, const char *fmt, va_list args) {
+    logPrintPrefix(tag, level);
+    Serial.vprintf(fmt, args);
 }
 
-inline void logPrintf(const char *tag, const char *level, const char *fmt, ...)
-{
-  va_list args;
-  va_start(args, fmt);
-  logVPrintf(tag, level, fmt, args);
-  va_end(args);
+inline void logPrintf(const char *tag, const char *level, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    logVPrintf(tag, level, fmt, args);
+    va_end(args);
 }
 
-#define INFO(...)                           \
-  do                                        \
-  {                                         \
-    logPrintf("MAIN", "INFO", __VA_ARGS__); \
-  } while (0)
+inline void logRawPrintf(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    Serial.vprintf(fmt, args);
+}
 
-#define DBG(...)                             \
-  do                                         \
-  {                                          \
-    logPrintf("MAIN", "DEBUG", __VA_ARGS__); \
-  } while (0)
+#define RAW(...)                   \
+    do {                           \
+        logRawPrintf(__VA_ARGS__); \
+    } while (0)
 
-#define WARN(...)                           \
-  do                                        \
-  {                                         \
-    logPrintf("MAIN", "WARN", __VA_ARGS__); \
-  } while (0)
+#define INFO(...)                               \
+    do {                                        \
+        logPrintf("MAIN", "INFO", __VA_ARGS__); \
+    } while (0)
 
-#define ERR(...)                           \
-  do                                       \
-  {                                        \
-    logPrintf("MAIN", "ERR", __VA_ARGS__); \
-  } while (0)
+#define DBG(...)                                 \
+    do {                                         \
+        logPrintf("MAIN", "DEBUG", __VA_ARGS__); \
+    } while (0)
+
+#define WARN(...)                               \
+    do {                                        \
+        logPrintf("MAIN", "WARN", __VA_ARGS__); \
+    } while (0)
+
+#define ERR(...)                               \
+    do {                                       \
+        logPrintf("MAIN", "ERR", __VA_ARGS__); \
+    } while (0)
