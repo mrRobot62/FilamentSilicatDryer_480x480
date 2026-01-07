@@ -4,6 +4,12 @@
 /**
  * @brief Construct a new HostComm communication handler.
  *
+ * History:
+ * 0.2 2026-01-07 stabilere, robuste Version, ausführlich über 16-Testcases überprüft
+ * 0.1 2025-12-10 initiale Version
+ *
+ *
+ *
  * This class is responsible for:
  * - Reading UART data from the client (ESP32-WROOM)
  * - Assembling complete text lines terminated by '\n'
