@@ -1,102 +1,102 @@
-// src/test/host/test_cases/Test_LinkStatus.cpp
 #include "HostComm.h"
 #include "TestCase.h"
-#include "log_core.h"
 
-class Test_LinkStatus : public ITestCase {
+class Test_DigitalChase : public ITestCase {
   public:
-    const char *name() const override { return "Link: GET/STATUS receives STATUS"; }
+    const char *name() const override { return "Outputs: CH0..CH7 chase (visual)"; }
 
     void enter(HostComm &comm, uint32_t nowMs) override {
         _verdict = TestVerdict::Running;
         _detail = "syncing link";
 
-        _phase = Phase::Sync;
         _deadlineMs = nowMs + kTimeoutMs;
 
-        _nextPingMs = nowMs; // ping immediately
-        _statusSent = false;
+        // reset local test state
+        _phase = Phase::Sync;
+        _nextPingMs = nowMs;
+        _nextStepMs = 0;
+        _idx = 0;
+        _expectedMask = 0;
 
         comm.clearCommErrorFlag();
-        comm.clearNewStatusFlag();
         comm.clearLastPongFlag();
         comm.clearLinkSync();
+        comm.clearLastSetAckFlag();
+
+        // start with all off
+        comm.setOutputsMask(0x0000);
     }
 
     void tick(HostComm &comm, uint32_t nowMs) override {
-        // Only hard-fail on commError AFTER we tried to sync a bit.
-        // During early sync we tolerate parse fails/junk (HostComm counts them).
-        if (_phase != Phase::Sync && comm.hasCommError()) {
+        if (comm.hasCommError()) {
             _detail = "comm error flag set";
             _verdict = TestVerdict::Fail;
             return;
         }
 
-        // global timeout
         if ((int32_t)(nowMs - _deadlineMs) >= 0) {
-            _detail = (_phase == Phase::WaitStatus) ? "timeout waiting for STATUS" : "timeout syncing link";
+            _detail = "timeout";
             _verdict = TestVerdict::Fail;
             return;
         }
 
-        switch (_phase) {
-        case Phase::Sync: {
-            // Resend PING periodically until HostComm declares link synced
+        // --- Phase 1: Sync like PingPong ---
+        if (_phase == Phase::Sync) {
+            if (comm.linkSynced()) {
+                _phase = Phase::Run;
+                _detail = "running chase pattern";
+                _nextStepMs = nowMs; // start immediately
+                return;
+            }
+
             if ((int32_t)(nowMs - _nextPingMs) >= 0) {
                 comm.sendPing();
                 _nextPingMs = nowMs + kPingPeriodMs;
             }
-
-            // Optional debug heartbeat (not too spammy)
-            if ((int32_t)(nowMs - _nextDbgMs) >= 0) {
-                _nextDbgMs = nowMs + 250;
-                DBG("[LinkStatus] syncing: streak=%u synced=%u parseFail=%lu err=%d\n",
-                    (unsigned)comm.pongStreak(),
-                    (unsigned)comm.linkSynced(),
-                    (unsigned long)comm.parseFailCount(),
-                    comm.hasCommError());
-            }
-
-            if (comm.linkSynced()) {
-                _phase = Phase::SendStatus;
-                _detail = "link synced";
-            }
             return;
         }
 
-        case Phase::SendStatus: {
-            // Clear stale flags and request STATUS once.
-            comm.clearCommErrorFlag();
-            comm.clearNewStatusFlag();
-
-            comm.requestStatus();
-            _statusSent = true;
-
-            _phase = Phase::WaitStatus;
-            _detail = "waiting for STATUS";
+        // --- Phase 2: Run chase pattern ---
+        if ((int32_t)(nowMs - _nextStepMs) < 0) {
             return;
         }
 
-        case Phase::WaitStatus: {
-            if (comm.hasNewStatus()) {
-                _detail = "STATUS received";
-                _verdict = TestVerdict::Pass;
+        // generate mask: exactly one bit 0..7
+        _expectedMask = (uint16_t)(1u << _idx);
+
+        comm.clearLastSetAckFlag();
+        comm.setOutputsMask(_expectedMask);
+
+        // We don't hard-require ACK per step (could be noisy), but we can sanity-check:
+        // if ACK arrives, remote mask should match.
+        if (comm.lastSetAcked()) {
+            if (comm.getRemoteOutputsMask() != _expectedMask) {
+                _detail = "ACK received but remote mask mismatch";
+                _verdict = TestVerdict::Fail;
                 return;
             }
-
-            // Keep the RX side alive with occasional ping if you want (optional):
-            if ((int32_t)(nowMs - _nextPingMs) >= 0) {
-                comm.sendPing();
-                _nextPingMs = nowMs + 800;
-            }
-            return;
         }
+
+        _idx++;
+        if (_idx >= 8) {
+            _idx = 0;
+            _loopsDone++;
+        }
+
+        _nextStepMs = nowMs + kStepPeriodMs;
+
+        // Finish after N loops so it doesn't run forever in runner
+        if (_loopsDone >= kLoopsToRun) {
+            comm.setOutputsMask(0x0000); // all off at end
+            _detail = "completed visual chase";
+            _verdict = TestVerdict::Pass;
+            return;
         }
     }
 
     void exit(HostComm &comm, uint32_t /*nowMs*/) override {
-        comm.clearNewStatusFlag();
-        comm.clearLastPongFlag();
+        comm.setOutputsMask(0x0000);
+        comm.clearLastSetAckFlag();
     }
 
     TestVerdict verdict() const override { return _verdict; }
@@ -131,8 +131,8 @@ class Test_LinkStatus : public ITestCase {
         Serial.println();
         Serial.println("Remote:");
         Serial.printf("  outputsMask     = 0x%04X\n", comm.getRemoteOutputsMask());
+        Serial.printf("  expectedMask    = 0x%04X\n", _expectedMask);
 
-        // Optional diagnostics (helpful when parseFailCount > 0)
         if (comm.parseFailCount() > 0) {
             Serial.println();
             Serial.println("LastBadLine:");
@@ -148,25 +148,29 @@ class Test_LinkStatus : public ITestCase {
 
   private:
     enum class Phase : uint8_t { Sync,
-                                 SendStatus,
-                                 WaitStatus };
+                                 Run };
 
-    static constexpr uint32_t kTimeoutMs = 2500;
-    static constexpr uint32_t kPingPeriodMs = 200;
+    static constexpr uint32_t kTimeoutMs = 15000;  // overall test max
+    static constexpr uint32_t kPingPeriodMs = 200; // sync ping rate
+    static constexpr uint32_t kStepPeriodMs = 250; // LED step speed
+    static constexpr uint8_t kLoopsToRun = 4;      // how many 0..7 cycles
 
     Phase _phase = Phase::Sync;
 
     uint32_t _deadlineMs = 0;
     uint32_t _nextPingMs = 0;
-    uint32_t _nextDbgMs = 0;
+    uint32_t _nextStepMs = 0;
 
-    bool _statusSent = false;
+    uint8_t _idx = 0;
+    uint8_t _loopsDone = 0;
+
+    mutable uint16_t _expectedMask = 0;
 
     TestVerdict _verdict = TestVerdict::Running;
     const char *_detail = "init";
 };
 
-ITestCase *get_test_link_status() {
-    static Test_LinkStatus inst;
+ITestCase *get_test_digital_chase() {
+    static Test_DigitalChase inst;
     return &inst;
 }

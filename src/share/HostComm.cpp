@@ -198,12 +198,6 @@ void HostComm::sendPing() {
     _serial.flush(); // for debugging only
 }
 
-// void HostComm::sendPing() {
-//     _lastPong = false; // start a fresh ping cycle
-//     String msg = ProtocolCodec::buildHostPing();
-//     _serial.print(msg);
-// }
-
 /**
  * @brief Get the last mask that was sent by the host (local desired state).
  *
@@ -364,11 +358,13 @@ void HostComm::handleIncomingLine(const String &line) {
     case ProtocolMessageType::ClientAckUpd:
         DBG("ACK UPD received, mask=0x%04X\n", mask);
         _remoteStatus.outputsMask = mask;
+        _lastUpdAcked = true;
         break;
 
     case ProtocolMessageType::ClientAckTog:
         DBG("ACK TOG received, mask=0x%04X\n", mask);
         _remoteStatus.outputsMask = mask;
+        _lastTogAcked = true;
         break;
 
     case ProtocolMessageType::ClientErrSet:
@@ -425,8 +421,48 @@ void HostComm::togOutputs(uint16_t togMask) {
     _serial.print(msg);
 }
 
+// void HostComm::processLine(const String &line) {
+//     handleIncomingLine(line);
+// }
+
 // In HostComm.cpp:
-void HostComm::processLine(const String &line) {
+void HostComm::processLine(const String &raw) {
+    String line = raw;
+
+    // same behavior as loop()
+    line.trim();
+    if (line.isEmpty()) {
+        return; // ignore empty
+    }
+
+    // drop leading junk until we see 'C' or 'H'
+    int start = -1;
+    for (int i = 0; i < (int)line.length(); ++i) {
+        char ch = line[i];
+        if (ch == 'C' || ch == 'H') {
+            start = i;
+            break;
+        }
+    }
+
+    if (start < 0) {
+        // mirror what would happen on a junk line
+        _parseFailCount++;
+        _lastBadLine = line;
+        WARN("[HostComm] processLine junk ignored: '%s' (failCount=%lu)\n",
+             line.c_str(), (unsigned long)_parseFailCount);
+        if (_linkSynced) {
+            _commError = true;
+        }
+
+        return;
+    }
+
+    if (start > 0) {
+        WARN("[HostComm] processLine leading junk (%d bytes) removed\n", start);
+        line = line.substring(start);
+    }
+
     handleIncomingLine(line);
 }
 
@@ -444,5 +480,10 @@ void HostComm::clearLinkSync() {
     _pongStreak = 0;
 }
 uint8_t HostComm::pongStreak() const { return _pongStreak; }
+
+bool HostComm::lastUpdAcked() const { return _lastUpdAcked; }
+void HostComm::clearLastUpdAckFlag() { _lastUpdAcked = false; }
+bool HostComm::lastTogAcked() const { return _lastTogAcked; }
+void HostComm::clearLastTogAckFlag() { _lastTogAcked = false; }
 
 // END OF FILE

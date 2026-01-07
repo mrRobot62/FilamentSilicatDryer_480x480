@@ -27,4 +27,6 @@ class ITestCase {
 
     virtual TestVerdict verdict() const = 0;
     virtual const char *detail() const = 0;
+
+    virtual void dump(HostComm &comm) const = 0;
 };

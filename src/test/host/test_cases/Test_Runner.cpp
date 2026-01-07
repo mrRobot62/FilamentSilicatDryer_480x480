@@ -21,41 +21,83 @@ void TestRunner::start(uint32_t nowMs) {
     _started = true;
     _finished = false;
     _index = 0;
+    _startMs = nowMs;
 
     logStart(_tests[_index]);
     _tests[_index]->enter(_comm, nowMs);
 }
 
+// void TestRunner::tick(uint32_t nowMs) {
+//     if (!_started || _finished) {
+//         return;
+//     }
+//     if (_index < 0 || _index >= (int8_t)_count) {
+//         return;
+//     }
+
+//     ITestCase *tc = _tests[_index];
+//     tc->tick(_comm, nowMs);
+
+//     const TestVerdict v = tc->verdict();
+//     if (v == TestVerdict::Running) {
+//         return;
+//     }
+
+//     tc->exit(_comm, nowMs);
+//     logEnd(tc);
+
+//     if (v == TestVerdict::Pass) {
+//         _pass++;
+//     }
+//     if (v == TestVerdict::Fail) {
+//         _fail++;
+//     }
+
+//     _index++;
+//     if (_index >= (int8_t)_count) {
+//         _finished = true;
+//         Serial.printf("[TEST] DONE: pass=%u fail=%u\n", _pass, _fail);
+//         return;
+//     }
+
+//     logStart(_tests[_index]);
+//     _tests[_index]->enter(_comm, nowMs);
+// }
+
 void TestRunner::tick(uint32_t nowMs) {
     if (!_started || _finished) {
-        return;
-    }
-    if (_index < 0 || _index >= (int8_t)_count) {
         return;
     }
 
     ITestCase *tc = _tests[_index];
     tc->tick(_comm, nowMs);
 
-    const TestVerdict v = tc->verdict();
-    if (v == TestVerdict::Running) {
+    if (tc->verdict() == TestVerdict::Running) {
         return;
     }
 
     tc->exit(_comm, nowMs);
     logEnd(tc);
 
-    if (v == TestVerdict::Pass) {
+    switch (tc->verdict()) {
+    case TestVerdict::Pass:
         _pass++;
-    }
-    if (v == TestVerdict::Fail) {
+        break;
+    case TestVerdict::Fail:
         _fail++;
+        break;
+    case TestVerdict::Skip:
+        _skip++;
+        break;
+    default:
+        break;
     }
 
     _index++;
     if (_index >= (int8_t)_count) {
         _finished = true;
-        Serial.printf("[TEST] DONE: pass=%u fail=%u\n", _pass, _fail);
+        _endMs = nowMs;
+        dumpSummary();
         return;
     }
 
@@ -88,6 +130,48 @@ void TestRunner::logEnd(ITestCase *tc) {
     default:
         break;
     }
-    //Serial.printf("[TEST] END:   %s -> %s (%s)\n", tc->name(), v, tc->detail());
+    // Serial.printf("[TEST] END:   %s -> %s (%s)\n", tc->name(), v, tc->detail());
     INFO("[TEST_RUNNER] END:   %s -> %s (%s)\n", tc->name(), v, tc->detail());
+    tc->dump(_comm);
+}
+
+void TestRunner::dumpSummary() {
+    Serial.println("=========================================");
+    Serial.println("TEST SUMMARY");
+    Serial.println("-----------------------------------------");
+
+    for (uint8_t i = 0; i < _count; i++) {
+        const ITestCase *tc = _tests[i];
+        const char *res = "UNKNOWN";
+
+        switch (tc->verdict()) {
+        case TestVerdict::Pass:
+            res = "PASS";
+            break;
+        case TestVerdict::Fail:
+            res = "FAIL";
+            break;
+        case TestVerdict::Skip:
+            res = "SKIP";
+            break;
+        default:
+            break;
+        }
+
+        Serial.printf("%2u. %-35s %s\n",
+                      (unsigned)(i + 1),
+                      tc->name(),
+                      res);
+    }
+
+    Serial.println("-----------------------------------------");
+    Serial.printf("PASSED:  %u\n", _pass);
+    Serial.printf("FAILED:  %u\n", _fail);
+    Serial.printf("SKIPPED: %u\n", _skip);
+
+    const float runtimeSec =
+        (_endMs - _startMs) / 1000.0f;
+    Serial.printf("RUNTIME: %.2f s\n", runtimeSec);
+
+    Serial.println("=========================================");
 }

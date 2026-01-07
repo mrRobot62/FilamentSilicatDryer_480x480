@@ -177,6 +177,52 @@ class Test_SetAck : public ITestCase {
 
     TestVerdict _verdict = TestVerdict::Running;
     const char *_detail = "init";
+    uint16_t _expectedMask = 0x00A5;
+
+    void dump(HostComm &comm) const override {
+        Serial.println("--------------------------------------------------");
+        Serial.printf("TestCase: %s\n", name());
+
+        const char *res = "UNKNOWN";
+        if (verdict() == TestVerdict::Pass) {
+            res = "PASS";
+        }
+        if (verdict() == TestVerdict::Fail) {
+            res = "FAIL";
+        }
+        if (verdict() == TestVerdict::Skip) {
+            res = "SKIP";
+        }
+        Serial.printf("Result:   %s\n", res);
+
+        Serial.println();
+        Serial.println("Flags:");
+        Serial.printf("  linkSynced      = %d\n", comm.linkSynced() ? 1 : 0);
+        Serial.printf("  pongStreak      = %u\n", (unsigned)comm.pongStreak());
+        Serial.printf("  lastPong        = %d\n", comm.lastPongReceived() ? 1 : 0);
+        Serial.printf("  newStatus       = %d\n", comm.hasNewStatus() ? 1 : 0);
+        Serial.printf("  lastSetAcked    = %d\n", comm.lastSetAcked() ? 1 : 0);
+        Serial.printf("  commError       = %d\n", comm.hasCommError() ? 1 : 0);
+        Serial.printf("  parseFailCount  = %lu\n", (unsigned long)comm.parseFailCount());
+
+        Serial.println();
+        Serial.println("Remote:");
+        Serial.printf("  outputsMask     = 0x%04X\n", comm.getRemoteOutputsMask());
+        Serial.printf("  expectedMask    = 0x%04X\n", _expectedMask);
+        Serial.printf("  maskMatches     = %d\n", comm.getRemoteOutputsMask() == _expectedMask ? 1 : 0);
+        // Optional diagnostics (helpful when parseFailCount > 0)
+        if (comm.parseFailCount() > 0) {
+            Serial.println();
+            Serial.println("LastBadLine:");
+            Serial.printf("  '%s'\n", comm.lastBadLine().c_str());
+        }
+
+        Serial.println();
+        Serial.println("Details:");
+        Serial.printf("  %s\n", detail());
+
+        Serial.println("--------------------------------------------------");
+    }
 };
 
 ITestCase *get_test_set_ack() {

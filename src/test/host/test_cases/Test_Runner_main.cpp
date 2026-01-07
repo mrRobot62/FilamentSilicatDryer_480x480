@@ -18,6 +18,14 @@ ITestCase *get_test_link_status();
 ITestCase *get_test_set_ack();
 ITestCase *get_test_status_plausibility();
 ITestCase *get_test_ping_pong();
+ITestCase *get_test_visual_led_sweep();
+ITestCase *get_test_digital_chase();
+ITestCase *get_test_digital_blink_all();
+ITestCase *get_test_upd_ack();
+ITestCase *get_test_tog_ack();
+ITestCase *get_test_seq_set_upd_tog_status();
+ITestCase *get_test_malformed_frames();
+ITestCase *get_test_line_fragmentation_burst();
 
 void setup() {
     Serial.begin(115200);
@@ -35,13 +43,19 @@ void setup() {
     INFO("[TestRunner] Version 0.1\n");
     INFO("[TestRunner] -----------------------------------------------------------------------\n");
 
-    INFO("[TestRunner] add Test_PingPong\n");
     g_runner.add(get_test_ping_pong());
-    INFO("[TestRunner] add Test_LinkStatus\n");
     g_runner.add(get_test_link_status());
-    INFO("[TestRunner] add Test_SetAck\n");
     g_runner.add(get_test_set_ack());
+    g_runner.add(get_test_visual_led_sweep());
+    g_runner.add(get_test_digital_chase());
+    g_runner.add(get_test_digital_blink_all());
+    g_runner.add(get_test_upd_ack());
+    g_runner.add(get_test_tog_ack());
+    g_runner.add(get_test_seq_set_upd_tog_status());
+    g_runner.add(get_test_malformed_frames());
+    g_runner.add(get_test_line_fragmentation_burst());
 
+    //---------------------------------------------------------------------
     delay(200); // optional small settle
     g_runner.start(millis());
 }

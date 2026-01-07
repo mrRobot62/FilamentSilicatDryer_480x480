@@ -64,6 +64,18 @@ class HostComm {
     bool linkSynced() const;
     void clearLinkSync();
     uint8_t pongStreak() const;
+    // Flags for ACK types (UPD/TOG)
+    bool lastUpdAcked() const;
+    void clearLastUpdAckFlag();
+    bool lastTogAcked() const;
+    void clearLastTogAckFlag();
+    // Feed raw RX bytes into the same line-assembler as UART loop() uses.
+    // For test cases only; production can ignore it.
+    void processRxBytes(const uint8_t *data, size_t len);
+
+    // NEW: shared RX byte handler + line sanitizer
+    void handleRxByte(char c);
+    void processCompletedLine(String line);
 
   private:
     HardwareSerial &_serial;
@@ -80,7 +92,8 @@ class HostComm {
     bool _lastSetAcked;
     bool _commError;
     bool _lastPong;
-
+    bool _lastUpdAcked = false;
+    bool _lastTogAcked = false;
     void handleIncomingLine(const String &line);
 };
 
