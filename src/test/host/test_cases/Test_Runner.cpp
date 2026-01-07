@@ -27,43 +27,6 @@ void TestRunner::start(uint32_t nowMs) {
     _tests[_index]->enter(_comm, nowMs);
 }
 
-// void TestRunner::tick(uint32_t nowMs) {
-//     if (!_started || _finished) {
-//         return;
-//     }
-//     if (_index < 0 || _index >= (int8_t)_count) {
-//         return;
-//     }
-
-//     ITestCase *tc = _tests[_index];
-//     tc->tick(_comm, nowMs);
-
-//     const TestVerdict v = tc->verdict();
-//     if (v == TestVerdict::Running) {
-//         return;
-//     }
-
-//     tc->exit(_comm, nowMs);
-//     logEnd(tc);
-
-//     if (v == TestVerdict::Pass) {
-//         _pass++;
-//     }
-//     if (v == TestVerdict::Fail) {
-//         _fail++;
-//     }
-
-//     _index++;
-//     if (_index >= (int8_t)_count) {
-//         _finished = true;
-//         Serial.printf("[TEST] DONE: pass=%u fail=%u\n", _pass, _fail);
-//         return;
-//     }
-
-//     logStart(_tests[_index]);
-//     _tests[_index]->enter(_comm, nowMs);
-// }
-
 void TestRunner::tick(uint32_t nowMs) {
     if (!_started || _finished) {
         return;
@@ -136,9 +99,9 @@ void TestRunner::logEnd(ITestCase *tc) {
 }
 
 void TestRunner::dumpSummary() {
-    Serial.println("=========================================");
+    Serial.println("=============================================================");
     Serial.println("TEST SUMMARY");
-    Serial.println("-----------------------------------------");
+    Serial.println("-------------------------------------------------------------");
 
     for (uint8_t i = 0; i < _count; i++) {
         const ITestCase *tc = _tests[i];
@@ -158,13 +121,13 @@ void TestRunner::dumpSummary() {
             break;
         }
 
-        Serial.printf("%2u. %-35s %s\n",
+        Serial.printf("%2u. %-50s\t%s\n",
                       (unsigned)(i + 1),
                       tc->name(),
                       res);
     }
 
-    Serial.println("-----------------------------------------");
+    Serial.println("-------------------------------------------------------------");
     Serial.printf("PASSED:  %u\n", _pass);
     Serial.printf("FAILED:  %u\n", _fail);
     Serial.printf("SKIPPED: %u\n", _skip);
@@ -173,5 +136,5 @@ void TestRunner::dumpSummary() {
         (_endMs - _startMs) / 1000.0f;
     Serial.printf("RUNTIME: %.2f s\n", runtimeSec);
 
-    Serial.println("=========================================");
+    Serial.println("=============================================================");
 }

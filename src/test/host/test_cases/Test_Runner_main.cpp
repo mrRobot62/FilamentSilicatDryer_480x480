@@ -26,6 +26,11 @@ ITestCase *get_test_tog_ack();
 ITestCase *get_test_seq_set_upd_tog_status();
 ITestCase *get_test_malformed_frames();
 ITestCase *get_test_line_fragmentation_burst();
+ITestCase *get_test_hold_status_verify();
+ITestCase *get_test_tc14a_seq_set_upd_tog();
+ITestCase *get_test_tc14b_status_after_seq();
+ITestCase *get_test_rst_handling();
+ITestCase *get_test_adc_temp_plausibility();
 
 void setup() {
     Serial.begin(115200);
@@ -54,6 +59,11 @@ void setup() {
     g_runner.add(get_test_seq_set_upd_tog_status());
     g_runner.add(get_test_malformed_frames());
     g_runner.add(get_test_line_fragmentation_burst());
+    g_runner.add(get_test_hold_status_verify());
+    g_runner.add(get_test_tc14a_seq_set_upd_tog());
+    g_runner.add(get_test_tc14b_status_after_seq());
+    g_runner.add(get_test_rst_handling());
+    g_runner.add(get_test_adc_temp_plausibility());
 
     //---------------------------------------------------------------------
     delay(200); // optional small settle

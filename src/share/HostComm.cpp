@@ -73,61 +73,68 @@ void HostComm::begin(uint32_t baudrate, uint8_t rx, uint8_t tx) {
  * The implementation is fully non-blocking and uses no delays,
  * so it is safe to run alongside LVGL or any real-time GUI loop.
  */
+// void HostComm::loop() {
+//     while (_serial.available() > 0) {
+//         char c = static_cast<char>(_serial.read());
+
+//         if (c == '\r') {
+//             continue;
+//         }
+
+//         if (c == '\n') {
+//             // If we got an empty line (e.g. "\r\n"), just ignore it.
+//             if (_rxBuffer.length() == 0) {
+//                 continue;
+//             }
+
+//             String line = _rxBuffer;
+//             _rxBuffer = "";
+
+//             // 1) trim whitespace
+//             line.trim();
+//             if (line.isEmpty()) {
+//                 continue; // IMPORTANT: do NOT return
+//             }
+
+//             // 2) drop leading junk until we see 'C' or 'H'
+//             int start = -1;
+//             for (int i = 0; i < (int)line.length(); ++i) {
+//                 char ch = line[i];
+//                 if (ch == 'C' || ch == 'H') {
+//                     start = i;
+//                     break;
+//                 }
+//             }
+
+//             if (start < 0) {
+//                 WARN("[HostComm] RX junk line ignored: '%s'\n", line.c_str());
+//                 continue; // IMPORTANT: do NOT return
+//             }
+
+//             if (start > 0) {
+//                 WARN("[HostComm] RX leading junk (%d bytes) removed\n", start);
+//                 line = line.substring(start);
+//             }
+
+//             DBG("[HostComm] RX LINE: '%s'\n", line.c_str());
+//             handleIncomingLine(line);
+//             continue;
+//         }
+
+//         // Accumulate character into buffer
+//         _rxBuffer += c;
+//         if (_rxBuffer.length() > 120) {
+//             WARN("[HostComm] RX line overflow, dropping\n");
+//             _rxBuffer = "";
+//             // (optional later) _commError = true;
+//         }
+//     }
+// }
+
 void HostComm::loop() {
     while (_serial.available() > 0) {
-        char c = static_cast<char>(_serial.read());
-
-        if (c == '\r') {
-            continue;
-        }
-
-        if (c == '\n') {
-            // If we got an empty line (e.g. "\r\n"), just ignore it.
-            if (_rxBuffer.length() == 0) {
-                continue;
-            }
-
-            String line = _rxBuffer;
-            _rxBuffer = "";
-
-            // 1) trim whitespace
-            line.trim();
-            if (line.isEmpty()) {
-                continue; // IMPORTANT: do NOT return
-            }
-
-            // 2) drop leading junk until we see 'C' or 'H'
-            int start = -1;
-            for (int i = 0; i < (int)line.length(); ++i) {
-                char ch = line[i];
-                if (ch == 'C' || ch == 'H') {
-                    start = i;
-                    break;
-                }
-            }
-
-            if (start < 0) {
-                WARN("[HostComm] RX junk line ignored: '%s'\n", line.c_str());
-                continue; // IMPORTANT: do NOT return
-            }
-
-            if (start > 0) {
-                WARN("[HostComm] RX leading junk (%d bytes) removed\n", start);
-                line = line.substring(start);
-            }
-
-            DBG("[HostComm] RX LINE: '%s'\n", line.c_str());
-            handleIncomingLine(line);
-            continue;
-        }
-
-        // Accumulate character into buffer
-        _rxBuffer += c;
-        if (_rxBuffer.length() > 120) {
-            WARN("[HostComm] RX line overflow, dropping\n");
-            _rxBuffer = "";
-            // (optional later) _commError = true;
-        }
+        const char c = static_cast<char>(_serial.read());
+        handleRxByte(c);
     }
 }
 
@@ -426,45 +433,48 @@ void HostComm::togOutputs(uint16_t togMask) {
 // }
 
 // In HostComm.cpp:
-void HostComm::processLine(const String &raw) {
-    String line = raw;
-
-    // same behavior as loop()
-    line.trim();
-    if (line.isEmpty()) {
-        return; // ignore empty
-    }
-
-    // drop leading junk until we see 'C' or 'H'
-    int start = -1;
-    for (int i = 0; i < (int)line.length(); ++i) {
-        char ch = line[i];
-        if (ch == 'C' || ch == 'H') {
-            start = i;
-            break;
-        }
-    }
-
-    if (start < 0) {
-        // mirror what would happen on a junk line
-        _parseFailCount++;
-        _lastBadLine = line;
-        WARN("[HostComm] processLine junk ignored: '%s' (failCount=%lu)\n",
-             line.c_str(), (unsigned long)_parseFailCount);
-        if (_linkSynced) {
-            _commError = true;
-        }
-
-        return;
-    }
-
-    if (start > 0) {
-        WARN("[HostComm] processLine leading junk (%d bytes) removed\n", start);
-        line = line.substring(start);
-    }
-
-    handleIncomingLine(line);
+void HostComm::processLine(const String &line) {
+    processCompletedLine(line);
 }
+// void HostComm::processLine(const String &raw) {
+//     String line = raw;
+
+//     // same behavior as loop()
+//     line.trim();
+//     if (line.isEmpty()) {
+//         return; // ignore empty
+//     }
+
+//     // drop leading junk until we see 'C' or 'H'
+//     int start = -1;
+//     for (int i = 0; i < (int)line.length(); ++i) {
+//         char ch = line[i];
+//         if (ch == 'C' || ch == 'H') {
+//             start = i;
+//             break;
+//         }
+//     }
+
+//     if (start < 0) {
+//         // mirror what would happen on a junk line
+//         _parseFailCount++;
+//         _lastBadLine = line;
+//         WARN("[HostComm] processLine junk ignored: '%s' (failCount=%lu)\n",
+//              line.c_str(), (unsigned long)_parseFailCount);
+//         if (_linkSynced) {
+//             _commError = true;
+//         }
+
+//         return;
+//     }
+
+//     if (start > 0) {
+//         WARN("[HostComm] processLine leading junk (%d bytes) removed\n", start);
+//         line = line.substring(start);
+//     }
+
+//     handleIncomingLine(line);
+// }
 
 bool HostComm::lastPongReceived() const {
     return _lastPong;
@@ -485,5 +495,76 @@ bool HostComm::lastUpdAcked() const { return _lastUpdAcked; }
 void HostComm::clearLastUpdAckFlag() { _lastUpdAcked = false; }
 bool HostComm::lastTogAcked() const { return _lastTogAcked; }
 void HostComm::clearLastTogAckFlag() { _lastTogAcked = false; }
+
+// --- NEW: shared RX byte handler (used by UART loop + tests) ---
+void HostComm::handleRxByte(char c) {
+    // Ignore CR
+    if (c == '\r') {
+        return;
+    }
+
+    if (c == '\n') {
+        // End of line: process even if empty buffer (we sanitize below)
+        String line = _rxBuffer;
+        _rxBuffer = "";
+        processCompletedLine(line);
+        return;
+    }
+
+    _rxBuffer += c;
+
+    if (_rxBuffer.length() > 120) {
+        WARN("[HostComm] RX line overflow, dropping\n");
+        _rxBuffer = "";
+        // Optional: set _commError only after link is stable
+        // if (_linkSynced) { _commError = true; }
+    }
+}
+
+// --- NEW: same sanitize path as loop() should use ---
+void HostComm::processCompletedLine(String line) {
+    // 1) trim whitespace
+    line.trim();
+    if (line.isEmpty()) {
+        return; // ignore empty lines
+    }
+
+    // 2) drop leading junk until we see 'C' or 'H'
+    int start = -1;
+    for (int i = 0; i < (int)line.length(); ++i) {
+        const char ch = line[i];
+        if (ch == 'C' || ch == 'H') {
+            start = i;
+            break;
+        }
+    }
+
+    if (start < 0) {
+        // treat as junk line (count as fail) but do not hard-fail the link
+        _parseFailCount++;
+        _lastBadLine = line;
+        WARN("[HostComm] RX junk line ignored: '%s' (failCount=%lu)\n",
+             line.c_str(), (unsigned long)_parseFailCount);
+        return;
+    }
+
+    if (start > 0) {
+        WARN("[HostComm] RX leading junk (%d bytes) removed\n", start);
+        line = line.substring(start);
+    }
+
+    DBG("[HostComm] RX LINE: '%s'\n", line.c_str());
+    handleIncomingLine(line);
+}
+
+// --- NEW: processRxBytes for TC5 (and future RX fragmentation tests) ---
+void HostComm::processRxBytes(const uint8_t *data, size_t len) {
+    if (!data || len == 0) {
+        return;
+    }
+    for (size_t i = 0; i < len; ++i) {
+        handleRxByte((char)data[i]);
+    }
+}
 
 // END OF FILE

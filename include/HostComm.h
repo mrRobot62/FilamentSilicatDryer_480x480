@@ -94,6 +94,7 @@ class HostComm {
     bool _lastPong;
     bool _lastUpdAcked = false;
     bool _lastTogAcked = false;
+
     void handleIncomingLine(const String &line);
 };
 
