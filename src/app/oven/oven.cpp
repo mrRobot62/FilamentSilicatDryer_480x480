@@ -54,7 +54,12 @@ static OvenRuntimeState runtimeState = {
     .motor_manual_allowed = true,
     .lamp_manual_allowed = true,
 
-    .running = false};
+    .running = false,
+
+    // new in T7
+    .post = {false, 0, 0}
+
+};
 
 // =============================================================================
 // HostComm integration (UART protocol, T6)

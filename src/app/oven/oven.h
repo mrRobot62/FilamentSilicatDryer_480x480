@@ -73,6 +73,41 @@ enum class OVEN_CONNECTOR : uint16_t {
     DOOR_ACTIVE = 1u << 6    // bit 6 (input-like sensor on client side)
 };
 
+// ----------------------------------------------------------------------------
+// T7: High-level oven mode (host-side state machine)
+// ----------------------------------------------------------------------------
+enum class OvenMode : uint8_t {
+    STOPPED = 0,
+    RUNNING,
+    WAITING,
+    POST
+};
+
+// ----------------------------------------------------------------------------
+// T7: POST fan behavior
+// ----------------------------------------------------------------------------
+enum class PostFanMode : uint8_t {
+    FAST = 0, // FAN230V
+    SLOW      // FAN230V_SLOW
+};
+
+// ----------------------------------------------------------------------------
+// T7: POST configuration (preset-time plan) and runtime state
+// ----------------------------------------------------------------------------
+typedef struct
+{
+    bool active;
+    uint16_t seconds;
+    PostFanMode fanMode;
+} PostConfig;
+
+typedef struct
+{
+    bool active;
+    uint16_t secondsRemaining;
+    uint8_t stepIndex;
+} PostRuntime;
+
 // Host requests STATUS periodically
 constexpr uint32_t kStatusPollIntervalMs = 2000; // request STATUS every 2 seconds
 
@@ -85,7 +120,11 @@ typedef struct
     const char *name;
     float dryTempC;
     uint16_t durationMin;
-    bool rotaryOn; // SILICA => true
+    bool rotaryOn;
+
+    // T7: POST behavior (cooling etc.) – preset-time plan
+    PostConfig post;
+
 } FilamentPreset;
 
 /**
@@ -141,14 +180,20 @@ typedef struct
     bool motor_manual_allowed;
     bool lamp_manual_allowed;
 
-    // Host-side state machine flag (not remote truth)
-    bool running;
-
     // Communication diagnostics (host-side)
     bool commAlive;
     uint32_t lastStatusAgeMs;
     uint32_t statusRxCount;
     uint32_t commErrorCount;
+
+    // Host-side mode (not remote truth)
+    OvenMode mode;
+
+    // Backward-compat flag (temporary; will be removed once UI switches to mode)
+    bool running;
+
+    // T7: POST runtime state
+    PostRuntime post;
 
 } OvenRuntimeState;
 
@@ -157,35 +202,66 @@ typedef struct
 // ----------------------------------------------------------------------------
 
 static constexpr FilamentPreset kPresets[] = {
-    // Name, Temp(C), Dur(min), Rotary
-    {"CUSTOM", 0.0f, 0, false},
-    {"SILICA", 105.0f, 90, true},
-    {"ABS", 80.0f, 300, false},
-    {"ASA", 82.5f, 300, false},
-    {"PETG", 62.5f, 360, false},
-    {"PLA", 47.5f, 300, false}, // 5
-    {"TPU", 45.0f, 300, false},
-    {"Spec-ASA-CF", 85.0f, 540, false},
-    {"Spec-BVOH", 52.5f, 420, false},
-    {"Spec-HIPS", 65.0f, 300, false},
-    {"Spec-PA(CF,PET,PH*)", 85.0f, 540, false}, // 10
-    {"Spec-PC(CF/FR)", 85.0f, 540, false},
-    {"Spec-PC-ABS", 82.5f, 540, false},
-    {"Spec-PET-CF", 75.0f, 480, false},
-    {"Spec-PETG-CF", 70.0f, 480, false},
-    {"Spec-PETG-HF", 65.0f, 360, false}, // 15
-    {"Spec-PLA-CF", 55.0f, 360, false},
-    {"Spec-PLA-HT", 55.0f, 360, false},
-    {"Spec-PLA-WoodMetal", 45.0f, 300, false},
-    {"Spec-POM", 70.0f, 300, false},
-    {"Spec-PP", 55.0f, 300, false}, // 20
-    {"Spec-PP-GF", 65.0f, 480, false},
-    {"Spec-PPS(+CF)", 85.0f, 540, false},
-    {"Spec-PVA", 50.0f, 480, false},
-    {"Spec-PVDF-PPSU", 85.0f, 540, false},
-    {"Spec-TPU 82A", 42.5f, 300, false}, // 25
-    {"Spec-WOOD-Composite", 45.0f, 300, false},
+    // Name, Temp(C), Dur(min), Rotary, POST{active, seconds, fanMode}
+    {"CUSTOM", 0.0f, 0, false, {false, 0, PostFanMode::SLOW}},
+    {"SILICA", 105.0f, 90, true, {true, 300, PostFanMode::FAST}}, // example: 5 min cooling
+    {"ABS", 80.0f, 300, false, {true, 300, PostFanMode::FAST}},
+    {"ASA", 82.5f, 300, false, {true, 300, PostFanMode::FAST}},
+    {"PETG", 62.5f, 360, false, {true, 300, PostFanMode::SLOW}},
+    {"PLA", 47.5f, 300, false, {true, 300, PostFanMode::SLOW}}, // 5
+    {"TPU", 45.0f, 300, false, {true, 300, PostFanMode::FAST}},
+    {"Spec-ASA-CF", 85.0f, 540, false, {true, 300, PostFanMode::FAST}},
+    {"Spec-BVOH", 52.5f, 420, false, {true, 300, PostFanMode::FAST}},
+    {"Spec-HIPS", 65.0f, 300, false, {true, 300, PostFanMode::FAST}},
+    {"Spec-PA(CF,PET,PH*)", 85.0f, 540, false, {true, 300, PostFanMode::FAST}}, // 10
+    {"Spec-PC(CF/FR)", 85.0f, 540, false, {true, 300, PostFanMode::FAST}},
+    {"Spec-PC-ABS", 82.5f, 540, false, {true, 300, PostFanMode::FAST}},
+    {"Spec-PET-CF", 75.0f, 480, false, {true, 300, PostFanMode::SLOW}},
+    {"Spec-PETG-CF", 70.0f, 480, false, {true, 300, PostFanMode::SLOW}},
+    {"Spec-PETG-HF", 65.0f, 360, false, {true, 300, PostFanMode::SLOW}}, // 15
+    {"Spec-PLA-CF", 55.0f, 360, false, {true, 300, PostFanMode::SLOW}},
+    {"Spec-PLA-HT", 55.0f, 360, false, {true, 300, PostFanMode::SLOW}},
+    {"Spec-PLA-WoodMetal", 45.0f, 300, false, {true, 300, PostFanMode::SLOW}},
+    {"Spec-POM", 70.0f, 300, false, {true, 300, PostFanMode::FAST}},
+    {"Spec-PP", 55.0f, 300, false, {true, 300, PostFanMode::FAST}}, // 20
+    {"Spec-PP-GF", 65.0f, 480, false, {true, 300, PostFanMode::FAST}},
+    {"Spec-PPS(+CF)", 85.0f, 540, false, {true, 300, PostFanMode::FAST}},
+    {"Spec-PVA", 50.0f, 480, false, {true, 300, PostFanMode::FAST}},
+    {"Spec-PVDF-PPSU", 85.0f, 540, false, {true, 300, PostFanMode::FAST}},
+    {"Spec-TPU 82A", 42.5f, 300, false, {true, 300, PostFanMode::FAST}}, // 25
+    {"Spec-WOOD-Composite", 45.0f, 300, false, {true, 300, PostFanMode::FAST}},
 };
+
+// static constexpr FilamentPreset kPresets[] = {
+//     // Name, Temp(C), Dur(min), Rotary
+//     {"CUSTOM", 0.0f, 0, false},
+//     {"SILICA", 105.0f, 90, true},
+//     {"ABS", 80.0f, 300, false},
+//     {"ASA", 82.5f, 300, false},
+//     {"PETG", 62.5f, 360, false},
+//     {"PLA", 47.5f, 300, false}, // 5
+//     {"TPU", 45.0f, 300, false},
+//     {"Spec-ASA-CF", 85.0f, 540, false},
+//     {"Spec-BVOH", 52.5f, 420, false},
+//     {"Spec-HIPS", 65.0f, 300, false},
+//     {"Spec-PA(CF,PET,PH*)", 85.0f, 540, false}, // 10
+//     {"Spec-PC(CF/FR)", 85.0f, 540, false},
+//     {"Spec-PC-ABS", 82.5f, 540, false},
+//     {"Spec-PET-CF", 75.0f, 480, false},
+//     {"Spec-PETG-CF", 70.0f, 480, false},
+//     {"Spec-PETG-HF", 65.0f, 360, false}, // 15
+//     {"Spec-PLA-CF", 55.0f, 360, false},
+//     {"Spec-PLA-HT", 55.0f, 360, false},
+//     {"Spec-PLA-WoodMetal", 45.0f, 300, false},
+//     {"Spec-POM", 70.0f, 300, false},
+//     {"Spec-PP", 55.0f, 300, false}, // 20
+//     {"Spec-PP-GF", 65.0f, 480, false},
+//     {"Spec-PPS(+CF)", 85.0f, 540, false},
+//     {"Spec-PVA", 50.0f, 480, false},
+//     {"Spec-PVDF-PPSU", 85.0f, 540, false},
+//     {"Spec-TPU 82A", 42.5f, 300, false}, // 25
+//     {"Spec-WOOD-Composite", 45.0f, 300, false},
+// };
 
 // ----------------------------------------------------------------------------
 // Remote/command mask tracking (host-side)
