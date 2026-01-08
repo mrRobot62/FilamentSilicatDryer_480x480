@@ -9,9 +9,13 @@
 // preWaitSnapshot: snapshot of UI-visible runtime fields to restore after WAIT
 // hasPreWaitSnapshot: indicates snapshot validity
 //
-static bool waiting = false;
+
 static OvenRuntimeState preWaitSnapshot = {};
 static bool hasPreWaitSnapshot = false;
+
+// NOTE (T7): waiting is now represented by runtimeState.mode.
+// Keep this legacy flag only for transitional code paths if needed.
+static bool waiting = false;
 
 /**
  * currentProfile:
@@ -199,16 +203,26 @@ void oven_init(void) {
  * NOTE: UI will reflect real output states only after telemetry arrives.
  */
 void oven_start(void) {
-    if (runtimeState.running) {
+    // Only start from STOPPED (or allow restart from POST/WAIT later if needed)
+    if (runtimeState.mode == OvenMode::RUNNING) {
         return;
     }
+    if (runtimeState.mode == OvenMode::WAITING) {
+        return; // user must RESUME, not START
+    }
 
-    runtimeState.running = true;
+    runtimeState.mode = OvenMode::RUNNING;
+    runtimeState.running = true; // backward-compat for current UI
 
     // Reset countdown only on START (if profile has sensible duration)
     runtimeState.durationMinutes = currentProfile.durationMinutes;
     runtimeState.secondsRemaining = currentProfile.durationMinutes * 60;
     runtimeState.tempTarget = currentProfile.targetTemperature;
+
+    // Reset POST runtime
+    runtimeState.post.active = false;
+    runtimeState.post.secondsRemaining = 0;
+    runtimeState.post.stepIndex = 0;
 
     uint16_t m = g_remoteOutputsMask;
 
@@ -220,11 +234,14 @@ void oven_start(void) {
     // Mutual exclusion: FAST fan and SLOW fan should not be active together
     m = mask_set(m, OVEN_CONNECTOR::FAN230V, false);
 
+    // ------------------
     // Door bit note:
+    // ------------------
     // In hardware the door line is used for safety features on the powerboard.
     // In T6 we treat DOOR_ACTIVE as input-like, so preserve_inputs() will keep
     // the sensor truth. If you *must* force a specific electrical behavior,
     // do it on the client side or revise preserve_inputs() intentionally.
+
     comm_send_mask(m);
 
     OVEN_INFO("[oven_start()]\n");
@@ -242,11 +259,19 @@ void oven_start(void) {
  *     MOTOR OFF
  */
 void oven_stop(void) {
-    if (!runtimeState.running) {
+    // STOP is allowed from any active mode
+    if (runtimeState.mode == OvenMode::STOPPED) {
         return;
     }
 
-    runtimeState.running = false;
+    runtimeState.mode = OvenMode::STOPPED;
+    runtimeState.running = false; // backward-compat
+    waiting = false;
+
+    // Clear POST runtime
+    runtimeState.post.active = false;
+    runtimeState.post.secondsRemaining = 0;
+    runtimeState.post.stepIndex = 0;
 
     uint16_t m = g_remoteOutputsMask;
 
@@ -256,6 +281,7 @@ void oven_stop(void) {
     m = mask_set(m, OVEN_CONNECTOR::FAN230V, false);
     m = mask_set(m, OVEN_CONNECTOR::FAN230V_SLOW, false);
     m = mask_set(m, OVEN_CONNECTOR::SILICAT_MOTOR, false);
+    m = mask_set(m, OVEN_CONNECTOR::LAMP, false);
 
     comm_send_mask(m);
 
@@ -263,7 +289,11 @@ void oven_stop(void) {
 }
 
 bool oven_is_running(void) {
-    return runtimeState.running;
+    // T6
+    // return runtimeState.running;
+
+    // new in T7
+    return runtimeState.mode == OvenMode::RUNNING;
 }
 
 // =============================================================================
@@ -368,15 +398,69 @@ void oven_tick(void) {
     }
 
     // -------------------------------------------------------------------------
-    // Countdown (host-side)
+    // Countdown (host-side) T6
     // -------------------------------------------------------------------------
-    if (runtimeState.running) {
+    // if (runtimeState.running) {
+    //     if (runtimeState.durationMinutes > 0) {
+    //         if (runtimeState.secondsRemaining > 0) {
+    //             runtimeState.secondsRemaining--;
+    //         } else {
+    //             oven_stop();
+    //         }
+    //     }
+    // }
+
+    // -------------------------------------------------------------------------
+    // Countdown (host-side) T7
+    // Mode-based time progression (host-side)
+    // -------------------------------------------------------------------------
+    if (runtimeState.mode == OvenMode::RUNNING) {
         if (runtimeState.durationMinutes > 0) {
             if (runtimeState.secondsRemaining > 0) {
                 runtimeState.secondsRemaining--;
             } else {
-                oven_stop();
+                // Transition to POST if configured; otherwise STOP.
+                if (currentProfile.filamentId >= 0 && (uint16_t)currentProfile.filamentId < kPresetCount) {
+                    const FilamentPreset &p = kPresets[currentProfile.filamentId];
+                    if (p.post.active && p.post.seconds > 0) {
+                        runtimeState.mode = OvenMode::POST;
+                        runtimeState.running = false; // backward-compat
+                        runtimeState.post.active = true;
+                        runtimeState.post.secondsRemaining = p.post.seconds;
+                        runtimeState.post.stepIndex = 0;
+
+                        // Apply POST policy (Cooling step 0)
+                        uint16_t m = g_remoteOutputsMask;
+                        m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
+                        m = mask_set(m, OVEN_CONNECTOR::SILICAT_MOTOR, false);
+                        m = mask_set(m, OVEN_CONNECTOR::FAN12V, true);
+                        m = mask_set(m, OVEN_CONNECTOR::LAMP, true);
+
+                        if (p.post.fanMode == PostFanMode::SLOW) {
+                            m = mask_set(m, OVEN_CONNECTOR::FAN230V_SLOW, true);
+                            m = mask_set(m, OVEN_CONNECTOR::FAN230V, false);
+                        } else {
+                            m = mask_set(m, OVEN_CONNECTOR::FAN230V, true);
+                            m = mask_set(m, OVEN_CONNECTOR::FAN230V_SLOW, false);
+                        }
+
+                        comm_send_mask(m);
+                        OVEN_INFO("[oven_tick] RUN->POST (Cooling)\n");
+                    } else {
+                        oven_stop();
+                    }
+                } else {
+                    oven_stop();
+                }
             }
+        }
+    } else if (runtimeState.mode == OvenMode::POST) {
+        if (runtimeState.post.active && runtimeState.post.secondsRemaining > 0) {
+            runtimeState.post.secondsRemaining--;
+        } else {
+            // POST finished -> STOP
+            oven_stop();
+            OVEN_INFO("[oven_tick] POST finished -> STOP\n");
         }
     }
 
@@ -460,7 +544,9 @@ void oven_lamp_toggle_manual(void) {
 // =============================================================================
 
 bool oven_is_waiting(void) {
-    return waiting;
+    // return waiting;
+    //  NEW T7
+    return runtimeState.mode == OvenMode::WAITING;
 }
 
 /**
@@ -480,7 +566,9 @@ bool oven_is_waiting(void) {
  *     LAMP ON
  */
 void oven_pause_wait(void) {
-    if (!runtimeState.running || waiting) {
+    // if (!runtimeState.running || waiting) {
+    //  if condition new T7
+    if (runtimeState.mode != OvenMode::RUNNING || runtimeState.mode == OvenMode::WAITING) {
         OVEN_WARN("[oven_pause_wait] runtimeState.running=%d || waiting=%d\n",
                   runtimeState.running, waiting);
         return;
@@ -494,8 +582,9 @@ void oven_pause_wait(void) {
     g_preWaitCommandMask = g_lastCommandMask;
 
     // Enter WAIT: stop countdown progression
-    runtimeState.running = false;
-    waiting = true;
+    runtimeState.mode = OvenMode::WAITING;
+    runtimeState.running = false; // backward-compat
+    waiting = true;               // legacy, kept for now
 
     uint16_t m = g_remoteOutputsMask;
 
@@ -527,7 +616,8 @@ void oven_pause_wait(void) {
  * - Sends the pre-WAIT command mask again (g_preWaitCommandMask)
  */
 bool oven_resume_from_wait(void) {
-    if (!waiting) {
+    // if condition new in T7
+    if (runtimeState.mode != OvenMode::WAITING) {
         OVEN_WARN("[oven_resume_from_wait] waiting=%d\n", waiting);
         return false;
     }
@@ -554,8 +644,9 @@ bool oven_resume_from_wait(void) {
         runtimeState.secondsRemaining = keepSeconds;
     }
 
-    runtimeState.running = true;
-    waiting = false;
+    runtimeState.mode = OvenMode::RUNNING;
+    runtimeState.running = true; // backward-compat
+    waiting = false;             // legacy
 
     // Restore the pre-WAIT command mask
     comm_send_mask(g_preWaitCommandMask);
