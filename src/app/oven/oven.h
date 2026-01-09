@@ -232,37 +232,6 @@ static constexpr FilamentPreset kPresets[] = {
     {"Spec-WOOD-Composite", 45.0f, 300, false, {true, 300, PostFanMode::FAST}},
 };
 
-// static constexpr FilamentPreset kPresets[] = {
-//     // Name, Temp(C), Dur(min), Rotary
-//     {"CUSTOM", 0.0f, 0, false},
-//     {"SILICA", 105.0f, 90, true},
-//     {"ABS", 80.0f, 300, false},
-//     {"ASA", 82.5f, 300, false},
-//     {"PETG", 62.5f, 360, false},
-//     {"PLA", 47.5f, 300, false}, // 5
-//     {"TPU", 45.0f, 300, false},
-//     {"Spec-ASA-CF", 85.0f, 540, false},
-//     {"Spec-BVOH", 52.5f, 420, false},
-//     {"Spec-HIPS", 65.0f, 300, false},
-//     {"Spec-PA(CF,PET,PH*)", 85.0f, 540, false}, // 10
-//     {"Spec-PC(CF/FR)", 85.0f, 540, false},
-//     {"Spec-PC-ABS", 82.5f, 540, false},
-//     {"Spec-PET-CF", 75.0f, 480, false},
-//     {"Spec-PETG-CF", 70.0f, 480, false},
-//     {"Spec-PETG-HF", 65.0f, 360, false}, // 15
-//     {"Spec-PLA-CF", 55.0f, 360, false},
-//     {"Spec-PLA-HT", 55.0f, 360, false},
-//     {"Spec-PLA-WoodMetal", 45.0f, 300, false},
-//     {"Spec-POM", 70.0f, 300, false},
-//     {"Spec-PP", 55.0f, 300, false}, // 20
-//     {"Spec-PP-GF", 65.0f, 480, false},
-//     {"Spec-PPS(+CF)", 85.0f, 540, false},
-//     {"Spec-PVA", 50.0f, 480, false},
-//     {"Spec-PVDF-PPSU", 85.0f, 540, false},
-//     {"Spec-TPU 82A", 42.5f, 300, false}, // 25
-//     {"Spec-WOOD-Composite", 45.0f, 300, false},
-// };
-
 // ----------------------------------------------------------------------------
 // Remote/command mask tracking (host-side)
 // ----------------------------------------------------------------------------
@@ -286,6 +255,9 @@ static constexpr uint32_t kCommAliveTimeoutMs = 1500; // tune as needed
 static constexpr uint16_t kPresetCount =
     sizeof(kPresets) / sizeof(kPresets[0]);
 static constexpr uint16_t OVEN_DEFAULT_PRESET_INDEX = 5; // PLA
+
+// adjusting minutes für HH:MM in this granularity
+static constexpr uint8_t UI_MIN_MINUTES = 1;
 
 // ----------------------------------------------------------------------------
 // Public API

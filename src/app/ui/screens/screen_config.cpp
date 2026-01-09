@@ -541,7 +541,7 @@ static void create_config_rollers(lv_obj_t *parent) {
 
     static char mm_opts[256];
     mm_opts[0] = '\0';
-    for (int m = 0; m <= 55; m += 5) {
+    for (int m = 0; m <= (60 - UI_MIN_MINUTES); m += UI_MIN_MINUTES) {
         char line[8];
         std::snprintf(line, sizeof(line), "%02d\n", m);
         std::strncat(mm_opts, line, sizeof(mm_opts) - std::strlen(mm_opts) - 1);
@@ -983,7 +983,9 @@ static void apply_runtime_from_widgets(void) {
     // HH:MM
     const int hh = lv_roller_get_selected(ui_config.roller_time_hh);
     const int mm5 = lv_roller_get_selected(ui_config.roller_time_mm);
-    const int mm = mm5 * 5;
+
+    // it is possible to adjust the granularity of Minutes. For Test set to 1min, Runtime-System 5min is a good approach
+    const int mm = mm5 * UI_MIN_MINUTES;    
 
     const int duration_min = hh * 60 + mm;
 

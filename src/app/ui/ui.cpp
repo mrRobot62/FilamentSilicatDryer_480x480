@@ -1,15 +1,14 @@
 
 #include "ui.h"
 #include "screens/screen_main.h"
-#include "ui_events.h"
 #include "screens/screen_manager.h"
+#include "ui_events.h"
 
 // Hier die EINZIGE Definition:
 UiControls g_ui;
 
 // Flush-Callback: LVGL -> GFX
-static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
-{
+static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
 
@@ -33,15 +32,13 @@ static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px
  *      dann: input-device data auf PRESSED plus x/y koordinaten
  *      sonst: RELEASED
  */
-static void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data)
-{
+static void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data) {
     LV_UNUSED(indev);
 
     static uint32_t read_counter = 0;
     read_counter++;
     // Alle 500 Aufrufe eine Debug-Zeile ausgeben
-    if (read_counter % 500 == 0)
-    {
+    if (read_counter % 500 == 0) {
         // Serial.print(F("[LVGL TOUCH] read_cb called, count="));
         // Serial.println(read_counter);
         UI_DBG("[LVGL TOUCH] read_cb called, count=%d\n", read_counter);
@@ -49,21 +46,17 @@ static void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data)
 
     bool touched = false;
 
-    if (touch_has_signal())
-    {
+    if (touch_has_signal()) {
         touched = touch_touched();
     }
 
-    if (touched)
-    {
+    if (touched) {
         data->state = LV_INDEV_STATE_PRESSED;
         data->point.x = touch_last_x;
         data->point.y = touch_last_y;
 
-        UI_INFO("[TOUCH] PRESSED at %d, %d\n", data->point.x, data->point.y);
-    }
-    else
-    {
+        UI_DBG("[TOUCH] PRESSED at %d, %d\n", data->point.x, data->point.y);
+    } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
 }
@@ -76,16 +69,13 @@ static void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data)
  * ui_build() : Initialisiert LVGL, Display, Touch und baut die UI auf.
  *
  */
-void ui_init(void)
-{
+void ui_init(void) {
 
     // 1) Display initialisieren (in main.cpp)
-    if (!init_display())
-    {
+    if (!init_display()) {
         {
             Serial.println(F("[UI] init_display() FAILED"));
-            while (true)
-            {
+            while (true) {
                 delay(1000);
             }
         }
@@ -102,12 +92,10 @@ void ui_init(void)
         buf_pixels * sizeof(lv_color_t),
         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 
-    if (!g_ui.lv_buf1)
-    {
+    if (!g_ui.lv_buf1) {
 
         UI_INFO("[UI] LVGL draw buffer alloc FAILED\n");
-        while (true)
-        {
+        while (true) {
             delay(1000);
         }
     }
@@ -126,11 +114,9 @@ void ui_init(void)
 
     // 4) Display-Objekt
     g_ui.displayDrv = lv_display_create(SCREEN_WIDTH, SCREEN_HEIGHT);
-    if (!g_ui.displayDrv)
-    {
+    if (!g_ui.displayDrv) {
         UI_INFO("[UI] lv_display_create() FAILED\n");
-        while (true)
-        {
+        while (true) {
             delay(1000);
         }
     }
