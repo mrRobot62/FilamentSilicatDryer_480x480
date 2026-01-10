@@ -310,8 +310,9 @@ void screen_main_refresh_from_runtime(void) {
     lv_obj_update_layout(ui.dial);
 
     int hh = 0, mm = 0, ss = 0;
+    const bool is_active = (st.mode != OvenMode::STOPPED); // RUNNING or POST or any future active mode
 
-    if (!st.running) {
+    if (!is_active) {
         // STOPPED: runtime holds the configured total duration
         const int totalSec = (int)st.durationMinutes * 60;
         g_total_seconds = totalSec;
@@ -849,6 +850,46 @@ static void preset_name_apply_fit(lv_obj_t *label, const char *text) {
     lv_obj_set_style_text_font(label, font, LV_PART_MAIN);
     lv_label_set_text(label, text);
 }
+
+static RunState derive_run_state_from_runtime(const OvenRuntimeState &st) {
+    // Single source of truth: st.mode (matches OvenMode enum in oven.h)
+    // Expected mapping:
+    //   STOPPED  -> OvenMode::STOPPED (0)
+    //   RUNNING  -> OvenMode::RUNNING (1)   (example)
+    //   WAIT     -> OvenMode::WAITING
+    //   POST     -> OvenMode::POST
+    //
+    // IMPORTANT: Treat POST as "active" so the START button stays STOP
+    // until POST is finished.
+
+    if (st.mode == OvenMode::WAITING) {
+        return RunState::WAIT;
+    }
+
+    if (st.mode == OvenMode::STOPPED) {
+        return RunState::STOPPED;
+    }
+
+    // RUNNING or POST or any future non-stopped mode
+    return RunState::RUNNING;
+}
+
+// --- helpers: stringify OvenMode for logs ---
+static const char *oven_mode_to_str(OvenMode m) {
+    switch (m) {
+    case OvenMode::STOPPED:
+        return "STOPPED";
+    case OvenMode::RUNNING:
+        return "RUNNING";
+    case OvenMode::WAITING:
+        return "WAITING";
+    case OvenMode::POST:
+        return "POST";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 //----------------------------------------------------
 //
 //----------------------------------------------------
@@ -908,7 +949,6 @@ lv_obj_t *screen_main_create(lv_obj_t *parent) {
     UI_DBG("[screen_main_create] screen-addr: %d\n", ui.root);
     return ui.root;
 }
-
 //----------------------------------------------------
 //
 //----------------------------------------------------
@@ -917,6 +957,18 @@ lv_obj_t *screen_main_create(lv_obj_t *parent) {
 void screen_main_update_runtime(const OvenRuntimeState *state) {
     if (!state) {
         return;
+    }
+
+    // --- NEW: keep UI run-state in sync with oven runtime ---
+    const RunState derived = derive_run_state_from_runtime(*state);
+    if (derived != g_run_state) {
+        UI_INFO("[UI] run_state sync: %d -> %d (mode=%s running=%d postRem=%u)\n",
+                (int)g_run_state,
+                (int)derived,
+                oven_mode_to_str(state->mode),
+                (int)state->running,
+                (unsigned)state->post.secondsRemaining);
+        g_run_state = derived;
     }
 
     static bool last_door_open = false;

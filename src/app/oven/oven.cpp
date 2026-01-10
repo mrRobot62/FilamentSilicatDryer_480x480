@@ -439,6 +439,9 @@ void oven_tick(void) {
                     runtimeState.secondsRemaining = g_currentPostPlan.seconds;
                     runtimeState.durationMinutes = (g_currentPostPlan.seconds + 59u) / 60u;
 
+                    runtimeState.post.secondsRemaining = g_currentPostPlan.seconds;
+                    runtimeState.secondsRemaining = g_currentPostPlan.seconds;
+
                     // Apply POST policy (Cooling step 0)
                     uint16_t m = g_remoteOutputsMask;
                     m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
@@ -810,6 +813,14 @@ void oven_comm_poll(void) {
     if (!g_hostComm) {
         return;
     }
+
+    // DEBUG D1: prove oven_comm_poll() is running
+    // static uint32_t d1_lastMs = 0;
+    // const uint32_t d1_now = millis();
+    // if (d1_now - d1_lastMs >= 1000) {
+    //     d1_lastMs = d1_now;
+    //     Serial.println("[D1] oven_comm_poll alive");
+    // }
 
     // Always read UART non-blocking
     g_hostComm->loop();

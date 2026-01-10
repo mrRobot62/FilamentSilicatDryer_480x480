@@ -204,7 +204,7 @@ typedef struct
 static constexpr FilamentPreset kPresets[] = {
     // Name, Temp(C), Dur(min), Rotary, POST{active, seconds, fanMode}
     {"CUSTOM", 0.0f, 0, false, {false, 0, PostFanMode::SLOW}},
-    {"SILICA", 105.0f, 90, true, {true, 300, PostFanMode::FAST}}, // example: 5 min cooling
+    {"SILICA", 105.0f, 90, true, {true, 60, PostFanMode::FAST}}, // example: 5 min cooling
     {"ABS", 80.0f, 300, false, {true, 300, PostFanMode::FAST}},
     {"ASA", 82.5f, 300, false, {true, 300, PostFanMode::FAST}},
     {"PETG", 62.5f, 360, false, {true, 300, PostFanMode::SLOW}},

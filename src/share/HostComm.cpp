@@ -79,64 +79,6 @@ void HostComm::begin(uint32_t baudrate, uint8_t rx, uint8_t tx) {
  * The implementation is fully non-blocking and uses no delays,
  * so it is safe to run alongside LVGL or any real-time GUI loop.
  */
-// void HostComm::loop() {
-//     while (_serial.available() > 0) {
-//         char c = static_cast<char>(_serial.read());
-
-//         if (c == '\r') {
-//             continue;
-//         }
-
-//         if (c == '\n') {
-//             // If we got an empty line (e.g. "\r\n"), just ignore it.
-//             if (_rxBuffer.length() == 0) {
-//                 continue;
-//             }
-
-//             String line = _rxBuffer;
-//             _rxBuffer = "";
-
-//             // 1) trim whitespace
-//             line.trim();
-//             if (line.isEmpty()) {
-//                 continue; // IMPORTANT: do NOT return
-//             }
-
-//             // 2) drop leading junk until we see 'C' or 'H'
-//             int start = -1;
-//             for (int i = 0; i < (int)line.length(); ++i) {
-//                 char ch = line[i];
-//                 if (ch == 'C' || ch == 'H') {
-//                     start = i;
-//                     break;
-//                 }
-//             }
-
-//             if (start < 0) {
-//                 WARN("[HostComm] RX junk line ignored: '%s'\n", line.c_str());
-//                 continue; // IMPORTANT: do NOT return
-//             }
-
-//             if (start > 0) {
-//                 WARN("[HostComm] RX leading junk (%d bytes) removed\n", start);
-//                 line = line.substring(start);
-//             }
-
-//             DBG("[HostComm] RX LINE: '%s'\n", line.c_str());
-//             handleIncomingLine(line);
-//             continue;
-//         }
-
-//         // Accumulate character into buffer
-//         _rxBuffer += c;
-//         if (_rxBuffer.length() > 120) {
-//             WARN("[HostComm] RX line overflow, dropping\n");
-//             _rxBuffer = "";
-//             // (optional later) _commError = true;
-//         }
-//     }
-// }
-
 void HostComm::loop() {
     while (_serial.available() > 0) {
         const char c = static_cast<char>(_serial.read());
@@ -200,13 +142,13 @@ void HostComm::sendPing() {
     String msg = ProtocolCodec::buildHostPing();
     static uint32_t n = 0;
     ++n;
-    DBG("[HostComm] TX(#%lu): %s", n, msg.c_str()); // contains \r\n already
+    HOST_DBG("[HostComm] TX(#%lu): %s", n, msg.c_str()); // contains \r\n already
     // HEX dump (damit wir 100% sehen was wirklich gesendet wird)
-    DBG("[HostComm] TX HEX:");
+    HOST_DBG("[HostComm] TX HEX:");
     for (size_t i = 0; i < msg.length(); ++i) {
-        RAW(" %02X", (uint8_t)msg[i]);
+        HOST_RAW(" %02X", (uint8_t)msg[i]);
     }
-    RAW("\n");
+    HOST_RAW("\n");
     _serial.print(msg);
     _serial.flush(); // for debugging only
 }
@@ -349,8 +291,8 @@ void HostComm::handleIncomingLine(const String &line) {
     if (!ok) {
         _parseFailCount++;
         _lastBadLine = line;
-        WARN("[HostComm] parse failed for line='%s' (failCount=%lu)\n",
-             line.c_str(), (unsigned long)_parseFailCount);
+        HOST_WARN("[HostComm] parse failed for line='%s' (failCount=%lu)\n",
+                  line.c_str(), (unsigned long)_parseFailCount);
 
         // IMPORTANT:
         // Before we have a stable link, ignore junk (boot noise, partial frames, etc.)
@@ -363,39 +305,39 @@ void HostComm::handleIncomingLine(const String &line) {
 
     switch (type) {
     case ProtocolMessageType::ClientAckSet:
-        DBG("ACK SET received, mask=0x%04X\n", mask);
+        HOST_DBG("ACK SET received, mask=0x%04X\n", mask);
         _lastSetAcked = true;
         _remoteStatus.outputsMask = mask;
         break;
 
     case ProtocolMessageType::ClientAckUpd:
-        DBG("ACK UPD received, mask=0x%04X\n", mask);
+        HOST_DBG("ACK UPD received, mask=0x%04X\n", mask);
         _remoteStatus.outputsMask = mask;
         _lastUpdAcked = true;
         break;
 
     case ProtocolMessageType::ClientAckTog:
-        DBG("ACK TOG received, mask=0x%04X\n", mask);
+        HOST_DBG("ACK TOG received, mask=0x%04X\n", mask);
         _remoteStatus.outputsMask = mask;
         _lastTogAcked = true;
         break;
 
     case ProtocolMessageType::ClientErrSet:
-        ERR("ERR SET received, code=%d\n", errorCode);
+        HOST_ERR("ERR SET received, code=%d\n", errorCode);
         _commError = true; // THIS is a real protocol-level error
         break;
 
     case ProtocolMessageType::ClientStatus:
-        DBG("STATUS received, mask=0x%04X adc=[%u,%u,%u,%u] tempRaw=%d\n",
-            statusTmp.outputsMask,
-            statusTmp.adcRaw[0], statusTmp.adcRaw[1], statusTmp.adcRaw[2], statusTmp.adcRaw[3],
-            statusTmp.tempRaw);
+        HOST_DBG("STATUS received, mask=0x%04X adc=[%u,%u,%u,%u] tempRaw=%d\n",
+                 statusTmp.outputsMask,
+                 statusTmp.adcRaw[0], statusTmp.adcRaw[1], statusTmp.adcRaw[2], statusTmp.adcRaw[3],
+                 statusTmp.tempRaw);
         _remoteStatus = statusTmp;
         _newStatus = true;
         break;
 
     case ProtocolMessageType::ClientPong:
-        DBG("PONG received\n");
+        HOST_DBG("PONG received\n");
         _lastPong = true;
 
         if (_pongStreak < 255) {
@@ -407,13 +349,13 @@ void HostComm::handleIncomingLine(const String &line) {
         break;
 
     case ProtocolMessageType::ClientRst:
-        WARN("RST received from client\n");
+        HOST_WARN("RST received from client\n");
         _linkSynced = false;
         _pongStreak = 0;
         break;
 
     default:
-        ERR("Unexpected message type=%u\n", (unsigned)type);
+        HOST_ERR("Unexpected message type=%u\n", (unsigned)type);
         _commError = true; // parse was OK but message is invalid for host
         break;
     }
@@ -442,45 +384,6 @@ void HostComm::togOutputs(uint16_t togMask) {
 void HostComm::processLine(const String &line) {
     processCompletedLine(line);
 }
-// void HostComm::processLine(const String &raw) {
-//     String line = raw;
-
-//     // same behavior as loop()
-//     line.trim();
-//     if (line.isEmpty()) {
-//         return; // ignore empty
-//     }
-
-//     // drop leading junk until we see 'C' or 'H'
-//     int start = -1;
-//     for (int i = 0; i < (int)line.length(); ++i) {
-//         char ch = line[i];
-//         if (ch == 'C' || ch == 'H') {
-//             start = i;
-//             break;
-//         }
-//     }
-
-//     if (start < 0) {
-//         // mirror what would happen on a junk line
-//         _parseFailCount++;
-//         _lastBadLine = line;
-//         WARN("[HostComm] processLine junk ignored: '%s' (failCount=%lu)\n",
-//              line.c_str(), (unsigned long)_parseFailCount);
-//         if (_linkSynced) {
-//             _commError = true;
-//         }
-
-//         return;
-//     }
-
-//     if (start > 0) {
-//         WARN("[HostComm] processLine leading junk (%d bytes) removed\n", start);
-//         line = line.substring(start);
-//     }
-
-//     handleIncomingLine(line);
-// }
 
 bool HostComm::lastPongReceived() const {
     return _lastPong;
@@ -520,7 +423,7 @@ void HostComm::handleRxByte(char c) {
     _rxBuffer += c;
 
     if (_rxBuffer.length() > 120) {
-        WARN("[HostComm] RX line overflow, dropping\n");
+        HOST_WARN("[HostComm] RX line overflow, dropping\n");
         _rxBuffer = "";
         // Optional: set _commError only after link is stable
         // if (_linkSynced) { _commError = true; }
@@ -549,17 +452,18 @@ void HostComm::processCompletedLine(String line) {
         // treat as junk line (count as fail) but do not hard-fail the link
         _parseFailCount++;
         _lastBadLine = line;
-        WARN("[HostComm] RX junk line ignored: '%s' (failCount=%lu)\n",
-             line.c_str(), (unsigned long)_parseFailCount);
+        HOST_WARN("[HostComm] RX junk line ignored: '%s' (failCount=%lu)\n",
+                  line.c_str(), (unsigned long)_parseFailCount);
         return;
     }
 
     if (start > 0) {
-        WARN("[HostComm] RX leading junk (%d bytes) removed\n", start);
+        HOST_WARN("[HostComm] RX leading junk (%d bytes) removed\n", start);
         line = line.substring(start);
     }
 
-    DBG("[HostComm] RX LINE: '%s'\n", line.c_str());
+    // DBG("[HostComm] RX LINE: '%s'\n", line.c_str());
+
     handleIncomingLine(line);
 }
 
