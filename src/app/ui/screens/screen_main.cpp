@@ -1731,6 +1731,10 @@ static void update_temp_ui(const OvenRuntimeState &state) {
 // update_actuator_icons
 // führt update für Icons for (Farbwechsel)
 // Icons signalisieren lediglich ON/OFF
+//
+// NOTE:
+// RUNNING and POST intentionally share the same icon behavior.
+// POST is visually indicated by dial + preset background only.
 //----------------------------------------------------
 static void update_actuator_icons(const OvenRuntimeState &state) {
     auto set_icon_state = [](lv_obj_t *obj, lv_color_t on_color, bool on) {
@@ -1753,7 +1757,10 @@ static void update_actuator_icons(const OvenRuntimeState &state) {
     const lv_color_t col_door_open = ui_color_from_hex(UI_COLOR_ICON_DOOR_OPEN_HEX); // z.B. rot
 
     // Door always reflects reality
-    if (state.heater_on && g_run_state != RunState::WAIT) {
+    // if (state.heater_on && g_run_state != RunState::WAIT) {
+
+    // T7 AP4.3 - easier to read as above version
+    if (state.heater_on && (g_run_state == RunState::RUNNING || state.mode == OvenMode::POST)) {
         const uint32_t hex = temp_status_color_hex(state.tempCurrent, state.tempTarget);
         set_icon_state(ui.icon_heater, ui_color_from_hex(hex), true);
 
