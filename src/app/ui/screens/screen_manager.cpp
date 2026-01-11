@@ -4,7 +4,7 @@
 #include "screen_log.h"
 #include "screen_main.h"
 
-#include "oven/oven.h" // bool oven_is_running()
+#include "oven_utils.h" // implicde #include "oven.h"
 
 #include <cstdlib> // abs()
 

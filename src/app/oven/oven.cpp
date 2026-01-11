@@ -1,4 +1,5 @@
-#include "oven.h"
+#include "oven_utils.h" // implicde #include "oven.h"
+
 #include <Arduino.h>
 
 // =============================================================================
@@ -468,43 +469,6 @@ void oven_tick(void) {
                     oven_stop();
                 }
             }
-            //     if (currentProfile.filamentId >= 0 && (uint16_t)currentProfile.filamentId < kPresetCount) {
-            //         const FilamentPreset &p = kPresets[currentProfile.filamentId];
-            //         if (p.post.active && p.post.seconds > 0) {
-            //             runtimeState.mode = OvenMode::POST;
-            //             runtimeState.running = false; // backward-compat
-            //             runtimeState.post.active = true;
-            //             runtimeState.post.stepIndex = 0;
-
-            //             // T7: Show POST countdown on the main dial (UI uses secondsRemaining)
-            //             runtimeState.secondsRemaining = p.post.seconds;
-            //             // Keep durationMinutes consistent for UI elements that use minutes
-            //             runtimeState.durationMinutes = (p.post.seconds + 59u) / 60u;
-
-            //             // Apply POST policy (Cooling step 0)
-            //             uint16_t m = g_remoteOutputsMask;
-            //             m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
-            //             m = mask_set(m, OVEN_CONNECTOR::SILICAT_MOTOR, false);
-            //             m = mask_set(m, OVEN_CONNECTOR::FAN12V, true);
-            //             m = mask_set(m, OVEN_CONNECTOR::LAMP, true);
-
-            //             if (p.post.fanMode == PostFanMode::SLOW) {
-            //                 m = mask_set(m, OVEN_CONNECTOR::FAN230V_SLOW, true);
-            //                 m = mask_set(m, OVEN_CONNECTOR::FAN230V, false);
-            //             } else {
-            //                 m = mask_set(m, OVEN_CONNECTOR::FAN230V, true);
-            //                 m = mask_set(m, OVEN_CONNECTOR::FAN230V_SLOW, false);
-            //             }
-
-            //             comm_send_mask(m);
-            //             OVEN_INFO("[oven_tick] RUN->POST (Cooling)\n");
-            //         } else {
-            //             oven_stop();
-            //         }
-            //     } else {
-            //         oven_stop();
-            //     }
-            // }
         }
     } else if (runtimeState.mode == OvenMode::POST) {
         if (runtimeState.post.active && runtimeState.post.secondsRemaining > 0) {
@@ -531,6 +495,8 @@ void oven_tick(void) {
     // runtimeState.commAlive = (g_lastStatusRxMs != 0) && (age <= kCommAliveTimeoutMs);
     //  new in T7 (HostComm linkSynced available)
     runtimeState.commAlive = (g_hostComm != nullptr) && g_hostComm->linkSynced();
+
+    // runtimeState.commAlive = oven_is_alive();
 
     runtimeState.statusRxCount = g_statusRxCount;
     runtimeState.commErrorCount = g_commErrorCount;
@@ -607,6 +573,13 @@ bool oven_is_waiting(void) {
     // return waiting;
     //  NEW T7
     return runtimeState.mode == OvenMode::WAITING;
+}
+
+bool oven_is_alive(void) {
+    if (g_hostComm != nullptr && g_hostComm->linkSynced()) {
+        return true;
+    }
+    return false;
 }
 
 /**
@@ -814,16 +787,12 @@ void oven_comm_poll(void) {
         return;
     }
 
-    // DEBUG D1: prove oven_comm_poll() is running
-    // static uint32_t d1_lastMs = 0;
-    // const uint32_t d1_now = millis();
-    // if (d1_now - d1_lastMs >= 1000) {
-    //     d1_lastMs = d1_now;
-    //     Serial.println("[D1] oven_comm_poll alive");
-    // }
-
     // Always read UART non-blocking
     g_hostComm->loop();
+
+    // if (!g_hostComm->linkSynced()) {
+    //     g_hostComm->sendPing();
+    // }
 
     // Periodically request STATUS
     const uint32_t now = millis();
@@ -851,6 +820,9 @@ void oven_comm_poll(void) {
         runtimeState.heater_on = mask_has(st.outputsMask, OVEN_CONNECTOR::HEATER);
         runtimeState.lamp_on = mask_has(st.outputsMask, OVEN_CONNECTOR::LAMP);
         runtimeState.door_open = mask_has(st.outputsMask, OVEN_CONNECTOR::DOOR_ACTIVE);
+
+        // T7 bugfix fro update_status_icons
+        //runtimeState.commAlive = oven_is_alive();
 
         g_remoteOutputsMask = st.outputsMask;
 

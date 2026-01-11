@@ -5,7 +5,7 @@
 #include <lvgl.h>
 
 #include "log_ui.h"
-#include "oven/oven.h" // Pfad ggf. anpassen zu deinem Projekt
+#include "oven.h" // Pfad ggf. anpassen zu deinem Projekt
 #include "screen_base.h"
 
 // Forward-declare your OvenRuntimeState.

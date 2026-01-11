@@ -273,6 +273,7 @@ void oven_tick(void);
 void oven_start(void);
 void oven_stop(void);
 bool oven_is_running(void);
+bool oven_is_alive(void);
 
 // Current runtime state for UI (single read-only snapshot)
 void oven_get_runtime_state(OvenRuntimeState *stateOut);

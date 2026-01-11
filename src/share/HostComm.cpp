@@ -1,4 +1,6 @@
 #include "HostComm.h"
+#include "oven_utils.h"
+
 // #warning "HOST BUILD: compiling HostComm.cpp"
 
 /**
@@ -305,19 +307,19 @@ void HostComm::handleIncomingLine(const String &line) {
 
     switch (type) {
     case ProtocolMessageType::ClientAckSet:
-        HOST_DBG("ACK SET received, mask=0x%04X\n", mask);
+        HOST_DBG("ACK SET received, mask=0x%04X (%10s)\n", mask, oven_outputs_mask_to_str(mask));
         _lastSetAcked = true;
         _remoteStatus.outputsMask = mask;
         break;
 
     case ProtocolMessageType::ClientAckUpd:
-        HOST_DBG("ACK UPD received, mask=0x%04X\n", mask);
+        HOST_DBG("ACK UPD received, mask=0x%04X (%10s)\n", mask, oven_outputs_mask_to_str(mask));
         _remoteStatus.outputsMask = mask;
         _lastUpdAcked = true;
         break;
 
     case ProtocolMessageType::ClientAckTog:
-        HOST_DBG("ACK TOG received, mask=0x%04X\n", mask);
+        HOST_DBG("ACK TOG received, mask=0x%04X (%10s)\n", mask, oven_outputs_mask_to_str(mask));
         _remoteStatus.outputsMask = mask;
         _lastTogAcked = true;
         break;
@@ -328,8 +330,9 @@ void HostComm::handleIncomingLine(const String &line) {
         break;
 
     case ProtocolMessageType::ClientStatus:
-        HOST_DBG("STATUS received, mask=0x%04X adc=[%u,%u,%u,%u] tempRaw=%d\n",
+        HOST_DBG("STATUS received, mask=0x%04X (%10s), adc=[%u,%u,%u,%u] tempRaw=%d\n",
                  statusTmp.outputsMask,
+                 oven_outputs_mask_to_str(statusTmp.outputsMask),
                  statusTmp.adcRaw[0], statusTmp.adcRaw[1], statusTmp.adcRaw[2], statusTmp.adcRaw[3],
                  statusTmp.tempRaw);
         _remoteStatus = statusTmp;
@@ -375,10 +378,6 @@ void HostComm::togOutputs(uint16_t togMask) {
     String msg = ProtocolCodec::buildHostTog(togMask);
     _serial.print(msg);
 }
-
-// void HostComm::processLine(const String &line) {
-//     handleIncomingLine(line);
-// }
 
 // In HostComm.cpp:
 void HostComm::processLine(const String &line) {

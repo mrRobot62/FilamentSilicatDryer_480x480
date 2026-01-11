@@ -630,6 +630,7 @@
                 "HOSTRAW",
                 "HOSTDBG",
                 "UIINFO",
+                "UIDBG",
                 "UIWARN",
                 "EVENTINFO",
                 "ESP32_ARDUINO_LIB_BUILDER",

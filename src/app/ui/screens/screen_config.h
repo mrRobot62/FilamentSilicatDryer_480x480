@@ -1,11 +1,11 @@
 #pragma once
 
-#include <lvgl.h>
-#include <cstring>
 #include <cstdio> // for snprintf
+#include <cstring>
+#include <lvgl.h>
 
-#include "oven/oven.h" // Pfad ggf. anpassen zu deinem Projekt
 #include "log_ui.h"
+#include "oven.h" // Pfad ggf. anpassen zu deinem Projekt
 #include "screen_manager.h"
 
 // Layout constants (geometry)
@@ -18,8 +18,7 @@
 #define UI_FRAME_PADDING 10
 #define UI_PAGE_COUNT 3
 
-typedef struct config_screen_widgets_t
-{
+typedef struct config_screen_widgets_t {
     lv_obj_t *root;
 
     // --------------------------------------------------------
