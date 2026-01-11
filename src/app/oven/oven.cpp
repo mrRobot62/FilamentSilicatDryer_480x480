@@ -182,6 +182,34 @@ static void apply_remote_status_to_runtime(const ProtocolStatus &st) {
     g_statusRxCount++;
 }
 
+static void force_local_safe_stop_due_to_comm(const char *reason) {
+    (void)reason;
+
+    // Hard STOP for UI / state machine
+    runtimeState.mode = OvenMode::STOPPED;
+    runtimeState.running = false; // legacy UI flag
+
+    // Legacy flag still exists in oven.cpp (optional, but consistent)
+    waiting = false;
+
+    // Clear POST runtime
+    runtimeState.post.active = false;
+    runtimeState.post.secondsRemaining = 0;
+    runtimeState.post.stepIndex = 0;
+
+    // Local actuator view -> all off (UI shows OFF)
+    runtimeState.fan12v_on = false;
+    runtimeState.fan230_on = false;
+    runtimeState.fan230_slow_on = false;
+    runtimeState.motor_on = false;
+    runtimeState.heater_on = false;
+    runtimeState.lamp_on = false;
+
+    // Comms flags (UI)
+    runtimeState.commAlive = false;
+    runtimeState.linkSynced = false;
+}
+
 // =============================================================================
 // Basic API
 // =============================================================================
@@ -505,15 +533,10 @@ void oven_tick(void) {
     // -------------------------------------------------------------------------
     // Communication diagnostics (host-side)
     // -------------------------------------------------------------------------
-    now = millis();
-    const uint32_t age = (g_lastStatusRxMs == 0) ? 0xFFFFFFFFu : (now - g_lastStatusRxMs);
 
-    runtimeState.lastStatusAgeMs = age;
-    // runtimeState.commAlive = (g_lastStatusRxMs != 0) && (age <= kCommAliveTimeoutMs);
-    //  new in T7 (HostComm linkSynced available)
-    runtimeState.commAlive = (g_hostComm != nullptr) && g_hostComm->linkSynced();
-
-    // runtimeState.commAlive = oven_is_alive();
+    // NOTE (T7/AP4.2): commAlive/linkSynced are maintained in oven_comm_poll()
+    // from HostComm RX timestamps + handshake state. Do NOT overwrite them here,
+    // otherwise the UI may flicker.
 
     runtimeState.statusRxCount = g_statusRxCount;
     runtimeState.commErrorCount = g_commErrorCount;
@@ -634,7 +657,6 @@ void oven_pause_wait(void) {
     // Enter WAIT: stop countdown progression
     runtimeState.mode = OvenMode::WAITING;
     runtimeState.running = false; // backward-compat
-    waiting = true;               // legacy, kept for now
 
     uint16_t m = g_remoteOutputsMask;
 
@@ -899,8 +921,15 @@ void oven_comm_poll(void) {
         if (!g_safeStopSent) {
             OVEN_WARN("[oven_comm_poll] Alive timeout (%lums) -> SAFE STOP (SET 0x0000)\n",
                       (unsigned long)(now - lastRxAny));
+
+            // 1) Command the client to a safe OFF state (best-effort).
             comm_send_mask(0x0000);
             g_safeStopSent = true;
+
+            // 2) Immediately force local UI/state-machine into safe STOP.
+            //    This prevents the UI from showing stale colored actuator icons.
+            force_local_safe_stop_due_to_comm("alive-timeout");
+            g_remoteOutputsMask = 0;
         }
 
         // Force re-sync so we re-handshake when client returns
@@ -917,238 +946,16 @@ void oven_comm_poll(void) {
         OVEN_WARN("[oven_comm_poll] HostComm parse/protocol error\n");
         g_hostComm->clearCommErrorFlag();
     }
+
+    // 10) OneTime AliveFlag
+    static bool prevAlive = false;
+
+    if (!prevAlive && runtimeState.commAlive) {
+        OVEN_INFO("[oven_comm_poll] Link alive & synced\n");
+    }
+
+    prevAlive = runtimeState.commAlive;
 }
-
-// void oven_comm_poll(void) {
-//     if (!g_hostComm) {
-//         return;
-//     }
-
-//     const uint32_t now = millis();
-
-//     // Always read UART non-blocking
-//     g_hostComm->loop();
-
-//     // ------------------------------------------------------------------
-//     // AP3.2: drive handshake (LinkSync requires PONG streak)
-//     // ------------------------------------------------------------------
-//     const bool nowSynced = g_hostComm->linkSynced();
-//     // --- AP3.3: mirror link/age into runtimeState every poll (UI reads only runtime) ---
-//     runtimeState.linkSynced = (g_hostComm != nullptr) ? g_hostComm->linkSynced() : false;
-//     runtimeState.lastStatusAgeMs = (g_hostComm != nullptr) ? g_hostComm->lastStatusAgeMs() : 0;
-//     runtimeState.commAlive = (g_hostComm != nullptr) ? g_hostComm->isAlive() : false;
-
-//     // If not synced, keep pinging periodically to establish PONG streak
-//     if (!nowSynced && (now - g_lastPingMs >= kPingIntervalMs)) {
-//         g_lastPingMs = now;
-//         g_hostComm->sendPing();
-//     }
-
-//     // Rising edge: link became stable
-//     if (!g_prevLinkSynced && nowSynced) {
-//         OVEN_WARN("[oven_comm_poll] LinkSync rising edge -> SAFE STOP (SET 0x0000)\n");
-//         comm_send_mask(0x0000);
-//         g_safeStopSent = true; // don't spam; this "event" already forced safe state
-//     }
-//     g_prevLinkSynced = nowSynced;
-
-//     // ------------------------------------------------------------------
-//     // Poll STATUS periodically (keep as-is)
-//     // ------------------------------------------------------------------
-//     if (now - g_lastStatusRequestMs >= kStatusPollIntervalMs) {
-//         g_lastStatusRequestMs = now;
-//         g_hostComm->requestStatus();
-//     }
-
-//     // ------------------------------------------------------------------
-//     // Apply new telemetry
-//     // Any valid inbound message counts as "alive"
-//     // ------------------------------------------------------------------
-//     if (g_hostComm->hasNewStatus()) {
-//         apply_remote_status_to_runtime(g_hostComm->getRemoteStatus());
-//         g_hostComm->clearNewStatusFlag();
-
-//         g_lastRxMs = now;
-//         g_safeStopSent = false; // link is alive again
-//     }
-
-//     // ACK-based outputs update
-//     if (g_hostComm->lastSetAcked() || g_hostComm->lastUpdAcked() || g_hostComm->lastTogAcked()) {
-//         const ProtocolStatus &st = g_hostComm->getRemoteStatus();
-
-//         runtimeState.fan12v_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN12V);
-//         runtimeState.fan230_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN230V);
-//         runtimeState.fan230_slow_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN230V_SLOW);
-//         runtimeState.motor_on = mask_has(st.outputsMask, OVEN_CONNECTOR::SILICAT_MOTOR);
-//         runtimeState.heater_on = mask_has(st.outputsMask, OVEN_CONNECTOR::HEATER);
-//         runtimeState.lamp_on = mask_has(st.outputsMask, OVEN_CONNECTOR::LAMP);
-//         runtimeState.door_open = mask_has(st.outputsMask, OVEN_CONNECTOR::DOOR_ACTIVE);
-
-//         g_remoteOutputsMask = st.outputsMask;
-
-//         if (g_hostComm->lastSetAcked()) {
-//             g_hostComm->clearLastSetAckFlag();
-//         }
-//         if (g_hostComm->lastUpdAcked()) {
-//             g_hostComm->clearLastUpdAckFlag();
-//         }
-//         if (g_hostComm->lastTogAcked()) {
-//             g_hostComm->clearLastTogAckFlag();
-//         }
-
-//         g_lastRxMs = now;
-//         g_safeStopSent = false;
-//     }
-
-//     // PONG counts as alive too
-//     if (g_hostComm->lastPongReceived()) {
-//         g_hostComm->clearLastPongFlag();
-//         g_lastRxMs = now;
-//         g_safeStopSent = false;
-//     }
-
-//     // ------------------------------------------------------------------
-//     // AP3.2: Alive timeout -> SAFE STOP once + force re-sync
-//     // ------------------------------------------------------------------
-//     const bool alive = (now - g_lastRxMs) <= kAliveTimeoutMs;
-//     if (!alive) {
-//         // if (!g_safeStopSent) {
-//         //     OVEN_WARN("[oven_comm_poll] Alive timeout (%lums) -> SAFE STOP (SET 0x0000)\n",
-//         //               (unsigned long)(now - g_lastRxMs));
-//         //     comm_send_mask(0x0000);
-//         //     g_safeStopSent = true;
-//         // }
-//         if (!nowSynced) {
-//             g_sentSafeStopOnThisSync = false; // reset for next successful sync
-//         }
-
-//         if (nowSynced && !g_sentSafeStopOnThisSync) {
-//             OVEN_WARN("[oven_comm_poll] LinkSynced -> SAFE STOP once (SET 0x0000)\n");
-//             comm_send_mask(0x0000);
-//             g_sentSafeStopOnThisSync = true;
-//         }
-
-//         // Force re-sync (so we re-handshake via PING/PONG when client returns)
-//         g_hostComm->clearLinkSync();
-//         g_prevLinkSynced = false;
-//     }
-
-//     // (commAlive later; for now you said you reverted it – leave it out)
-//     // runtimeState.commAlive = alive && g_hostComm->linkSynced();
-
-//     // Handle comm error once
-//     if (g_hostComm->hasCommError()) {
-//         g_commErrorCount++;
-//         OVEN_WARN("[oven_comm_poll] HostComm parse/protocol error\n");
-//         g_hostComm->clearCommErrorFlag();
-//     }
-// }
-
-// // void oven_comm_poll(void) {
-//     if (!g_hostComm) {
-//         return;
-//     }
-
-//     // Always read UART non-blocking
-//     g_hostComm->loop();
-
-//     // --- T7/AP3.1: Fail-safe on LinkSync rising edge (false -> true) ---
-//     const bool nowSynced = (g_hostComm != nullptr) ? g_hostComm->linkSynced() : false;
-
-//     if (!g_prevLinkSynced && nowSynced) {
-//         // Link just became stable -> force a safe STOP mask once.
-//         OVEN_WARN("[oven_comm_poll] LinkSync rising edge -> SAFE STOP (SET 0x0000) (g_prevLinkSynced=%d, nowSynced=%d) \n", g_prevLinkSynced, nowSynced);
-
-//         // Minimal + deterministic: force all outputs OFF.
-//         comm_send_mask(0x0000);
-//     }
-
-//     g_prevLinkSynced = nowSynced;
-
-//     // --- T7/AP3.2: Track last "good RX" moment (STATUS or ACK) ---
-//     const uint32_t nowMs = millis();
-
-//     // If we just synced, initialize RX timer baseline
-//     if (!g_prevLinkSynced && nowSynced) {
-//         g_lastRxGoodMs = nowMs;
-//         g_aliveTimeoutTripped = false;
-//     }
-
-//     // Periodically request STATUS
-//     const uint32_t now = millis();
-//     if (now - g_lastStatusRequestMs >= kStatusPollIntervalMs) {
-//         g_lastStatusRequestMs = now;
-//         g_hostComm->requestStatus();
-//     }
-
-//     // Apply new telemetry
-//     if (g_hostComm->hasNewStatus()) {
-//         // T7 AP3.2
-//         g_lastRxGoodMs = nowMs;
-//         g_aliveTimeoutTripped = false;
-
-//         // <=T7
-//         apply_remote_status_to_runtime(g_hostComm->getRemoteStatus());
-//         g_hostComm->clearNewStatusFlag();
-//     }
-
-//     // T7: ACK-based outputs update (faster UI feedback than waiting for STATUS).
-//     // HostComm updates its shadow outputsMask on ACK; we mirror it into runtimeState.
-//     if (g_hostComm->lastSetAcked() || g_hostComm->lastUpdAcked() || g_hostComm->lastTogAcked()) {
-
-//         // new T7 AP3.2
-//         g_lastRxGoodMs = nowMs;
-//         g_aliveTimeoutTripped = false;
-//         // ------------
-//         const ProtocolStatus &st = g_hostComm->getRemoteStatus();
-
-//         // Update actuator booleans from mask ONLY (temperature still from STATUS)
-//         runtimeState.fan12v_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN12V);
-//         runtimeState.fan230_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN230V);
-//         runtimeState.fan230_slow_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN230V_SLOW);
-//         runtimeState.motor_on = mask_has(st.outputsMask, OVEN_CONNECTOR::SILICAT_MOTOR);
-//         runtimeState.heater_on = mask_has(st.outputsMask, OVEN_CONNECTOR::HEATER);
-//         runtimeState.lamp_on = mask_has(st.outputsMask, OVEN_CONNECTOR::LAMP);
-//         runtimeState.door_open = mask_has(st.outputsMask, OVEN_CONNECTOR::DOOR_ACTIVE);
-
-//         // T7 bugfix fro update_status_icons
-//         // runtimeState.commAlive = oven_is_alive();
-
-//         g_remoteOutputsMask = st.outputsMask;
-
-//         if (g_hostComm->lastSetAcked()) {
-//             g_hostComm->clearLastSetAckFlag();
-//         }
-//         if (g_hostComm->lastUpdAcked()) {
-//             g_hostComm->clearLastUpdAckFlag();
-//         }
-//         if (g_hostComm->lastTogAcked()) {
-//             g_hostComm->clearLastTogAckFlag();
-//         }
-//     }
-
-//     // FIX: handle comm error once (previously duplicated)
-//     if (g_hostComm->hasCommError()) {
-//         g_commErrorCount++;
-//         OVEN_WARN("[oven_comm_poll] HostComm parse/protocol error\n");
-//         g_hostComm->clearCommErrorFlag();
-//     }
-
-//     // --- T7/AP3.2: Alive timeout fail-safe ---
-//     // Only meaningful after link is synced at least once.
-//     if (nowSynced) {
-//         const uint32_t age = nowMs - g_lastRxGoodMs;
-
-//         if (!g_aliveTimeoutTripped && (age > kAliveTimeoutMs)) {
-//             g_aliveTimeoutTripped = true;
-
-//             OVEN_WARN("[oven_comm_poll] Alive timeout (%lu ms) -> SAFE STOP (SET 0x0000)\n",
-//                       (unsigned long)age);
-
-//             comm_send_mask(0x0000);
-//         }
-//     }
-// }
 
 // ---------------------------------------------------
 // END OF FILE
