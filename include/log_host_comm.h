@@ -27,9 +27,9 @@
 #endif
 
 #ifdef HOSTRAW
-#define HOST_RAW(...)                             \
-    do {                                          \
-        logRawPrintf("HOST", "RAW", __VA_ARGS__); \
+#define HOST_RAW(...)              \
+    do {                           \
+        logRawPrintf(__VA_ARGS__); \
     } while (0)
 #else
 #define HOST_RAW(...) \

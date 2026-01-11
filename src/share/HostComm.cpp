@@ -144,11 +144,11 @@ void HostComm::sendPing() {
     String msg = ProtocolCodec::buildHostPing();
     static uint32_t n = 0;
     ++n;
-    HOST_DBG("[HostComm] TX(#%lu): %s", n, msg.c_str()); // contains \r\n already
+    HOST_INFO("[HostComm] TX(#%lu): %s", n, msg.c_str()); // contains \r\n already
     // HEX dump (damit wir 100% sehen was wirklich gesendet wird)
-    HOST_DBG("[HostComm] TX HEX:");
+    HOST_RAW("[HostComm] TX HEX:");
     for (size_t i = 0; i < msg.length(); ++i) {
-        HOST_RAW(" %02X", (uint8_t)msg[i]);
+        HOST_RAW(" %02x", (uint8_t)msg[i]);
     }
     HOST_RAW("\n");
     _serial.print(msg);

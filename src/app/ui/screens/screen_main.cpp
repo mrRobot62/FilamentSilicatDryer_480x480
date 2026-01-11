@@ -1477,8 +1477,8 @@ static void create_bottom_section(lv_obj_t *parent) {
 // -    * .
 // ----------------------------------------------------
 static void update_status_icons(const OvenRuntimeState &state) {
-    UI_DBG("[update_status_icons] state.commAlive=%s\n",
-           (state.commAlive) ? "TRUE" : "FALSE");
+    // UI_DBG("[update_status_icons] state.commAlive=%s\n",
+    //        (state.commAlive) ? "TRUE" : "FALSE");
     if (state.commAlive) {
         icon_link_synced(ui.icon_sync);
     } else {
