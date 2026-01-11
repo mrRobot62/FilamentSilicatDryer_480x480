@@ -166,6 +166,11 @@ static lv_timer_t *g_countdown_tick = nullptr;
 
 static RunState g_run_state = RunState::STOPPED;
 
+static lv_style_t g_main_line_style; // dial frame arc style
+static bool g_main_line_style_inited = false;
+
+static OvenMode g_prev_mode_for_post_visuals = OvenMode::STOPPED;
+
 // Last runtime snapshot from oven_get_runtime_state()
 static OvenRuntimeState g_last_runtime = {};
 
@@ -553,6 +558,21 @@ static lv_obj_t *mk_scale_needle_mutable(lv_obj_t *parent,
 //----------------------------------------------------
 //
 //----------------------------------------------------
+// --- helpers: stringify OvenMode for logs ---
+static const char *oven_mode_to_str(OvenMode m) {
+    switch (m) {
+    case OvenMode::STOPPED:
+        return "STOPPED";
+    case OvenMode::RUNNING:
+        return "RUNNING";
+    case OvenMode::WAITING:
+        return "WAITING";
+    case OvenMode::POST:
+        return "POST";
+    default:
+        return "UNKNOWN";
+    }
+}
 
 static void countdown_stop_and_set_wait_ui(const char *why) {
     UI_INFO("[WAIT] stop countdown: %s (tick=%p)\n", why, g_countdown_tick);
@@ -738,6 +758,38 @@ static void icon_link_unused(lv_obj_t *link_icon) {
     lv_obj_set_style_image_recolor_opa(link_icon, LV_OPA_30, LV_PART_MAIN);
 }
 
+static void update_post_visuals(const OvenRuntimeState &state) {
+    if (!ui.preset_box || !ui.dial || !g_main_line_style_inited) {
+        return;
+    }
+
+    // Only do work on mode change (prevents unnecessary style churn)
+    if (state.mode == g_prev_mode_for_post_visuals) {
+        return;
+    }
+    g_prev_mode_for_post_visuals = state.mode;
+
+    const bool is_post = (state.mode == OvenMode::POST);
+
+    // 1) Preset box background
+    const uint32_t preset_bg = is_post ? UI_COLOR_DIAL_FRAME_POST : UI_PRESET_BOX_BG_HEX;
+    lv_obj_set_style_bg_color(ui.preset_box, ui_color_from_hex(preset_bg), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui.preset_box, (lv_opa_t)UI_PRESET_BOX_BG_OPA, LV_PART_MAIN);
+
+    // 2) Dial frame arc color (main line)
+    // POST -> BLUE, otherwise keep default (here: same as before)
+    const uint32_t arc_hex = is_post ? UI_COLOR_DIAL_FRAME_POST : UI_COLOR_DIAL_FRAME;
+    lv_style_set_arc_color(&g_main_line_style, ui_color_from_hex(arc_hex));
+
+    // Force refresh so LVGL redraws the arc with new style values
+    lv_obj_refresh_style(ui.dial, LV_PART_MAIN, LV_STYLE_PROP_ANY);
+
+    UI_INFO("[UI] POST visuals: mode=%s preset_bg=0x%06lx arc=0x%06lx\n",
+            oven_mode_to_str(state.mode),
+            (unsigned long)preset_bg,
+            (unsigned long)arc_hex);
+}
+
 // -----------------------------
 // Preset label helpers (Step 2.5.2)
 // -----------------------------
@@ -874,22 +926,6 @@ static RunState derive_run_state_from_runtime(const OvenRuntimeState &st) {
     return RunState::RUNNING;
 }
 
-// --- helpers: stringify OvenMode for logs ---
-static const char *oven_mode_to_str(OvenMode m) {
-    switch (m) {
-    case OvenMode::STOPPED:
-        return "STOPPED";
-    case OvenMode::RUNNING:
-        return "RUNNING";
-    case OvenMode::WAITING:
-        return "WAITING";
-    case OvenMode::POST:
-        return "POST";
-    default:
-        return "UNKNOWN";
-    }
-}
-
 //----------------------------------------------------
 //
 //----------------------------------------------------
@@ -997,7 +1033,7 @@ void screen_main_update_runtime(const OvenRuntimeState *state) {
     update_start_button_ui();
     screen_main_refresh_from_runtime();
     pause_button_apply_ui(g_run_state, get_effective_door_open(g_last_runtime));
-
+    update_post_visuals(*state);
     update_status_icons(*state);
 }
 
@@ -1175,11 +1211,23 @@ static void create_center_section(lv_obj_t *parent) {
     lv_obj_add_style(ui.dial, &minor_ticks_style, LV_PART_ITEMS);
 
     // /* Main line properties */
-    static lv_style_t main_line_style;
-    lv_style_init(&main_line_style);
-    lv_style_set_arc_color(&main_line_style, /*lv_color_black()*/ ui_color_from_hex(UI_COLOR_DIAL_FRAME));
-    lv_style_set_arc_width(&main_line_style, 8);
-    lv_obj_add_style(ui.dial, &main_line_style, LV_PART_MAIN);
+    // static lv_style_t main_line_style;
+    // lv_style_init(&main_line_style);
+    // lv_style_set_arc_color(&main_line_style, /*lv_color_black()*/ ui_color_from_hex(UI_COLOR_DIAL_FRAME));
+    // lv_style_set_arc_width(&main_line_style, 8);
+    // lv_obj_add_style(ui.dial, &main_line_style, LV_PART_MAIN);
+
+    // /* Main line properties */
+    if (!g_main_line_style_inited) {
+        lv_style_init(&g_main_line_style);
+        g_main_line_style_inited = true;
+    }
+
+    // Default color at boot (normal mode)
+    lv_style_set_arc_color(&g_main_line_style, ui_color_from_hex(UI_COLOR_DIAL_FRAME));
+    lv_style_set_arc_width(&g_main_line_style, 8);
+
+    lv_obj_add_style(ui.dial, &g_main_line_style, LV_PART_MAIN);
 
     lv_scale_set_range(ui.dial, 0, 60);
     lv_scale_set_angle_range(ui.dial, 360);
