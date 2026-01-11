@@ -110,7 +110,6 @@ typedef struct
 
 // Host requests STATUS periodically
 constexpr uint32_t kStatusPollIntervalMs = 2000; // request STATUS every 2 seconds
-
 // ----------------------------------------------------------------------------
 // Presets & Profiles
 // ----------------------------------------------------------------------------
@@ -181,10 +180,14 @@ typedef struct
     bool lamp_manual_allowed;
 
     // Communication diagnostics (host-side)
-    bool commAlive;
-    uint32_t lastStatusAgeMs;
+    uint32_t lastStatusAgeMs; // age of last received STATUS (ms), for UI/diag
+    uint32_t lastRxAnyAgeMs;  // last time we received ANY valid frame (ACK/STATUS/PONG/RST/...)
     uint32_t statusRxCount;
     uint32_t commErrorCount;
+
+    // Communication / link diagnostics
+    bool commAlive;  // true if we consider the client link alive (age < timeout)
+    bool linkSynced; // true if HostComm linkSync is established (stable PONG streak)
 
     // Host-side mode (not remote truth)
     OvenMode mode;

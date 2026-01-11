@@ -74,6 +74,11 @@ class HostComm {
     // For test cases only; production can ignore it.
     void processRxBytes(const uint8_t *data, size_t len);
 
+    // new T7 3.3
+
+    uint32_t lastRxAnyMs() const { return _lastRxAnyMs; }
+    uint32_t lastStatusMs() const { return _lastStatusMs; }
+
     // NEW: shared RX byte handler + line sanitizer
     void handleRxByte(char c);
     void processCompletedLine(String line);
@@ -95,6 +100,10 @@ class HostComm {
     bool _lastPong;
     bool _lastUpdAcked = false;
     bool _lastTogAcked = false;
+    // new T7 3.3
+    bool _alive;
+    uint32_t _lastRxAnyMs = 0;  // last time we received ANY valid frame (ACK/STATUS/PONG/RST/...)
+    uint32_t _lastStatusMs = 0; // last STATUS timestamp (optional, for diagnostics)
 
     void handleIncomingLine(const String &line);
 };

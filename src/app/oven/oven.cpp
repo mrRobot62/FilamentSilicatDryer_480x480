@@ -27,11 +27,13 @@ static uint32_t g_lastRxMs = 0;     // last time we received a valid STATUS/ACK/
 static bool g_safeStopSent = false; // ensure SAFE STOP only once per outage
 
 static uint32_t g_lastPingMs = 0;
+static bool g_sentSafeStopOnThisSync = false;
 
 // Choose a conservative timeout (ms)
 // Tunables
-static constexpr uint32_t kAliveTimeoutMs = 1500; // e.g. 1.5s
-static constexpr uint32_t kPingIntervalMs = 250;  // e.g. 4Hz while unsynced
+static constexpr uint32_t kAliveTimeoutMs = 1500;        // e.g. 1.5s
+static constexpr uint32_t kPingIntervalUnsyncedMs = 250; // e.g. 4Hz while unsynced
+static constexpr uint32_t kPingIntervalSyncedMs = 1000;  // keep-alive while synced (prevents UI flicker)
 
 /**
  * currentProfile:
@@ -809,51 +811,63 @@ void oven_comm_poll(void) {
         return;
     }
 
-    const uint32_t now = millis();
-
-    // Always read UART non-blocking
+    uint32_t now = millis();
+    // 1) Always read UART non-blocking
     g_hostComm->loop();
+    now = millis();
 
-    // ------------------------------------------------------------------
-    // AP3.2: drive handshake (LinkSync requires PONG streak)
-    // ------------------------------------------------------------------
-    const bool nowSynced = g_hostComm->linkSynced();
+    // 2) Mirror comm diagnostics into runtime (UI reads only runtimeState)
+    runtimeState.linkSynced = g_hostComm->linkSynced();
 
-    // If not synced, keep pinging periodically to establish PONG streak
-    if (!nowSynced && (now - g_lastPingMs >= kPingIntervalMs)) {
+    const uint32_t lastRxAny = g_hostComm->lastRxAnyMs();
+    const uint32_t lastStatus = g_hostComm->lastStatusMs();
+
+    runtimeState.lastRxAnyAgeMs = (lastRxAny > 0) ? (now - lastRxAny) : 0xFFFFFFFFu;
+    runtimeState.lastStatusAgeMs = (lastStatus > 0) ? (now - lastStatus) : 0xFFFFFFFFu;
+
+    const bool alive = (lastRxAny > 0) && ((now - lastRxAny) <= kAliveTimeoutMs);
+    runtimeState.commAlive = alive;
+
+    // OVEN_DBG("----> lastRxAny=%lu, lastStatus=%lu, lastRxAnyAge=%lu, lastStatusAge=%lu, alive=%d, linkSynced=%d\n",
+    //          (unsigned long)lastRxAny,
+    //          (unsigned long)lastStatus,
+    //          (unsigned long)runtimeState.lastRxAnyAgeMs,
+    //          (unsigned long)runtimeState.lastStatusAgeMs,
+    //          alive ? 1 : 0,
+    //          runtimeState.linkSynced ? 1 : 0);
+
+    // 3) Handshake driver: if not synced -> keep sending PING
+    // 3) Handshake + keep-alive: send PING while unsynced (fast) and also while synced (slow)
+    const uint32_t pingInterval = runtimeState.linkSynced ? kPingIntervalSyncedMs : kPingIntervalUnsyncedMs;
+    if (now - g_lastPingMs >= pingInterval) {
         g_lastPingMs = now;
         g_hostComm->sendPing();
     }
 
-    // Rising edge: link became stable
-    if (!g_prevLinkSynced && nowSynced) {
-        OVEN_WARN("[oven_comm_poll] LinkSync rising edge -> SAFE STOP (SET 0x0000)\n");
-        comm_send_mask(0x0000);
-        g_safeStopSent = true; // don't spam; this "event" already forced safe state
+    // 4) Rising edge: link became stable -> send SAFE STOP ONCE per sync-session
+    if (!runtimeState.linkSynced) {
+        g_sentSafeStopOnThisSync = false; // re-arm for next successful sync
     }
-    g_prevLinkSynced = nowSynced;
 
-    // ------------------------------------------------------------------
-    // Poll STATUS periodically (keep as-is)
-    // ------------------------------------------------------------------
+    if (runtimeState.linkSynced && !g_sentSafeStopOnThisSync) {
+        OVEN_WARN("[oven_comm_poll] LinkSynced -> SAFE STOP once (SET 0x0000)\n");
+        comm_send_mask(0x0000);
+        g_sentSafeStopOnThisSync = true;
+    }
+
+    // 5) Poll STATUS periodically (optional: only when synced)
     if (now - g_lastStatusRequestMs >= kStatusPollIntervalMs) {
         g_lastStatusRequestMs = now;
         g_hostComm->requestStatus();
     }
 
-    // ------------------------------------------------------------------
-    // Apply new telemetry
-    // Any valid inbound message counts as "alive"
-    // ------------------------------------------------------------------
+    // 6) Apply new telemetry
     if (g_hostComm->hasNewStatus()) {
         apply_remote_status_to_runtime(g_hostComm->getRemoteStatus());
         g_hostComm->clearNewStatusFlag();
-
-        g_lastRxMs = now;
-        g_safeStopSent = false; // link is alive again
     }
 
-    // ACK-based outputs update
+    // 7) ACK-based outputs update (fast UI feedback)
     if (g_hostComm->lastSetAcked() || g_hostComm->lastUpdAcked() || g_hostComm->lastTogAcked()) {
         const ProtocolStatus &st = g_hostComm->getRemoteStatus();
 
@@ -876,39 +890,28 @@ void oven_comm_poll(void) {
         if (g_hostComm->lastTogAcked()) {
             g_hostComm->clearLastTogAckFlag();
         }
-
-        g_lastRxMs = now;
-        g_safeStopSent = false;
     }
 
-    // PONG counts as alive too
-    if (g_hostComm->lastPongReceived()) {
-        g_hostComm->clearLastPongFlag();
-        g_lastRxMs = now;
-        g_safeStopSent = false;
-    }
-
-    // ------------------------------------------------------------------
-    // AP3.2: Alive timeout -> SAFE STOP once + force re-sync
-    // ------------------------------------------------------------------
-    const bool alive = (now - g_lastRxMs) <= kAliveTimeoutMs;
-    if (!alive) {
+    // 8) Alive timeout -> SAFE STOP once.
+    // IMPORTANT: We keep the handshake state stable. LinkSynced reflects the PONG-streak handshake.
+    // commAlive reflects freshness of RX traffic.
+    if ((lastRxAny > 0) && !alive) {
         if (!g_safeStopSent) {
             OVEN_WARN("[oven_comm_poll] Alive timeout (%lums) -> SAFE STOP (SET 0x0000)\n",
-                      (unsigned long)(now - g_lastRxMs));
+                      (unsigned long)(now - lastRxAny));
             comm_send_mask(0x0000);
             g_safeStopSent = true;
         }
 
-        // Force re-sync (so we re-handshake via PING/PONG when client returns)
+        // Force re-sync so we re-handshake when client returns
         g_hostComm->clearLinkSync();
-        g_prevLinkSynced = false;
+        g_sentSafeStopOnThisSync = false;
+    } else {
+        // Link alive again -> allow future timeout reactions
+        g_safeStopSent = false;
     }
 
-    // (commAlive later; for now you said you reverted it – leave it out)
-    // runtimeState.commAlive = alive && g_hostComm->linkSynced();
-
-    // Handle comm error once
+    // 9) Comm error flag
     if (g_hostComm->hasCommError()) {
         g_commErrorCount++;
         OVEN_WARN("[oven_comm_poll] HostComm parse/protocol error\n");
@@ -917,6 +920,131 @@ void oven_comm_poll(void) {
 }
 
 // void oven_comm_poll(void) {
+//     if (!g_hostComm) {
+//         return;
+//     }
+
+//     const uint32_t now = millis();
+
+//     // Always read UART non-blocking
+//     g_hostComm->loop();
+
+//     // ------------------------------------------------------------------
+//     // AP3.2: drive handshake (LinkSync requires PONG streak)
+//     // ------------------------------------------------------------------
+//     const bool nowSynced = g_hostComm->linkSynced();
+//     // --- AP3.3: mirror link/age into runtimeState every poll (UI reads only runtime) ---
+//     runtimeState.linkSynced = (g_hostComm != nullptr) ? g_hostComm->linkSynced() : false;
+//     runtimeState.lastStatusAgeMs = (g_hostComm != nullptr) ? g_hostComm->lastStatusAgeMs() : 0;
+//     runtimeState.commAlive = (g_hostComm != nullptr) ? g_hostComm->isAlive() : false;
+
+//     // If not synced, keep pinging periodically to establish PONG streak
+//     if (!nowSynced && (now - g_lastPingMs >= kPingIntervalMs)) {
+//         g_lastPingMs = now;
+//         g_hostComm->sendPing();
+//     }
+
+//     // Rising edge: link became stable
+//     if (!g_prevLinkSynced && nowSynced) {
+//         OVEN_WARN("[oven_comm_poll] LinkSync rising edge -> SAFE STOP (SET 0x0000)\n");
+//         comm_send_mask(0x0000);
+//         g_safeStopSent = true; // don't spam; this "event" already forced safe state
+//     }
+//     g_prevLinkSynced = nowSynced;
+
+//     // ------------------------------------------------------------------
+//     // Poll STATUS periodically (keep as-is)
+//     // ------------------------------------------------------------------
+//     if (now - g_lastStatusRequestMs >= kStatusPollIntervalMs) {
+//         g_lastStatusRequestMs = now;
+//         g_hostComm->requestStatus();
+//     }
+
+//     // ------------------------------------------------------------------
+//     // Apply new telemetry
+//     // Any valid inbound message counts as "alive"
+//     // ------------------------------------------------------------------
+//     if (g_hostComm->hasNewStatus()) {
+//         apply_remote_status_to_runtime(g_hostComm->getRemoteStatus());
+//         g_hostComm->clearNewStatusFlag();
+
+//         g_lastRxMs = now;
+//         g_safeStopSent = false; // link is alive again
+//     }
+
+//     // ACK-based outputs update
+//     if (g_hostComm->lastSetAcked() || g_hostComm->lastUpdAcked() || g_hostComm->lastTogAcked()) {
+//         const ProtocolStatus &st = g_hostComm->getRemoteStatus();
+
+//         runtimeState.fan12v_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN12V);
+//         runtimeState.fan230_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN230V);
+//         runtimeState.fan230_slow_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN230V_SLOW);
+//         runtimeState.motor_on = mask_has(st.outputsMask, OVEN_CONNECTOR::SILICAT_MOTOR);
+//         runtimeState.heater_on = mask_has(st.outputsMask, OVEN_CONNECTOR::HEATER);
+//         runtimeState.lamp_on = mask_has(st.outputsMask, OVEN_CONNECTOR::LAMP);
+//         runtimeState.door_open = mask_has(st.outputsMask, OVEN_CONNECTOR::DOOR_ACTIVE);
+
+//         g_remoteOutputsMask = st.outputsMask;
+
+//         if (g_hostComm->lastSetAcked()) {
+//             g_hostComm->clearLastSetAckFlag();
+//         }
+//         if (g_hostComm->lastUpdAcked()) {
+//             g_hostComm->clearLastUpdAckFlag();
+//         }
+//         if (g_hostComm->lastTogAcked()) {
+//             g_hostComm->clearLastTogAckFlag();
+//         }
+
+//         g_lastRxMs = now;
+//         g_safeStopSent = false;
+//     }
+
+//     // PONG counts as alive too
+//     if (g_hostComm->lastPongReceived()) {
+//         g_hostComm->clearLastPongFlag();
+//         g_lastRxMs = now;
+//         g_safeStopSent = false;
+//     }
+
+//     // ------------------------------------------------------------------
+//     // AP3.2: Alive timeout -> SAFE STOP once + force re-sync
+//     // ------------------------------------------------------------------
+//     const bool alive = (now - g_lastRxMs) <= kAliveTimeoutMs;
+//     if (!alive) {
+//         // if (!g_safeStopSent) {
+//         //     OVEN_WARN("[oven_comm_poll] Alive timeout (%lums) -> SAFE STOP (SET 0x0000)\n",
+//         //               (unsigned long)(now - g_lastRxMs));
+//         //     comm_send_mask(0x0000);
+//         //     g_safeStopSent = true;
+//         // }
+//         if (!nowSynced) {
+//             g_sentSafeStopOnThisSync = false; // reset for next successful sync
+//         }
+
+//         if (nowSynced && !g_sentSafeStopOnThisSync) {
+//             OVEN_WARN("[oven_comm_poll] LinkSynced -> SAFE STOP once (SET 0x0000)\n");
+//             comm_send_mask(0x0000);
+//             g_sentSafeStopOnThisSync = true;
+//         }
+
+//         // Force re-sync (so we re-handshake via PING/PONG when client returns)
+//         g_hostComm->clearLinkSync();
+//         g_prevLinkSynced = false;
+//     }
+
+//     // (commAlive later; for now you said you reverted it – leave it out)
+//     // runtimeState.commAlive = alive && g_hostComm->linkSynced();
+
+//     // Handle comm error once
+//     if (g_hostComm->hasCommError()) {
+//         g_commErrorCount++;
+//         OVEN_WARN("[oven_comm_poll] HostComm parse/protocol error\n");
+//         g_hostComm->clearCommErrorFlag();
+//     }
+// }
+
+// // void oven_comm_poll(void) {
 //     if (!g_hostComm) {
 //         return;
 //     }

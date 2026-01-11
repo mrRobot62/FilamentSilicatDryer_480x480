@@ -144,7 +144,7 @@ void HostComm::sendPing() {
     String msg = ProtocolCodec::buildHostPing();
     static uint32_t n = 0;
     ++n;
-    HOST_INFO("[HostComm] TX(#%lu): %s", n, msg.c_str()); // contains \r\n already
+    HOST_DBG("[HostComm] TX(#%lu): %s", n, msg.c_str()); // contains \r\n already
     // HEX dump (damit wir 100% sehen was wirklich gesendet wird)
     HOST_RAW("[HostComm] TX HEX:");
     for (size_t i = 0; i < msg.length(); ++i) {
@@ -310,33 +310,38 @@ void HostComm::handleIncomingLine(const String &line) {
         HOST_DBG("ACK SET received, mask=0x%04X (%10s)\n", mask, oven_outputs_mask_to_str(mask));
         _lastSetAcked = true;
         _remoteStatus.outputsMask = mask;
+        //        _lastRxAnyMs = millis();
         break;
 
     case ProtocolMessageType::ClientAckUpd:
         HOST_DBG("ACK UPD received, mask=0x%04X (%10s)\n", mask, oven_outputs_mask_to_str(mask));
         _remoteStatus.outputsMask = mask;
         _lastUpdAcked = true;
+        // _lastRxAnyMs = millis();
         break;
 
     case ProtocolMessageType::ClientAckTog:
         HOST_DBG("ACK TOG received, mask=0x%04X (%10s)\n", mask, oven_outputs_mask_to_str(mask));
         _remoteStatus.outputsMask = mask;
-        _lastTogAcked = true;
+        // _lastTogAcked = true;
         break;
 
     case ProtocolMessageType::ClientErrSet:
         HOST_ERR("ERR SET received, code=%d\n", errorCode);
         _commError = true; // THIS is a real protocol-level error
+        // _lastRxAnyMs = millis();
         break;
 
     case ProtocolMessageType::ClientStatus:
+        _remoteStatus = statusTmp;
+        _newStatus = true;
+        _lastStatusMs = millis();
+        // _lastRxAnyMs = millis();
         HOST_DBG("STATUS received, mask=0x%04X (%10s), adc=[%u,%u,%u,%u] tempRaw=%d\n",
                  statusTmp.outputsMask,
                  oven_outputs_mask_to_str(statusTmp.outputsMask),
                  statusTmp.adcRaw[0], statusTmp.adcRaw[1], statusTmp.adcRaw[2], statusTmp.adcRaw[3],
                  statusTmp.tempRaw);
-        _remoteStatus = statusTmp;
-        _newStatus = true;
         break;
 
     case ProtocolMessageType::ClientPong:
@@ -349,12 +354,14 @@ void HostComm::handleIncomingLine(const String &line) {
         if (_pongStreak >= 2) {
             _linkSynced = true;
         }
+        // _lastRxAnyMs = millis();
         break;
 
     case ProtocolMessageType::ClientRst:
         HOST_WARN("RST received from client\n");
         _linkSynced = false;
         _pongStreak = 0;
+        // _lastRxAnyMs = millis();
         break;
 
     default:
@@ -362,6 +369,8 @@ void HostComm::handleIncomingLine(const String &line) {
         _commError = true; // parse was OK but message is invalid for host
         break;
     }
+    _lastRxAnyMs = millis();
+    HOST_DBG("--------> _lastRxAnyMs = %lu\n", _lastRxAnyMs);
 }
 
 void HostComm::sendRst() {

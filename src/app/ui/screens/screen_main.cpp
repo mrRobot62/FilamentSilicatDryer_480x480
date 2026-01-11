@@ -1477,6 +1477,15 @@ static void create_bottom_section(lv_obj_t *parent) {
 // -    * .
 // ----------------------------------------------------
 static void update_status_icons(const OvenRuntimeState &state) {
+    if (state.linkSynced) {
+        icon_link_synced(ui.icon_sync); // GREEN
+    } else {
+        icon_link_unsynced(ui.icon_sync); // RED
+    }
+}
+
+/*
+static void update_status_icons(const OvenRuntimeState &state) {
     // UI_DBG("[update_status_icons] state.commAlive=%s\n",
     //        (state.commAlive) ? "TRUE" : "FALSE");
     if (state.commAlive) {
@@ -1485,6 +1494,7 @@ static void update_status_icons(const OvenRuntimeState &state) {
         icon_link_unsynced(ui.icon_sync);
     }
 }
+ */
 
 //----------------------------------------------------
 // update_time
