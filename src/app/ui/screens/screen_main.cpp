@@ -133,6 +133,7 @@ static main_screen_widgets_t ui;
 // Forward declarations
 static void create_top_bar(lv_obj_t *parent);
 static void create_center_section(lv_obj_t *parent);
+// static void create_page_indicator(lv_obj_t *parent, uint8_t active_index);
 static void create_page_indicator(lv_obj_t *parent);
 static void create_bottom_section(lv_obj_t *parent);
 
@@ -980,6 +981,7 @@ lv_obj_t *screen_main_create(lv_obj_t *parent) {
     create_top_bar(ui.root);
     create_center_section(ui.root);
     create_page_indicator(ui.root);
+    // create_page_indicator(ui.page_indicator_container, ScreenId::SCREEN_MAIN);
     create_bottom_section(ui.root);
 
     UI_DBG("[screen_main_create] screen-addr: %d\n", ui.root);
@@ -1393,6 +1395,60 @@ static void create_center_section(lv_obj_t *parent) {
 //----------------------------------------------------
 //
 //----------------------------------------------------
+// static void create_page_indicator(lv_obj_t *parent, uint8_t active_index) {
+//     // Swipe target is the whole page indicator area
+//     ui.s_swipe_target = parent;
+
+//     lv_obj_add_flag(ui.s_swipe_target, LV_OBJ_FLAG_CLICKABLE);
+//     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
+//     lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_OFF);
+
+//     // subtle swipe hint
+//     lv_obj_set_style_bg_color(parent, lv_color_hex(0xFFFFFF), 0);
+//     lv_obj_set_style_bg_opa(parent, LV_OPA_35, 0);
+//     lv_obj_set_style_radius(parent, 10, 0);
+
+//     ui.page_indicator_panel = lv_obj_create(parent);
+//     lv_obj_remove_style_all(ui.page_indicator_panel);
+
+//     lv_obj_set_style_radius(ui.page_indicator_panel, 12, 0);
+//     lv_obj_set_style_bg_color(ui.page_indicator_panel, lv_color_hex(0x202020), 0);
+//     lv_obj_set_style_bg_opa(ui.page_indicator_panel, LV_OPA_COVER, 0);
+//     lv_obj_set_style_pad_all(ui.page_indicator_panel, 2, 0);
+
+//     lv_obj_set_flex_flow(ui.page_indicator_panel, LV_FLEX_FLOW_ROW);
+//     lv_obj_set_flex_align(ui.page_indicator_panel,
+//                           LV_FLEX_ALIGN_CENTER,
+//                           LV_FLEX_ALIGN_CENTER,
+//                           LV_FLEX_ALIGN_CENTER);
+
+//     constexpr int DOT = 10;
+//     constexpr int GAP = 6;
+//     constexpr int PAD = 2;
+//     const int n = UI_PAGE_COUNT;
+
+//     const int panel_w = (n * DOT) + ((n - 1) * GAP) + (2 * PAD);
+//     lv_obj_set_size(ui.page_indicator_panel, panel_w, 24);
+//     lv_obj_center(ui.page_indicator_panel);
+
+//     for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i) {
+//         ui.page_dots[i] = lv_obj_create(ui.page_indicator_panel);
+//         lv_obj_remove_style_all(ui.page_dots[i]);
+//         lv_obj_set_size(ui.page_dots[i], DOT, DOT);
+//         lv_obj_set_style_radius(ui.page_dots[i], DOT / 2, 0);
+//         lv_obj_set_style_bg_opa(ui.page_dots[i], LV_OPA_COVER, 0);
+
+//         const bool is_active = (i == active_index);
+//         lv_obj_set_style_bg_color(ui.page_dots[i],
+//                                   is_active ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x606060),
+//                                   0);
+
+//         if (i > 0) {
+//             lv_obj_set_style_margin_left(ui.page_dots[i], GAP, 0);
+//         }
+//     }
+// }
+
 static void create_page_indicator(lv_obj_t *parent) {
     ui.page_indicator_container = lv_obj_create(parent);
     lv_obj_set_size(ui.page_indicator_container, UI_SCREEN_WIDTH, UI_PAGE_INDICATOR_HEIGHT);
@@ -1403,8 +1459,29 @@ static void create_page_indicator(lv_obj_t *parent) {
     lv_obj_set_style_pad_all(ui.page_indicator_container, 0, 0);
 
     // Inner panel (rounded rectangle)
+    // T7
     ui.page_indicator_panel = lv_obj_create(ui.page_indicator_container);
-    lv_obj_set_size(ui.page_indicator_panel, 100, 24); // width will auto-fit for 3 dots
+    lv_obj_set_size(ui.page_indicator_panel, 130, 24); // width will auto-fit for 3 dots
+
+    // // T8
+    // // IMPORTANT: prevent any scrollbars here
+    // ui.page_indicator_panel = lv_obj_create(ui.page_indicator_container);
+    // lv_obj_clear_flag(ui.page_indicator_panel, LV_OBJ_FLAG_SCROLLABLE);
+    // lv_obj_set_scrollbar_mode(ui.page_indicator_panel, LV_SCROLLBAR_MODE_OFF);
+
+    // // Compute deterministic width for N dots
+    // const int panel_pad_px = 4;          // must match lv_obj_set_style_pad_all(..., 4)
+    // const int dot = UI_PAGE_DOT_SIZE;    // 10
+    // const int gap = UI_PAGE_DOT_SPACING; // 8
+    // const int n = UI_PAGE_COUNT;
+
+    // const int content_w = (n * dot) + ((n - 1) * gap);
+    // const int panel_w = content_w + (2 * panel_pad_px);
+    // const int panel_h = 24;
+
+    // lv_obj_set_size(ui.page_indicator_panel, panel_w, panel_h);
+    // lv_obj_center(ui.page_indicator_panel);
+
     lv_obj_center(ui.page_indicator_panel);
 
     // after creating ui.page_indicator_panel

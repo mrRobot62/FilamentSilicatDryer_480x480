@@ -1,12 +1,14 @@
 #pragma once
 #include "log_ui.h"
+#include "ui_color_codes.h"
+#include "ui_general_screen_constants.h"
 #include <lvgl.h>
 
 /*
  * Layout overview (top → bottom):
  *
  * ┌──────────────────────────────┐
- * │ TOP BAR                      │  height = top_h
+ * │           TOP BAR            │  height = top_h
  * ├──────────────────────────────┤
  * │ CENTER                       │
  * │ ┌────┬──────────┬───────┐    │
@@ -15,7 +17,7 @@
  * ├──────────────────────────────┤
  * │ PAGE INDICATOR / SWIPE ZONE  │  height = page_h
  * ├──────────────────────────────┤
- * │ BOTTOM BAR                   │  height = bottom_h
+ * │         BOTTOM BAR           │  height = bottom_h
  * └──────────────────────────────┘
  *
  */

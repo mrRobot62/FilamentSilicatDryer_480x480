@@ -219,6 +219,7 @@ void screen_manager_init(lv_obj_t *screen_parent) {
     /* Create screens */
     s_screens[SCREEN_MAIN] = screen_main_create(s_app_root);
     s_screens[SCREEN_CONFIG] = screen_config_create(s_app_root);
+    s_screens[SCREEN_DB] = screen_config_create(s_app_root);
     s_screens[SCREEN_LOG] = screen_log_create(s_app_root);
 
     /* Hide all initially */

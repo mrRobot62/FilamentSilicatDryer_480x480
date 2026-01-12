@@ -451,19 +451,6 @@ void oven_tick(void) {
     }
 
     // -------------------------------------------------------------------------
-    // Countdown (host-side) T6
-    // -------------------------------------------------------------------------
-    // if (runtimeState.running) {
-    //     if (runtimeState.durationMinutes > 0) {
-    //         if (runtimeState.secondsRemaining > 0) {
-    //             runtimeState.secondsRemaining--;
-    //         } else {
-    //             oven_stop();
-    //         }
-    //     }
-    // }
-
-    // -------------------------------------------------------------------------
     // Countdown (host-side) T7
     // Mode-based time progression (host-side)
     // -------------------------------------------------------------------------
@@ -603,6 +590,80 @@ void oven_lamp_toggle_manual(void) {
     comm_send_mask(m);
 
     OVEN_INFO("[oven_lamp_toggle_manual] Lamp request: %s\n", (newState ? "ON" : "OFF"));
+}
+
+void oven_dbg_hw_toggle_by_index(int idx) {
+    if (!g_hostComm) {
+        return;
+    }
+
+    // Optional: only allow when link is synced
+    if (!g_hostComm->linkSynced()) {
+        OVEN_WARN("[oven_dbg_hw_toggle_by_index] ignored: not synced\n");
+        return;
+    }
+
+    // Map 0..6 to connector bits
+    OVEN_CONNECTOR c;
+    switch (idx) {
+    case 0:
+        c = OVEN_CONNECTOR::FAN12V;
+        break;
+    case 1:
+        c = OVEN_CONNECTOR::FAN230V;
+        break;
+    case 2:
+        c = OVEN_CONNECTOR::FAN230V_SLOW;
+        break;
+    case 3:
+        c = OVEN_CONNECTOR::HEATER;
+        break;
+    case 4:
+        // Door is input-like: ignore in debug toggles
+        OVEN_WARN("[oven_dbg_hw_toggle_by_index] DOOR ignored\n");
+        return;
+    case 5:
+        c = OVEN_CONNECTOR::SILICAT_MOTOR;
+        break;
+    case 6:
+        c = OVEN_CONNECTOR::LAMP;
+        break;
+    default:
+        return;
+    }
+
+    uint16_t m = g_remoteOutputsMask;
+    const bool cur = mask_has(m, c);
+    const bool next = !cur;
+
+    m = mask_set(m, c, next);
+
+    // Mutual exclusion: FAN230V <-> FAN230V_SLOW
+    if (c == OVEN_CONNECTOR::FAN230V && next) {
+        m = mask_set(m, OVEN_CONNECTOR::FAN230V_SLOW, false);
+    }
+    if (c == OVEN_CONNECTOR::FAN230V_SLOW && next) {
+        m = mask_set(m, OVEN_CONNECTOR::FAN230V, false);
+    }
+
+    // Send
+    comm_send_mask(m);
+
+    // Optional: ask status immediately to speed up UI feedback if ACK isn't enough
+    g_hostComm->requestStatus();
+
+    OVEN_INFO("[oven_dbg_hw_toggle_by_index] idx=%d -> %s (mask=%s)\n",
+              idx, next ? "ON" : "OFF", oven_outputs_mask_to_str(m));
+}
+
+void oven_force_outputs_off(void) {
+    // Best-effort: clear all outputs on client
+    comm_send_mask(0x0000);
+
+    // Keep local shadow consistent
+    g_remoteOutputsMask = 0;
+
+    OVEN_WARN("[oven] force outputs OFF\n");
 }
 
 // =============================================================================

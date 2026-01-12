@@ -8,6 +8,7 @@
 
 #include "log_core.h"
 #include "ui.h"
+#include "ui/screens/screen_dbg_hw.h"
 #include "ui/screens/screen_main.h"
 #include "ui_events.h"
 
@@ -67,7 +68,23 @@ void loop() {
         }
         last_ui_update = now;
 
-        screen_main_update_runtime(&st);
+        switch (screen_manager_current()) {
+        case SCREEN_MAIN:
+            screen_main_update_runtime(&st);
+            break;
+        case SCREEN_CONFIG:
+            // currently has screen_config it's own logic
+            break;
+        case SCREEN_DBG_HW:
+            screen_dbg_hw_update_runtime(&st);
+            break;
+        case SCREEN_LOG:
+            // not implemented yed
+            break;
+        default:
+            screen_main_update_runtime(&st);
+            break;
+        }
     }
 
     // Rendering

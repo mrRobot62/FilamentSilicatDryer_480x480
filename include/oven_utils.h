@@ -1,8 +1,8 @@
 #pragma once
 
+#include "oven.h" // for OVEN_CONNECTOR
 #include <stdint.h>
 #include <stdio.h>
-#include "oven.h"   // for OVEN_CONNECTOR
 
 // -----------------------------------------------------------------------------
 // Debug helper: decode outputs bitmask into readable text
@@ -38,13 +38,29 @@ inline const char *oven_outputs_mask_to_str(uint16_t mask) {
         }
     };
 
-    if (mask & (uint16_t)OVEN_CONNECTOR::FAN12V)        add("FAN12V");
-    if (mask & (uint16_t)OVEN_CONNECTOR::FAN230V)       add("FAN230");
-    if (mask & (uint16_t)OVEN_CONNECTOR::FAN230V_SLOW)  add("FAN230_SLOW");
-    if (mask & (uint16_t)OVEN_CONNECTOR::SILICAT_MOTOR) add("MOTOR");
-    if (mask & (uint16_t)OVEN_CONNECTOR::HEATER)        add("HEATER");
-    if (mask & (uint16_t)OVEN_CONNECTOR::LAMP)          add("LAMP");
-    if (mask & (uint16_t)OVEN_CONNECTOR::DOOR_ACTIVE)   add("DOOR");
+    if (mask & (uint16_t)OVEN_CONNECTOR::FAN12V) {
+        add("FAN12V");
+    }
+    if (mask & (uint16_t)OVEN_CONNECTOR::FAN230V) {
+        add("FAN230");
+    }
+    if (mask & (uint16_t)OVEN_CONNECTOR::FAN230V_SLOW) {
+        add("FAN230_SLOW");
+    }
+    if (mask & (uint16_t)OVEN_CONNECTOR::SILICAT_MOTOR) {
+        add("MOTOR");
+    }
+    if (mask & (uint16_t)OVEN_CONNECTOR::HEATER) {
+        add("HEATER");
+    }
+    if (mask & (uint16_t)OVEN_CONNECTOR::LAMP) {
+        add("LAMP");
+    }
+    if (mask & (uint16_t)OVEN_CONNECTOR::DOOR_ACTIVE) {
+        add("DOOR");
+    }
 
     return buf;
 }
+
+// END OF FILE

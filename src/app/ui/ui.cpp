@@ -142,18 +142,4 @@ void ui_init(void) {
     // Screen-Manager initialisieren
     screen_manager_init(lv_scr_act());
     UI_INFO("[UI] Screen manager initialized\n");
-
-    // --- Main Screen erzeugen
-    // g_ui.screenMain = screen_main_create();
-    // // screen_manager
-    // screen_manager_init(g_ui.screenMain);
-
-    // UI_INFO("[UI] (7) screen_main created\n");
-
-    // // --- Laden (sichtbar machen)
-    // lv_screen_load(g_ui.screenMain);
-    // UI_INFO("[UI] screen_main loaded\n");
-
-    // update_needle(ui->needleMM, g_minute_hand_points, calc_minute_angle(ui->minutes), 40, 68);
-    // update_needle(ui->needleHH, g_hour_hand_points, calc_hour_angle(ui->hours, ui->minutes), 40, 60);
 }

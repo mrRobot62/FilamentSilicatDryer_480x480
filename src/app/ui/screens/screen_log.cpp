@@ -9,15 +9,13 @@ static void create_page_indicator(lv_obj_t *parent);
 static void create_top_placeholder(lv_obj_t *parent);
 static void create_bottom_placeholder(lv_obj_t *parent);
 
-constexpr int LV_OPA_15 = 15;
+static inline lv_color_t col_hex(uint32_t hex) { return ui_color_from_hex(hex); }
 
 // -----------------------------------------------------------------------------
 // Public API
 // -----------------------------------------------------------------------------
-lv_obj_t *screen_log_create(lv_obj_t *parent)
-{
-    if (ui_log.root != nullptr)
-    {
+lv_obj_t *screen_log_create(lv_obj_t *parent) {
+    if (ui_log.root != nullptr) {
         UI_INFO("[screen_log] reusing existing root\n");
         return ui_log.root;
     }
@@ -53,16 +51,14 @@ lv_obj_t *screen_log_create(lv_obj_t *parent)
     return ui_log.root;
 }
 
-lv_obj_t *screen_log_get_swipe_target(void)
-{
+lv_obj_t *screen_log_get_swipe_target(void) {
     return ui_log.s_swipe_target;
 }
 
 // -----------------------------------------------------------------------------
 // Local helpers
 // -----------------------------------------------------------------------------
-static void create_page_indicator(lv_obj_t *parent)
-{
+static void create_page_indicator(lv_obj_t *parent) {
     // Use the whole page indicator container as swipe zone (360px wide via base layout)
     ui_log.s_swipe_target = parent;
 
@@ -91,8 +87,7 @@ static void create_page_indicator(lv_obj_t *parent)
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
 
-    for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i)
-    {
+    for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i) {
         ui_log.page_dots[i] = lv_obj_create(ui_log.page_indicator_panel);
         lv_obj_remove_style_all(ui_log.page_dots[i]);
         lv_obj_set_size(ui_log.page_dots[i], 10, 10);
@@ -103,23 +98,35 @@ static void create_page_indicator(lv_obj_t *parent)
         lv_obj_set_style_bg_color(ui_log.page_dots[i],
                                   (i == 2) ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x606060), 0);
 
-        if (i > 0)
+        if (i > 0) {
             lv_obj_set_style_margin_left(ui_log.page_dots[i], 8, 0);
+        }
     }
 }
 
-static void create_top_placeholder(lv_obj_t *parent)
-{
+static void create_top_placeholder(lv_obj_t *parent) {
     lv_obj_t *lbl = lv_label_create(parent);
     lv_label_set_text(lbl, "LOG");
     lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
     lv_obj_center(lbl);
 }
 
-static void create_bottom_placeholder(lv_obj_t *parent)
-{
+static void create_bottom_placeholder(lv_obj_t *parent) {
     ui_log.label_info_message = lv_label_create(parent);
     lv_label_set_text(ui_log.label_info_message, "Swipe here to change screens");
     lv_obj_set_style_text_color(ui_log.label_info_message, lv_color_hex(0xB0B0B0), 0);
     lv_obj_center(ui_log.label_info_message);
+}
+
+void screen_log_set_active_page(uint8_t page_index) {
+    if (page_index >= UI_PAGE_COUNT) {
+        return;
+    }
+
+    for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i) {
+        lv_color_t col = (i == page_index)
+                             ? col_hex(UI_COLOR_PAGE_DOT_ACTIVE_HEX)
+                             : col_hex(UI_COLOR_PAGE_DOT_INACTIVE_HEX);
+        lv_obj_set_style_bg_color(ui_log.page_dots[i], col, 0);
+    }
 }

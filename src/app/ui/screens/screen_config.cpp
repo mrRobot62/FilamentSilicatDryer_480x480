@@ -48,14 +48,6 @@ static bool s_lamp = false;
 
 // Prevent feedback loop when loading preset into rollers
 static bool s_updating_widgets = false;
-constexpr int LV_OPA_15 = 15;
-constexpr int LV_OPA_25 = 25;
-constexpr int LV_OPA_35 = 35;
-
-// Icon colors for CONFIG screen
-static constexpr uint32_t ICON_OFF_HEX = 0xFFFFFF;      // white
-static constexpr uint32_t ICON_ON_HEX = 0xFF8A00;       // orange (manual override ON)
-static constexpr uint32_t ICON_DISABLED_HEX = 0x707070; // gray
 
 static constexpr int kRollerH = 108;    // common roller height (tune later)
 static constexpr int kRollerTimeW = 55; // width for HH/MM rollers
@@ -967,6 +959,7 @@ static void icons_state_timer_cb(lv_timer_t *t) {
 // -----------------------------------------------------------------------------
 // HELPERS
 // -----------------------------------------------------------------------------
+static inline lv_color_t col_hex(uint32_t hex) { return ui_color_from_hex(hex); }
 
 static void apply_runtime_from_widgets(void) {
     if (!ui_config.roller_filament_type ||
@@ -985,7 +978,7 @@ static void apply_runtime_from_widgets(void) {
     const int mm5 = lv_roller_get_selected(ui_config.roller_time_mm);
 
     // it is possible to adjust the granularity of Minutes. For Test set to 1min, Runtime-System 5min is a good approach
-    const int mm = mm5 * UI_MIN_MINUTES;    
+    const int mm = mm5 * UI_MIN_MINUTES;
 
     const int duration_min = hh * 60 + mm;
 
@@ -1123,10 +1116,6 @@ static void create_page_indicator(lv_obj_t *parent) {
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
 
-    //                       LV_FLEX_ALIGN_CENTER,
-    //                       LV_FLEX_ALIGN_CENTER,
-    //                       LV_FLEX_ALIGN_CENTER);
-
     for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i) {
         ui_config.page_dots[i] = lv_obj_create(ui_config.page_indicator_panel);
         lv_obj_remove_style_all(ui_config.page_dots[i]);
@@ -1155,4 +1144,17 @@ static void create_bottom_placeholder(lv_obj_t *parent) {
     lv_label_set_text(ui_config.label_info_message, "Swipe here to change screens");
     lv_obj_set_style_text_color(ui_config.label_info_message, lv_color_hex(0xB0B0B0), 0);
     lv_obj_center(ui_config.label_info_message);
+}
+
+void screen_config_set_active_page(uint8_t page_index) {
+    if (page_index >= UI_PAGE_COUNT) {
+        return;
+    }
+
+    for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i) {
+        lv_color_t col = (i == page_index)
+                             ? col_hex(UI_COLOR_PAGE_DOT_ACTIVE_HEX)
+                             : col_hex(UI_COLOR_PAGE_DOT_INACTIVE_HEX);
+        lv_obj_set_style_bg_color(ui_config.page_dots[i], col, 0);
+    }
 }

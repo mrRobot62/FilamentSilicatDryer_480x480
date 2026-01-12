@@ -285,6 +285,10 @@ void oven_get_runtime_state(OvenRuntimeState *stateOut);
 void oven_command_toggle_motor_manual(void);
 void oven_fan230_toggle_manual(void);
 void oven_lamp_toggle_manual(void);
+// Debug HW screen: request a toggle on a specific connector.
+// Uses remote-truth mask (g_remoteOutputsMask) and sends a TOGGLE-like request via SET.
+void oven_dbg_hw_toggle_by_index(int idx);
+void oven_force_outputs_off(void);
 
 // Pause/Resume (WAIT mode)
 void oven_pause_wait(void);

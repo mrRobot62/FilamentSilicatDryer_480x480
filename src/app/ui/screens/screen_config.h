@@ -6,6 +6,7 @@
 
 #include "log_ui.h"
 #include "oven.h" // Pfad ggf. anpassen zu deinem Projekt
+#include "screen_base.h"
 #include "screen_manager.h"
 
 // Layout constants (geometry)
@@ -16,7 +17,6 @@
 #define UI_TOP_PADDING 5
 #define UI_BOTTOM_PADDING 5
 #define UI_FRAME_PADDING 10
-#define UI_PAGE_COUNT 3
 
 typedef struct config_screen_widgets_t {
     lv_obj_t *root;
@@ -108,6 +108,7 @@ static config_screen_widgets_t ui_config;
 
 lv_obj_t *screen_config_create(lv_obj_t *parent);
 lv_obj_t *screen_config_get_swipe_target(void);
+void screen_config_set_active_page(uint8_t page_index);
 
 static void create_config_rollers(lv_obj_t *parent);
 static void filament_roller_event_cb(lv_event_t *e);

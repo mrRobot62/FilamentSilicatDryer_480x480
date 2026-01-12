@@ -1,6 +1,7 @@
 #include "screen_manager.h"
 
 #include "screen_config.h"
+#include "screen_dbg_hw.h"
 #include "screen_log.h"
 #include "screen_main.h"
 
@@ -33,7 +34,6 @@ static constexpr int kSwipeMaxDyPx = 40;
 /* ============================================================================
  * Helpers
  * ==========================================================================*/
-
 static ScreenId next_id(ScreenId id) {
     const bool running = oven_is_running();
 
@@ -42,19 +42,22 @@ static ScreenId next_id(ScreenId id) {
         if (id == SCREEN_MAIN) {
             return SCREEN_LOG;
         }
-        if (id == SCREEN_LOG) {
-            return SCREEN_LOG; // clamp at LOG
-        }
-        // if somehow in CONFIG while running, treat as MAIN -> LOG
-        return SCREEN_LOG;
+        return SCREEN_LOG; // clamp
     }
 
-    // Not running: MAIN -> CONFIG -> LOG (clamped)
-    const int last = SCREEN_COUNT - 1;
-    if ((int)id >= last) {
-        return (ScreenId)last;
+    // Not running: MAIN -> CONFIG -> DBG_HW -> LOG
+    switch (id) {
+    case SCREEN_MAIN:
+        return SCREEN_CONFIG;
+    case SCREEN_CONFIG:
+        return SCREEN_DBG_HW;
+    case SCREEN_DBG_HW:
+        return SCREEN_LOG;
+    case SCREEN_LOG:
+        return SCREEN_LOG; // clamp
+    default:
+        return SCREEN_MAIN;
     }
-    return (ScreenId)((int)id + 1);
 }
 
 static ScreenId prev_id(ScreenId id) {
@@ -65,20 +68,70 @@ static ScreenId prev_id(ScreenId id) {
         if (id == SCREEN_LOG) {
             return SCREEN_MAIN;
         }
-        if (id == SCREEN_MAIN) {
-            return SCREEN_MAIN; // clamp at MAIN
-        }
-        // if somehow in CONFIG while running, go back to MAIN
+        return SCREEN_MAIN; // clamp
+    }
+
+    // Not running: LOG -> DBG_HW -> CONFIG -> MAIN
+    switch (id) {
+    case SCREEN_LOG:
+        return SCREEN_DBG_HW;
+    case SCREEN_DBG_HW:
+        return SCREEN_CONFIG;
+    case SCREEN_CONFIG:
+        return SCREEN_MAIN;
+    case SCREEN_MAIN:
+        return SCREEN_MAIN; // clamp
+    default:
         return SCREEN_MAIN;
     }
-
-    // Not running: LOG -> CONFIG -> MAIN (clamped)
-    if ((int)id <= 0) {
-        return (ScreenId)0;
-    }
-    return (ScreenId)((int)id - 1);
 }
 
+/*
+static ScreenId next_id(ScreenId id) {
+   const bool running = oven_is_running();
+
+   if (running) {
+       // While running: only MAIN <-> LOG
+       if (id == SCREEN_MAIN) {
+           return SCREEN_LOG;
+       }
+       if (id == SCREEN_LOG) {
+           return SCREEN_LOG; // clamp at LOG
+       }
+       // if somehow in CONFIG while running, treat as MAIN -> LOG
+       return SCREEN_LOG;
+   }
+
+   // Not running: MAIN -> CONFIG -> LOG (clamped)
+   const int last = SCREEN_COUNT - 1;
+   if ((int)id >= last) {
+       return (ScreenId)last;
+   }
+   return (ScreenId)((int)id + 1);
+}
+
+static ScreenId prev_id(ScreenId id) {
+   const bool running = oven_is_running();
+
+   if (running) {
+       // While running: only MAIN <-> LOG
+       if (id == SCREEN_LOG) {
+           return SCREEN_MAIN;
+       }
+       if (id == SCREEN_MAIN) {
+           return SCREEN_MAIN; // clamp at MAIN
+       }
+       // if somehow in CONFIG while running, go back to MAIN
+       return SCREEN_MAIN;
+   }
+
+   // Not running: LOG -> CONFIG -> MAIN (clamped)
+   if ((int)id <= 0) {
+       return (ScreenId)0;
+   }
+   return (ScreenId)((int)id - 1);
+}
+*/
 static bool navigation_allowed(void) {
     // Navigation disabled while oven is running
     return !oven_is_running();
@@ -87,6 +140,18 @@ static bool navigation_allowed(void) {
 /* ============================================================================
  * Swipe callback (PRESSED + PRESSING based)
  * ==========================================================================*/
+
+static void handle_swipe_safety_before_leave(void) {
+    if (s_current == SCREEN_DBG_HW) {
+        // 1) Hardware sicher ausschalten
+        oven_force_outputs_off();
+
+        // 2) DBG_HW UI entwaffnen
+        screen_dbg_hw_disarm_and_clear();
+
+        UI_WARN("[ScreenManager] DBG_HW swipe-leave: outputs forced OFF\n");
+    }
+}
 
 static void app_swipe_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
@@ -126,6 +191,9 @@ static void app_swipe_cb(lv_event_t *e) {
         }
 
         s_swipe_fired = true;
+        // ---------- SAFETY ----------
+        handle_swipe_safety_before_leave();
+        // ----------------------------
 
         if (dx < 0) {
             UI_INFO("[ScreenManager] SWIPE LEFT\n");
@@ -142,7 +210,6 @@ static void app_swipe_cb(lv_event_t *e) {
         return;
     }
 }
-
 /* ============================================================================
  * Attach swipe handler to a dedicated swipe target
  * ==========================================================================*/
@@ -200,9 +267,27 @@ void screen_manager_show(ScreenId id) {
     }
     s_current = id;
 
-    UI_INFO("[ScreenManager] screens: main=%p cfg=%p log=%p current:%p\n",
+    // Update page indicator dots on active screen
+    switch (id) {
+    case SCREEN_MAIN:
+        screen_main_set_active_page((uint8_t)id);
+        break;
+    case SCREEN_CONFIG:
+        screen_config_set_active_page((uint8_t)id);
+        break;
+    case SCREEN_DBG_HW:
+        screen_dbg_hw_set_active_page((uint8_t)id);
+        break;
+    case SCREEN_LOG:
+        screen_log_set_active_page((uint8_t)id);
+        break;
+    default:
+        break;
+    }
+    UI_INFO("[ScreenManager] screens: main=%p cfg=%p dbg_hw=%p log=%p current:%p\n",
             (void *)s_screens[SCREEN_MAIN],
             (void *)s_screens[SCREEN_CONFIG],
+            (void *)s_screens[SCREEN_DBG_HW],
             (void *)s_screens[SCREEN_LOG]);
 }
 
@@ -219,6 +304,7 @@ void screen_manager_init(lv_obj_t *screen_parent) {
     /* Create screens */
     s_screens[SCREEN_MAIN] = screen_main_create(s_app_root);
     s_screens[SCREEN_CONFIG] = screen_config_create(s_app_root);
+    s_screens[SCREEN_DBG_HW] = screen_dbg_hw_create(s_app_root);
     s_screens[SCREEN_LOG] = screen_log_create(s_app_root);
 
     /* Hide all initially */
@@ -231,6 +317,7 @@ void screen_manager_init(lv_obj_t *screen_parent) {
     /* Attach swipe only to dedicated swipe zones */
     attach_swipe_target(screen_main_get_swipe_target());
     attach_swipe_target(screen_config_get_swipe_target());
+    attach_swipe_target(screen_dbg_hw_get_swipe_target());
     attach_swipe_target(screen_log_get_swipe_target());
 
     /* Default screen after boot */
@@ -241,3 +328,5 @@ void screen_manager_init(lv_obj_t *screen_parent) {
 void screen_manager_go_home(void) {
     screen_manager_show(SCREEN_MAIN);
 }
+
+// END OF FILE
