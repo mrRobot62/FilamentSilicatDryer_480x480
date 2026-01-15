@@ -39,7 +39,7 @@ für Wartung, Service und Weiterentwicklung geeignet ist.
 ![Hardware Debug Screen](docs/images/screen_dbg_hw.png)
 
 ## Installation
-- [Installationsanweisung](doc/filament-silicagel-dryer_installation.md)
+> [Installationsanweisung](doc/filament-silicagel-dryer_installation_v2.md)
 
 
 ## Systemarchitektur – Überblick
