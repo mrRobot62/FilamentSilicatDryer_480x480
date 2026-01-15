@@ -1,5 +1,7 @@
 # ESP32-S3 ↔ ESP32-WROOM Kommunikationsprotokoll (Schritt 2 Dokumentation)
 
+> **(bitte beachten, ggf. etwas veraltet)**
+
 ## Zusammenfassung der Anforderungen
 
 Dieses Dokument beschreibt das Kommunikationsprotokoll zwischen dem **HOST** (ESP32-S3) und dem **CLIENT** (ESP32-WROOM).  

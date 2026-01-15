@@ -19,10 +19,20 @@ Alle Entscheidungen dienen als **stabile Referenzbasis** für die Weiterentwickl
   - UART-Kommunikation über `HostComm`
   - Zeigt ausschließlich *Ist-Zustand*
 
-- **ESP32-WROOM (Client / Powerboard)**
+#### Detailierte Protokollbeschreibung HOST -> CLIENT
+> [>>> HostComm](host/HostComm_v0.2_Documentation.md)
+
+
+
+- **ESP#32-WROOM (Client / Powerboard)**
   - Aktuatorsteuerung
   - Sensorsampling (Temperatur, Tür, ADC)
   - Autoritative Quelle für Aktuator-Zustände
+
+#### Detailierte Protokollbeschreibung CLIENT -> HOST
+> [>>> ClientComm](client/ClientComm_v0.3_Documentation.md)
+
+
 
 ---
 
@@ -73,6 +83,10 @@ Der Host–Client-Link wurde **vollständig über TestCases validiert**:
   - neue STATUS-Daten
   - ACK
   - Comm-Fehler
+
+### Detailierte Protokollbeschreibung HOST -> CLIENT
+> [>>> HostComm](host/HostComm_v0.2_Documentation.md)
+
 
 ---
 

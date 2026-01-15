@@ -81,11 +81,11 @@ T3 gilt als **abgeschlossen** und dient als Referenz- und Übergabestand für **
 
 ### Farb-Logik
 
-| Zustand | Farbe |
-|-------|-------|
-| OFF | Weiß |
-| ON | Grün |
-| Door offen | Rot |
+| Zustand    | Farbe |
+| ---------- | ----- |
+| OFF        | Weiß  |
+| ON         | Grün  |
+| Door offen | Rot   |
 
 ### Technische Umsetzung
 
@@ -114,10 +114,10 @@ lv_obj_remove_style_all(ui.btn_start);
 
 ### Zustandslogik
 
-| Zustand | Farbe | Label |
-|------|------|------|
+| Zustand      | Farbe  | Label |
+| ------------ | ------ | ----- |
 | OVEN_STOPPED | Orange | START |
-| OVEN_RUNNING | Rot | STOP |
+| OVEN_RUNNING | Rot    | STOP  |
 
 ### Begründung
 
@@ -167,10 +167,10 @@ offset_y = (height / 2) - pivot_y
 
 ### Farbkonzept
 
-| Needle | Farbe |
-|------|------|
-| Minute (MM) | Orange |
-| Hour (HH) | Weiß |
+| Needle                 | Farbe              |
+| ---------------------- | ------------------ |
+| Minute (MM)            | Orange             |
+| Hour (HH)              | Weiß               |
 | (Optional) Second (SS) | Grau / Akzentfarbe |
 
 ---
@@ -196,7 +196,68 @@ offset_y = (height / 2) - pivot_y
 
 ---
 
-## 7. Übergang zu T4
+## 7. Grundlegendes Architekturprinzip
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                            Developer Architecture                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌──────────────────────────────┐        ┌──────────────────────────────┐    │
+│  │        UI Layer (LVGL)       │        │     Hardware / Powerboard    │    │
+│  │                              │        │                              │    │
+│  │  ┌────────────────────────┐  │        │  ┌──────────────────────────┐│    │
+│  │  │ screen_main             │ │        │  │ Heater / Fans / Motor    ││    │
+│  │  │ screen_config           │ │        │  │ Relays / Door / Lamp     ││    │
+│  │  │ screen_dbg_hw (Safety)  │ │        │  └──────────────────────────┘│    │
+│  │  │ screen_log (Placeholder)│ │        │                              │    │
+│  │  └────────────────────────┘  │        │        ESP32-WROOM           │    │
+│  │                              │        │                              │    │
+│  │  UI = Rendering only         │        │  Executes commands           │    │
+│  │  No business logic           │        │  Reports real HW state       │    │
+│  └───────────────▲──────────────┘        └───────────────▲──────────────┘    │
+│                  │                                       │                   │
+│                  │        UART / TTL (ASCII Protocol)    │                   │
+│                  └───────────────────────────────────────┘                   │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                         Single Source of Truth (Core)                        │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐  │
+│  │                                oven                                    │  │
+│  │                                                                        │  │
+│  │  ┌──────────────────────────────────────────────────────────────────┐  │  │
+│  │  │ OvenRuntimeState                                                 │  │  │
+│  │  │                                                                  │  │  │
+│  │  │  running / waiting / stopped                                     │  │  │
+│  │  │  duration / remaining time                                       │  │  │
+│  │  │  tempCurrent / tempTarget                                        │  │  │
+│  │  │  outputs mask (fan, heater, motor, lamp, door)                   │  │  │
+│  │  │  linkSynced / commAlive                                          │  │  │
+│  │  └──────────────────────────────────────────────────────────────────┘  │  │
+│  │                                                                        │  │
+│  │  oven_tick()                                                           │  │
+│  │  ─ countdown                                                           │  │
+│  │  ─ state transitions                                                   │  │
+│  │  ─ safety decisions                                                    │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                              Update Flow (Runtime)                           │
+│                                                                              │
+│  oven_tick()                                                                 │
+│      ↓                                                                       │
+│  OvenRuntimeState (single source of truth)                                   │
+│      ↓                                                                       │
+│  screen_*_update_runtime()                                                   │
+│      ↓                                                                       │
+│  UI Rendering (no logic, no decisions)                                       │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+```
+
+
+## 8. Übergang zu T4
 
 ### Ziel von T4
 
@@ -213,7 +274,7 @@ Alle Entscheidungen in T3 sind bewusst getroffen und gelten als **gesetzt**.
 
 ---
 
-## 8. Fazit
+## 9. Fazit
 
 T3 hat folgende Kernziele erfolgreich erreicht:
 

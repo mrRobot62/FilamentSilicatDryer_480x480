@@ -30,22 +30,24 @@ Diese Zusammenfassung dient als **technische Referenz** für spätere Erweiterun
 - Die UI **setzt keinen eigenen Zustand**
 - UI rendert **ausschließlich** aus `OvenRuntimeState`
 
-```text
-oven_tick()
-   ↓
-OvenRuntimeState
-   ↓
-screen_main_update_runtime()
-   ↓
-UI (reines Rendering)
+```mermaid
+flowchart TD
+    A["oven_tick()"]
+    B["OvenRuntimeState"]
+    C["screen_main_update_runtime()"]
+    D["UI Rendering (read-only)"]
+
+    A --> B
+    B --> C
+    C --> D
 ```
 
 ### Preset vs. Runtime
 
-| Ebene | Bedeutung |
-|-----|----------|
-| Preset | Werkseinstellungen (Name, Basis‑Temp, Dauer, Motor‑Flag) |
-| Runtime | Laufzeitwerte (Temp, Zeit, Remaining, WAIT, RUNNING) |
+| Ebene   | Bedeutung                                                |
+| ------- | -------------------------------------------------------- |
+| Preset  | Werkseinstellungen (Name, Basis‑Temp, Dauer, Motor‑Flag) |
+| Runtime | Laufzeitwerte (Temp, Zeit, Remaining, WAIT, RUNNING)     |
 
 - Presets sind **immutable**
 - Runtime‑Werte sind **temporär**
@@ -90,26 +92,41 @@ static constexpr FilamentPreset kPresets[];
 
 ### Layout‑Struktur
 
+
 ```text
-┌────────────────────────────┐
-│ Topbar                     │
-│ ─ Progressbar              │
-│ ─ Remaining Time           │
-├────────────────────────────┤
-│ Center                     │
-│ ├ Icons (links)            │
-│ ├ Dial (Mitte)             │
-│ │ ├ Hour/Minute/Second     │
-│ │ ├ Preset‑Box (Overlay)   │
-│ ├ Start / Pause (rechts)   │
-├────────────────────────────┤
-│ Page Indicator             │
-├────────────────────────────┤
-│ Bottom                     │
-│ ─ Temperatur‑Skala         │
-│ ─ Target / Current Marker  │
-└────────────────────────────┘
-```
+┌────────────────────────────────────────────────────────────────────────────-─┐
+│                                    Topbar                                    │
+│                                                                              │
+│  ┌───────────────────────────────┐      ┌───────────────────────────────┐    │
+│  │          Progressbar          │      │        Remaining Time         │    │
+│  └───────────────────────────────┘      └───────────────────────────────┘    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                    Center                                    │
+│                                                                              │
+│  ┌───────────────┐  ┌──────────────────────────────────────────────┐  ┌─────┐│
+│  │  Icons (left) │  │                Dial (center)                 │  │BTNs ││
+│  │               │  │                                              │  │(rgt)││
+│  │               │  │  ┌────────────────────────────────────────┐  │  │     ││
+│  │               │  │  │           Hour / Minute / Second       │  │  │     ││
+│  │               │  │  └────────────────────────────────────────┘  │  │START││
+│  │               │  │                                              │  │PAUSE││
+│  │               │  │  ┌────────────────────────────────────────┐  │  │STOP ││
+│  │               │  │  │          Preset Box (overlay)          │  │  │     ││
+│  │               │  │  └────────────────────────────────────────┘  │  │     ││
+│  └───────────────┘  └──────────────────────────────────────────────┘  └─────┘│
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                Page Indicator                                │
+│                                 ●  ●  ●  ●                                   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                    Bottom                                    │
+│                                                                              │
+│  ┌────────────────────── Temperature Scale (0–120 °C) ────────────────────┐  │
+│  │                                                                        │  │
+│  │   ▼ Current Marker                                  ▲ Target Marker    │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────────────┘
+````
+
 
 ---
 
@@ -174,11 +191,11 @@ enum class RunState {
 
 ### Verhalten
 
-| Zustand | START‑Button | PAUSE‑Button |
-|------|-------------|-------------|
-| STOPPED | START (orange) | disabled |
-| RUNNING | STOP (rot) | PAUSE |
-| WAIT | STOP (rot) | WAIT / Resume (door‑abhängig) |
+| Zustand | START‑Button   | PAUSE‑Button                  |
+| ------- | -------------- | ----------------------------- |
+| STOPPED | START (orange) | disabled                      |
+| RUNNING | STOP (rot)     | PAUSE                         |
+| WAIT    | STOP (rot)     | WAIT / Resume (door‑abhängig) |
 
 - WAIT snapshotet den Zustand
 - Resume nur bei geschlossener Tür
