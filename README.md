@@ -38,6 +38,10 @@ für Wartung, Service und Weiterentwicklung geeignet ist.
 ![Configuration Screen](docs/images/screen_config.png)  
 ![Hardware Debug Screen](docs/images/screen_dbg_hw.png)
 
+## Installation
+- [Installationsanweisung](doc/filament-silicagel-dryer_installation.md)
+
+
 ## Systemarchitektur – Überblick
 
 Zentrales Prinzip: **Oven Runtime State als Single Source of Truth**
