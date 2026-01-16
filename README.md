@@ -1,4 +1,4 @@
-# ESP32-S3 Filament & Silicat Dryer UI
+# ESP32-S3 Filament & SilicaGel Dryer UI
 
 ## Management Summary
 
@@ -31,13 +31,14 @@ von Heizung, Lüftern, Motor und Sensorik wurde unverändert weiterverwendet. Di
 
 Das Ergebnis ist ein **sicheres, transparentes und erweiterbares System**, das sowohl für den täglichen Betrieb als auch
 für Wartung, Service und Weiterentwicklung geeignet ist.
-<br><br>
-<div style="border: 2px solid red; padding: 15px; font-size: 15px; text-align: center; color: red; font-weight: italic; border-radius: 5px;" >
-USB darf nicht angeschlossen werden, während das Gerät am 230-V-Netz betrieben wird.
-Durch netzseitige Bezüge des PowerBoards können beim Anstecken von USB gefährliche Potentialunterschiede entstehen, die ESP32 oder PC beschädigen.
-USB nur bei gezogenem Netzstecker, mit USB-Isolator oder über Trenntrafo verwenden.
-</div>
-<br><br>
+
+
+> ⚠️⚠️⚠️⚠️⚠️ [!WARNING] ⚠️⚠️⚠️⚠️⚠️
+> 
+> **USB darf nicht angeschlossen werden, während das Gerät am 230-V-Netz betrieben wird.** <br>
+> Durch netzseitige Bezüge des PowerBoards können beim Anstecken von USB gefährliche Potentialunterschiede entstehen, die ESP32 oder PC beschädigen.<br>
+> USB nur bei gezogenem Netzstecker, mit USB-Isolator oder über Trenntrafo verwenden.
+
 
 ## Screenshots (Platzhalter)
 
@@ -47,11 +48,9 @@ USB nur bei gezogenem Netzstecker, mit USB-Isolator oder über Trenntrafo verwen
 
 ## Installation
 
-
-<div style="border: 2px solid red; padding: 15px; text-align: center; font-size: 30px; color: red; font-weight: bold; border-radius: 5px;">
-    !!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!
-</div>
-<br><br>
+> ⚠️⚠️⚠️⚠️⚠️ [!WARNING] ⚠️⚠️⚠️⚠️⚠️
+> 
+> **!!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!**
 
 > [Installationsanweisung](doc/filament-silicagel-dryer_installation_v2.md)
 

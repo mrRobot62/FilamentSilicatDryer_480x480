@@ -34,10 +34,9 @@ Wähle **eine** der folgenden Optionen:
 ## 1) Non‑Developer: Fertige Firmware flashen (HOST + CLIENT zusammen)
 
 
-<div style="border: 2px solid red; padding: 15px; text-align: center; font-size: 30px; color: red; font-weight: bold; border-radius: 5px;">
-    !!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!
-</div>
-
+> ⚠️⚠️⚠️⚠️⚠️ [!WARNING] ⚠️⚠️⚠️⚠️⚠️
+> 
+> **!!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!**
 
 ### 1.1 Dateien (Firmware Artefakte)
 Du brauchst **zwei** Images (werden vom Projekt bereitgestellt):
@@ -52,11 +51,9 @@ Du brauchst **zwei** Images (werden vom Projekt bereitgestellt):
 
 ### 1.2 Flashen mit VS Code + PlatformIO (einfachster Weg)
 
-
-<div style="border: 2px solid red; padding: 15px; text-align: center; font-size: 30px; color: red; font-weight: bold; border-radius: 5px;">
-    !!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!
-</div>
-<br><br>
+> ⚠️⚠️⚠️⚠️⚠️ [!WARNING] ⚠️⚠️⚠️⚠️⚠️
+> 
+> **!!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!**
 
 1. VS Code installieren  
 2. Extension **PlatformIO IDE** installieren  
@@ -75,9 +72,9 @@ Dann:
 ### 1.3 Flashen mit `esptool.py` (CLI, robust, minimal)
 
 
-<div style="border: 2px solid red; padding: 15px; text-align: center; font-size: 30px; color: red; font-weight: bold; border-radius: 5px;">
-    !!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!
-</div>
+> ⚠️⚠️⚠️⚠️⚠️ [!WARNING] ⚠️⚠️⚠️⚠️⚠️
+> 
+> **!!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!**
 
 
 #### Installation `esptool`
