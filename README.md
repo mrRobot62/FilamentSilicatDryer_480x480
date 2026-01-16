@@ -31,6 +31,13 @@ von Heizung, Lüftern, Motor und Sensorik wurde unverändert weiterverwendet. Di
 
 Das Ergebnis ist ein **sicheres, transparentes und erweiterbares System**, das sowohl für den täglichen Betrieb als auch
 für Wartung, Service und Weiterentwicklung geeignet ist.
+<br><br>
+<div style="border: 2px solid red; padding: 15px; font-size: 15px; text-align: center; color: red; font-weight: italic; border-radius: 5px;" >
+USB darf nicht angeschlossen werden, während das Gerät am 230-V-Netz betrieben wird.
+Durch netzseitige Bezüge des PowerBoards können beim Anstecken von USB gefährliche Potentialunterschiede entstehen, die ESP32 oder PC beschädigen.
+USB nur bei gezogenem Netzstecker, mit USB-Isolator oder über Trenntrafo verwenden.
+</div>
+<br><br>
 
 ## Screenshots (Platzhalter)
 
@@ -39,6 +46,13 @@ für Wartung, Service und Weiterentwicklung geeignet ist.
 ![Hardware Debug Screen](docs/images/screen_dbg_hw.png)
 
 ## Installation
+
+
+<div style="border: 2px solid red; padding: 15px; text-align: center; font-size: 30px; color: red; font-weight: bold; border-radius: 5px;">
+    !!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!
+</div>
+<br><br>
+
 > [Installationsanweisung](doc/filament-silicagel-dryer_installation_v2.md)
 
 
@@ -116,3 +130,44 @@ Siehe Dokumente unter `/docs`:
 - [Entwicklungsphase T6 - host/client Kommunikation (architektur/test)](doc/ESP32-S3_UI_T6_Zusammenfassung.md)
 - [Entwicklungsphase T7 - host/client UX Integration](doc/ESP32-S3_UI_T7_Zusammenfassung.md)
 - [Entwicklungsphase T8 - screen_dbg_hw](doc/ESP32-S3_UI_T8_Zusammenfassung.md)
+
+## ⚠️ Sicherheitshinweis: USB-Verbindung im laufenden Betrieb
+
+### Hintergrund
+Das PowerBoard schaltet netzbetriebene Verbraucher (230 V AC) über TRIAC-basierte
+Leistungsstufen. Obwohl der Niedervoltbereich (5 V / 3,3 V) funktional getrennt ist,
+bestehen **elektrische Bezüge zum Netzbereich**, z. B. über TRIAC-Gate-Schaltungen,
+Schutzdioden (PD-Netzwerke) und EMV-Strukturen.
+
+Der ESP32 wird direkt vom PowerBoard versorgt und ist daher Teil dieser elektrischen
+Domäne.
+
+### Risiko beim Anschluss von USB
+Beim Anschluss eines USB-Kabels wird die **USB-Masse des PCs/Laptops** direkt mit der
+**Masse des ESP32** verbunden. Ist das Gerät gleichzeitig mit dem 230-V-Netz verbunden,
+kann dies zu folgenden Problemen führen:
+
+- ungewollten **Potentialunterschieden** zwischen PC und Gerät,
+- **Beschädigung des ESP32**, des PowerBoards oder des USB-Ports am PC,
+- im ungünstigen Fall zu gefährlichen Fehlerströmen durch EMV-Kopplungen oder Transienten.
+
+Auch wenn keine direkte Gleichspannungsverbindung zu Phase (L) oder Neutralleiter (N)
+messbar ist, können **kapazitive Kopplungen und kurzzeitige Überspannungen** auftreten.
+
+### Verbindliche Regel
+**USB darf nicht angeschlossen werden, während das Gerät am 230-V-Netz betrieben wird.**
+
+### Erlaubte Nutzung
+Eine USB-Verbindung ist nur unter einer der folgenden Bedingungen zulässig:
+- Das Gerät ist vollständig **vom Netz getrennt** (Netzstecker gezogen), oder
+- es wird ein **USB-Isolator** verwendet, oder
+- das Gerät wird über eine **galvanisch getrennte Versorgung** betrieben
+  (z. B. Trenntrafo).
+
+### Empfehlung
+- Firmware-Updates und Debugging **nur im spannungslosen Zustand** durchführen.
+- Für Debugging im Betrieb ausschließlich **galvanisch isolierte Werkzeuge** verwenden.
+- Der ESP32 ist als **interne Gerätelektronik** zu betrachten und nicht als
+  USB-sichere Entwicklungsplattform.
+
+Die Nichtbeachtung dieser Hinweise kann zu Hardware-Schäden führen.

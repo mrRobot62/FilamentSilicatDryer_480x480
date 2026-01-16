@@ -33,6 +33,12 @@ Wähle **eine** der folgenden Optionen:
 
 ## 1) Non‑Developer: Fertige Firmware flashen (HOST + CLIENT zusammen)
 
+
+<div style="border: 2px solid red; padding: 15px; text-align: center; font-size: 30px; color: red; font-weight: bold; border-radius: 5px;">
+    !!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!
+</div>
+
+
 ### 1.1 Dateien (Firmware Artefakte)
 Du brauchst **zwei** Images (werden vom Projekt bereitgestellt):
 
@@ -45,6 +51,12 @@ Du brauchst **zwei** Images (werden vom Projekt bereitgestellt):
 ---
 
 ### 1.2 Flashen mit VS Code + PlatformIO (einfachster Weg)
+
+
+<div style="border: 2px solid red; padding: 15px; text-align: center; font-size: 30px; color: red; font-weight: bold; border-radius: 5px;">
+    !!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!
+</div>
+<br><br>
 
 1. VS Code installieren  
 2. Extension **PlatformIO IDE** installieren  
@@ -61,6 +73,12 @@ Dann:
 ---
 
 ### 1.3 Flashen mit `esptool.py` (CLI, robust, minimal)
+
+
+<div style="border: 2px solid red; padding: 15px; text-align: center; font-size: 30px; color: red; font-weight: bold; border-radius: 5px;">
+    !!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!
+</div>
+
 
 #### Installation `esptool`
 ```bash
@@ -139,6 +157,11 @@ Wenn HOST↔CLIENT verbunden sind (UART/TTL) und der CLIENT läuft:
 
 ## 3) Developer: Build / Compile / Flash
 
+<div style="border: 2px solid red; padding: 15px; text-align: center; font-size: 30px; color: red; font-weight: bold; border-radius: 5px;">
+    !!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!
+</div>
+<br><br>
+
 > Für Entwickler: Ziel ist reproduzierbarer Build via PlatformIO.
 
 ### 3.1 Projektsetup (VS Code + PlatformIO)
@@ -209,6 +232,10 @@ Typisch (CLIENT):
 - `screen_dbg_hw` ist ein **Testscreeen**.  
   Er darf nur genutzt werden, wenn das System **nicht** im „Running“‑Betrieb ist.
 - Bei Navigation/Swipe aus dem Debug-Screen muss ein **Safe‑Off** erzwungen werden (Projekt-Policy).
+
+<div style="border: 2px solid red; padding: 15px; text-align: center; font-size: 30px; color: red; font-weight: bold; border-radius: 5px;">
+    !!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!
+</div>
 
 ---
 
