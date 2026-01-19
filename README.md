@@ -48,13 +48,14 @@ für Wartung, Service und Weiterentwicklung geeignet ist.
 
 ## Screenshots (Platzhalter)
 
-![Main Screen](docs/images/screen_main.png width="60%")
+### Main-Screen
+<img src="doc/images/screen_main.png" width="60%">
 
-<img src="docs/images/screen_main.png" width="60%">
+### Filament-Config
+<img src="doc/images/screen_config.JPG" width="60%">
 
-![Configuration Screen](docs/images/screen_config.png)  
-
-![Hardware Debug Screen](docs/images/screen_dbg_hw.png)
+### Hardware-Debug 
+Diesen Screen nur mit **"Vorsicht"**  nutzen !
 
 ## Installation
 
