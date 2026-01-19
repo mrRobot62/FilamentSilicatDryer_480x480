@@ -2,6 +2,12 @@
 
 ## Management Summary
 
+> [!NOTE]
+>
+> Große Teile der Dokumentation basieren auf aktuellen Source-Code Ständen, Analysen und Reverse-Engineering. Die Dokumentation wurde primär von ChatGPT
+> zusammengefasst und ausgearbeitet.
+> 
+
 **Technische Grundlage (Kurzüberblick):**
 - **UI/Host:** ESP32‑S3, 480×480 Touchdisplay, **LVGL 9.4.x**
 - **Client/Powerboard:** ESP32‑WROOM steuert Aktuatoren (Heater, Fans, Motor, Lamp) und liefert Telemetrie
@@ -33,7 +39,7 @@ Das Ergebnis ist ein **sicheres, transparentes und erweiterbares System**, das s
 für Wartung, Service und Weiterentwicklung geeignet ist.
 
 
-> ⚠️⚠️⚠️⚠️⚠️ [!WARNING] ⚠️⚠️⚠️⚠️⚠️
+> [!WARNING]
 > 
 > **USB darf nicht angeschlossen werden, während das Gerät am 230-V-Netz betrieben wird.** <br>
 > Durch netzseitige Bezüge des PowerBoards können beim Anstecken von USB gefährliche Potentialunterschiede entstehen, die ESP32 oder PC beschädigen.<br>
@@ -48,7 +54,7 @@ für Wartung, Service und Weiterentwicklung geeignet ist.
 
 ## Installation
 
-> ⚠️⚠️⚠️⚠️⚠️ [!WARNING] ⚠️⚠️⚠️⚠️⚠️
+> [!WARNING]
 > 
 > **!!!!! NIE USB verwenden, wenn Netzstecker eingesteckt ist !!!!!!!**
 

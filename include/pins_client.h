@@ -1,4 +1,5 @@
 #pragma once
+#include <Arduino.h>
 
 // -------------------------------------------
 // Example GPIO pins (REPLACE with real pins)
@@ -42,12 +43,16 @@ constexpr int PIN_BOARD_LED = 2;
 // -------------------------------------------
 constexpr int OVEN_FAN12V = PIN_CH0;
 constexpr int OVEN_FAN230V = PIN_CH1;
-constexpr int OVEN_FAN230V_SLOW = PIN_CH2;
-constexpr int OVEN_LAMP = PIN_CH3;
-constexpr int OVEN_SILICAT_MOTOR = PIN_CH4;
+constexpr int OVEN_FAN230V_SLOW = PIN_CH4;
+constexpr int OVEN_LAMP = PIN_CH2;
+constexpr int OVEN_SILICAT_MOTOR = PIN_CH3;
 constexpr int OVEN_DOOR_SENSOR = PIN_CH5;
 constexpr int OVEN_HEATER = PIN_CH6;
 
 // ADC-Input
 constexpr int OVEN_TEMP1_PORT1 = PIN_ADC0;
 constexpr int OVEN_TEMP_KTYPE = PIN_ADC1;
+
+// IMPORTANT: You stated that it must be initialized with RX2/TX2 routing, otherwise it won't work.
+constexpr uint8_t CLIENT_RX2 = 16; // GPIO16 = RX2
+constexpr uint8_t CLIENT_TX2 = 17; // GPIO17 = TX2

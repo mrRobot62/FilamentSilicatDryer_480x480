@@ -34,3 +34,5 @@
 *.exe
 *.out
 *.app
+doc/hardware/kicad/Filament-Silicagel-Dryer/Filament-Silicagel-Dryer-backups/*
+doc/hardware/kicad/Filament-Silicagel-Dryer/gerber/*
