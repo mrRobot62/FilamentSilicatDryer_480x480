@@ -48,8 +48,12 @@ für Wartung, Service und Weiterentwicklung geeignet ist.
 
 ## Screenshots (Platzhalter)
 
-![Main Screen](docs/images/screen_main.png)  
+![Main Screen](docs/images/screen_main.png width="60%")
+
+<img src="docs/images/screen_main.png" width="60%">
+
 ![Configuration Screen](docs/images/screen_config.png)  
+
 ![Hardware Debug Screen](docs/images/screen_dbg_hw.png)
 
 ## Installation
