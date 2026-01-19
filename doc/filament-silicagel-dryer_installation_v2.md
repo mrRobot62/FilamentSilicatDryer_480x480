@@ -127,9 +127,7 @@ esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 921600 write_flash -z 0x0 cli
 ```bash
 esptool.py --port /dev/tty.usbmodemXXXX chip_id
 ```
-
 ---
-
 ## 2) Tests / Validierung
 
 ### 2.1 Minimaltest ohne CLIENT (HOST allein)
@@ -235,5 +233,20 @@ Typisch (CLIENT):
 </div>
 
 ---
+
+
+---
+# Trouble-Shooting / Compiler / Linker Fehler
+
+## LVGL-Asm (Helium) deaktivieren durch eine Datei löschen
+
+- **Fehler:** 
+`.pio/build/host_esp32s3_st7701/libb8e/lvgl/draw/sw/blend/helium/lv_blend_helium.S.o error`
+- **Lösung:** 
+`rm -f .pio/libdeps/host_esp32s3_st7701/lvgl/src/draw/sw/blend/helium/lv_blend_helium.S`
+
+
+
+
 
 **END OF FILE**

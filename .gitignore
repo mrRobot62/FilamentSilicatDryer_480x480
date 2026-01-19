@@ -30,6 +30,11 @@
 *.a
 *.lib
 
+# compressed files
+*.zip
+*.gz
+*.tar
+
 # Executables
 *.exe
 *.out
