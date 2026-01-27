@@ -65,3 +65,5 @@ class ClientComm {
     TxLineCallback _clientSerialMonitor = nullptr;
     HeartBeatCallback _heartBeatCb = nullptr;
 };
+
+// EOF

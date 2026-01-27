@@ -3,10 +3,10 @@
 /**
  * Version 0.3 (2026-01-07)
  *  Verbesserung in der Verarbeitung von eingehenden Zeilen, umfangreiche Tests durch die TesteCases zeigen eine stabile Client-Kommunikation.
- * 
+ *
  * Version 0.2 (2026-01-06)
  *  Fixes in line processing and added heartbeat callback.
- * 
+ *
  * @brief Construct a new ClientComm communication handler.
  *
  * This class handles:
@@ -393,3 +393,5 @@ void ClientComm::sendLine(const String &lineWithCrlf) {
         _clientSerialMonitor(lineWithCrlf, "TX");
     }
 }
+
+// EOF

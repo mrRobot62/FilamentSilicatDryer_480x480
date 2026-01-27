@@ -1,4 +1,3 @@
-#warning "HOST BUILD: compiling src/share/protocol.cpp"
 
 //
 // protocol.cpp

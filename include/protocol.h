@@ -1,5 +1,4 @@
 #pragma once
-#warning "HOST BUILD: using include/protocol.h"
 
 #include "log_core.h"
 #include <Arduino.h>
@@ -81,3 +80,5 @@ class ProtocolCodec {
     static String toHex4(uint16_t value);
     static bool parseHex4(const String &text, uint16_t &value);
 };
+
+// EOF

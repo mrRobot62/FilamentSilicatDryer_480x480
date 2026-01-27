@@ -45,6 +45,19 @@ für Wartung, Service und Weiterentwicklung geeignet ist.
 > Durch netzseitige Bezüge des PowerBoards können beim Anstecken von USB gefährliche Potentialunterschiede entstehen, die ESP32 oder PC beschädigen.<br>
 > USB nur bei gezogenem Netzstecker, mit USB-Isolator oder über Trenntrafo verwenden.
 
+# Grundgerät - EMPHSISM AFTO-1505D
+Heißluftfritteuse 14L Airfryer Mini Backofen, Emphsism Heissluftfritteuse XXL Minibackofen 1800W
+
+Link: https://www.amazon.de/Heißluftfritteuse-Emphsism-Heissluftfritteuse-Minibackofen-Zubehörteile/dp/B0D5QQ4SW4
+
+<img src="doc/images/EMPHSISM_AFTO-1505D.png" width="80%">
+
+## B-Ware kaufen !
+> Die Geräte gibt es aber als B-Ware (ich habe mir ein solches Gerät gekauft). Kosten ca. 60€.
+> Fehler in meinem Gerät (der Drehencoder funktionierte nicht - allerdings nur ein mechanischer Fehler :-) )
+
+
+
 
 ## Screenshots (Platzhalter)
 
