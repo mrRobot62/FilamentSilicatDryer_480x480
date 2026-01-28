@@ -1830,7 +1830,7 @@ static void update_actuator_icons(const OvenRuntimeState &state) {
     };
     // Door icon is always live from real runtime state
     const bool door_open = get_effective_door_open(state);
-    const lv_color_t col_on = ui_color_from_hex(UI_COLOR_ICON_ON_HEX);               // z.B. grün
+    const lv_color_t col_on = ui_color_from_hex(UI_COLOR_ICON_DOOR_CLOSED_HEX);               // z.B. grün
     const lv_color_t col_door_open = ui_color_from_hex(UI_COLOR_ICON_DOOR_OPEN_HEX); // z.B. rot
 
     // Door always reflects reality

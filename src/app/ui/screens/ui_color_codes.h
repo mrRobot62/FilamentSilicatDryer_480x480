@@ -33,6 +33,7 @@
 #define UI_COLOR_ICON_OFF_HEX 0xFFFFFF       // white
 #define UI_COLOR_ICON_ON_HEX 0x00FF00        // green
 #define UI_COLOR_ICON_DOOR_OPEN_HEX 0xFF0000 // red
+#define UI_COLOR_ICON_DOOR_CLOSED_HEX 0x00FF00 // red
 #define UI_COLOR_ICON_DIMMED_HEX 0x505050    // optional, falls du später "disabled" brauchst
 
 // Icon colors for CONFIG screen

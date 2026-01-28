@@ -17,9 +17,9 @@
 #pragma once
 
 #include "ClientComm.h"
+#include "output_bitmask.h"
 #include "pins_client.h"
 #include "protocol.h"
-
 #include <Arduino.h>
 
 // -------------------------

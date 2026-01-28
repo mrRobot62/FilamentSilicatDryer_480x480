@@ -56,3 +56,5 @@ constexpr int OVEN_TEMP_KTYPE = PIN_ADC1;
 // IMPORTANT: You stated that it must be initialized with RX2/TX2 routing, otherwise it won't work.
 constexpr uint8_t CLIENT_RX2 = 16; // GPIO16 = RX2
 constexpr uint8_t CLIENT_TX2 = 17; // GPIO17 = TX2
+
+// EOF

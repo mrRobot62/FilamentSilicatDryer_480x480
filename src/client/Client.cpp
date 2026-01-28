@@ -52,9 +52,42 @@ static bool isDoorOpen();
 //         digitalWrite(OUT_PINS[i], level);
 //     }
 // }
+static const char *bitmask8_to_str(uint16_t mask) {
+    static char buf[9];
+    for (int i = 0; i < 8; ++i) {
+        const uint8_t bit = 1u << (7 - i); // print CH7..CH0
+        buf[i] = (mask & bit) ? '1' : '0';
+    }
+    buf[8] = '\0';
+    return buf;
+}
+
+static bool parse_hex4_at(const String &s, int start, uint16_t &out) {
+    if (start < 0 || start + 4 > (int)s.length()) {
+        return false;
+    }
+    uint16_t v = 0;
+    for (int i = 0; i < 4; ++i) {
+        char c = s[start + i];
+        uint8_t n;
+        if (c >= '0' && c <= '9') {
+            n = (uint8_t)(c - '0');
+        } else if (c >= 'A' && c <= 'F') {
+            n = (uint8_t)(10 + (c - 'A'));
+        } else if (c >= 'a' && c <= 'f') {
+            n = (uint8_t)(10 + (c - 'a'));
+        } else {
+            return false;
+        }
+        v = (uint16_t)((v << 4) | n);
+    }
+    out = v;
+    return true;
+}
 
 static bool isDoorOpen() {
     const int v = digitalRead(OVEN_DOOR_SENSOR);
+    CLIENT_INFO("DOOR_STATE: %s", v==HIGH ? "OPEN" : "CLOSED");
     return DOOR_OPEN_IS_HIGH ? (v == HIGH) : (v == LOW);
 }
 
@@ -108,8 +141,18 @@ static int16_t readTempRaw_QuarterC() {
 }
 
 // Fill STATUS via callback (raw units only; no assumptions about conversion)
+// T10.1.28 Door-Bugfix
 static void fillStatusCallback(ProtocolStatus &st) {
+    // Start from the last applied outputs (CH0..CH7 etc.)
     st.outputsMask = clientComm.getOutputsMask();
+
+    // Door is an input (CH5 -> bit5). OPEN=HIGH, CLOSED=LOW.
+    const bool door_open = isDoorOpen();
+    if (door_open) {
+        st.outputsMask |= (1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
+    } else {
+        st.outputsMask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
+    }
 
     // Raw ADC reading (typical 0..4095)
     st.adcRaw[0] = (uint16_t)analogRead(PIN_ADC0);
@@ -123,17 +166,76 @@ static void fillStatusCallback(ProtocolStatus &st) {
     st.tempRaw = readTempRaw_QuarterC();
 }
 
+// static void fillStatusCallback(ProtocolStatus &st) {
+//     st.outputsMask = clientComm.getOutputsMask();
+
+//     // Raw ADC reading (typical 0..4095)
+//     st.adcRaw[0] = (uint16_t)analogRead(PIN_ADC0);
+
+//     // Not used yet
+//     st.adcRaw[1] = 0;
+//     st.adcRaw[2] = 0;
+//     st.adcRaw[3] = 0;
+
+//     // Optional MAX6675
+//     st.tempRaw = readTempRaw_QuarterC();
+// }
+
 // Apply outputs immediately when mask changes
 static void outputsChangedCallback(uint16_t newMask) {
     applyOutputs(newMask);
 
     // Debug (USB serial only)
-    RAW("[outputsChangedCallback] outputsMask=0x%04d\n", newMask);
+    RAW("[outputsChangedCallback] outputsMask=0x%04X; BitMask: %s\n", newMask, bitmask8_to_str(newMask));
 }
 
 // Debug outgoing frames (optional)
+// static void txLineCallback(const String &line, const String &dir) {
+//     RAW("[CLIENT] [%s]: %s\n", dir.c_str(), line.c_str());
+// }
+
+// Debug outgoing frames (optional)
 static void txLineCallback(const String &line, const String &dir) {
-    RAW("[CLIENT] [%s]: %s\n", dir.c_str(), line.c_str());
+    uint16_t mask = 0;
+    bool hasMask = false;
+
+    // We only append BitMask for known frames that carry a 16-bit mask.
+    // Expected formats:
+    // - C;ACK;SET;MMMM
+    // - C;ACK;UPD;MMMM
+    // - C;ACK;TOG;MMMM
+    // - C;STATUS;MMMM;A0;A1;A2;A3;TEMP
+
+    const int idxAckSet = line.indexOf("C;ACK;SET;");
+    if (idxAckSet >= 0) {
+        const int hexPos = idxAckSet + (int)strlen("C;ACK;SET;");
+        hasMask = parse_hex4_at(line, hexPos, mask);
+    }
+
+    const int idxAckUpd = (!hasMask) ? line.indexOf("C;ACK;UPD;") : -1;
+    if (idxAckUpd >= 0) {
+        const int hexPos = idxAckUpd + (int)strlen("C;ACK;UPD;");
+        hasMask = parse_hex4_at(line, hexPos, mask);
+    }
+
+    const int idxAckTog = (!hasMask) ? line.indexOf("C;ACK;TOG;") : -1;
+    if (idxAckTog >= 0) {
+        const int hexPos = idxAckTog + (int)strlen("C;ACK;TOG;");
+        hasMask = parse_hex4_at(line, hexPos, mask);
+    }
+
+    const int idxStatus = (!hasMask) ? line.indexOf("C;STATUS;") : -1;
+    if (idxStatus >= 0) {
+        const int hexPos = idxStatus + (int)strlen("C;STATUS;");
+        hasMask = parse_hex4_at(line, hexPos, mask);
+    }
+
+    if (hasMask) {
+        RAW("[CLIENT] [%s]: BitMask: (%s) => %s;",
+            dir.c_str(), bitmask8_to_str(mask), line.c_str());
+    } else {
+        RAW("[CLIENT] [%s]: %s", dir.c_str(), line.c_str());
+    }
 }
 
 void heartbeatLED_update() {
@@ -170,7 +272,8 @@ void heartbeatLED_update() {
             lastHBCount++;
             RAW(" (%05lu)\n", (unsigned long)lastHBCount);
         } else {
-            RAW(".");
+            // ausgebaut wegen "Log-Hygiene"
+            // RAW(".");
         }
     } else if (ledOn && (int32_t)(now - nextToggleMs) >= 0) {
         led_write(false);
@@ -223,28 +326,74 @@ static void heaterPwmEnable(bool enable) {
     const uint32_t duty = heaterDutyFromPercent(HEATER_PWM_DUTY_PERCENT);
 
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    // Core 3.x: pin-based API
     if (enable) {
         if (!g_heaterPwmRunning) {
-            // Returns bool; you may log it if desired
-            (void)ledcAttach((uint8_t)HEATER_PWM_GPIO, (uint32_t)HEATER_PWM_FREQ_HZ, (uint8_t)HEATER_PWM_RES_BITS);
+            const bool ok = ledcAttach((uint8_t)HEATER_PWM_GPIO,
+                                       (uint32_t)HEATER_PWM_FREQ_HZ,
+                                       (uint8_t)HEATER_PWM_RES_BITS);
+
+            if (!ok) {
+                CLIENT_ERR("[HEATER] ledcAttach FAILED (GPIO=%d, Freq=%dHz, Res=%dbit)\n",
+                           HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
+
+                // Fail-safe: force safe output level
+                pinMode(HEATER_PWM_GPIO, OUTPUT);
+                digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
+                g_heaterPwmRunning = false;
+                return;
+            }
+
             g_heaterPwmRunning = true;
-            CLIENT_INFO("[HEATER] g_heaterPwmRunning now running. GPIO: %d, Freq: %dHz, Duty:%d%\n",
-                        HEATER_PWM_GPIO,
-                        HEATER_PWM_FREQ_HZ,
-                        duty);
+            CLIENT_INFO("[HEATER] PWM attached. GPIO=%d, Freq=%dHz, Duty=%lu\n",
+                        HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, (unsigned long)duty);
         }
+
         ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
+
     } else {
         if (g_heaterPwmRunning) {
             ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
             ledcDetach((uint8_t)HEATER_PWM_GPIO);
             g_heaterPwmRunning = false;
-            CLIENT_INFO("[HEATER] g_heaterPwmRunning now stopped\n");
+            CLIENT_INFO("[HEATER] PWM detached (stopped)\n");
         }
+
         pinMode(HEATER_PWM_GPIO, OUTPUT);
         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
     }
+
+// #if ESP_ARDUINO_VERSION_MAJOR >= 3
+//     // Core 3.x: pin-based API
+//     if (enable) {
+//         if (!g_heaterPwmRunning) {
+//             // Returns bool; you may log it if desired
+//             (void)ledcAttach((uint8_t)HEATER_PWM_GPIO, (uint32_t)HEATER_PWM_FREQ_HZ, (uint8_t)HEATER_PWM_RES_BITS);
+//             g_heaterPwmRunning = true;
+//             CLIENT_INFO("[HEATER] g_heaterPwmRunning now running. GPIO: %d, Freq: %dHz, Duty:%d%\n",
+//                         HEATER_PWM_GPIO,
+//                         HEATER_PWM_FREQ_HZ,
+//                         duty);
+//         }
+//         ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
+
+//         // DEBUG (temporary): prove the pin is actually connected where we measure
+//         // WARNING: this disturbs PWM, only for a quick sanity test.
+//         pinMode(HEATER_PWM_GPIO, OUTPUT);
+//         digitalWrite(HEATER_PWM_GPIO, HIGH);
+//         delay(50);
+//         digitalWrite(HEATER_PWM_GPIO, LOW);
+//         delay(50);
+
+//     } else {
+//         if (g_heaterPwmRunning) {
+//             ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
+//             ledcDetach((uint8_t)HEATER_PWM_GPIO);
+//             g_heaterPwmRunning = false;
+//             CLIENT_INFO("[HEATER] g_heaterPwmRunning now stopped\n");
+//         }
+//         pinMode(HEATER_PWM_GPIO, OUTPUT);
+//         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
+//     }
 #else
     // Core 2.x: channel-based API
     if (enable) {
@@ -284,12 +433,24 @@ void setup() {
 
     // Configure outputs
     for (int i = 0; i < 8; ++i) {
+        //     if (OUT_PINS[i] == OVEN_DOOR_SENSOR) {
+        //         // TP10.1 Door-Bugfix
+        //         pinMode(OUT_PINS[i], INPUT_PULLUP);
+        //         digitalWrite(OUT_PINS[i], HIGH);
+        //         CLIENT_INFO("[IO] OVEN_DOOR_SENSOR PIN init: GPIO=%d\n", i);
+
+        //     } else {
+        //         pinMode(OUT_PINS[i], OUTPUT);
+        //         digitalWrite(OUT_PINS[i], LOW);
+        //         CLIENT_INFO("[IO] OUTPUT-PIN init: GPIO=%d\n", OVEN_DOOR_SENSOR);
+        //     }
         if (OUT_PINS[i] == OVEN_DOOR_SENSOR) {
-            pinMode(OUT_PINS[i], INPUT);
-            digitalWrite(OUT_PINS[i], HIGH);
+            pinMode(OUT_PINS[i], INPUT_PULLUP);
+            CLIENT_INFO("[IO] INPUT_PULLUP init: GPIO=%d (DOOR)\n", OUT_PINS[i]);
         } else {
             pinMode(OUT_PINS[i], OUTPUT);
             digitalWrite(OUT_PINS[i], LOW);
+            CLIENT_INFO("[IO] OUTPUT init: GPIO=%d\n", OUT_PINS[i]);
         }
     }
 
@@ -305,6 +466,13 @@ void setup() {
     clientComm.setHeartBeatCallback(heartbeatLED_update);
     // Ensure outputs are at known state
     outputsChangedCallback(0x0000);
+
+    // TP10.1 (Door-Bugfix)
+    const bool door_open = (digitalRead(OVEN_DOOR_SENSOR) != 0);
+    CLIENT_INFO("[IO] DOOR init done: GPIO=%d INPUT_PULLUP level=%d (%s)\n",
+                OVEN_DOOR_SENSOR,
+                door_open ? 1 : 0,
+                door_open ? "OPEN" : "CLOSED");
 }
 
 //----------------------------------------------------------------------------

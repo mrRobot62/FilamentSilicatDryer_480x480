@@ -433,7 +433,8 @@ static void update_icons_and_rows(const OvenRuntimeState &st) {
             lv_obj_set_style_img_recolor(ui.icon[4], col_hex(UI_COLOR_ICON_DOOR_OPEN_HEX), LV_PART_MAIN);
             lv_obj_set_style_img_recolor_opa(ui.icon[4], LV_OPA_COVER, LV_PART_MAIN);
         } else {
-            // normal OFF (white) handled by set_icon_onoff above
+            lv_obj_set_style_img_recolor(ui.icon[4], col_hex(UI_COLOR_ICON_DOOR_CLOSED_HEX), LV_PART_MAIN);
+            lv_obj_set_style_img_recolor_opa(ui.icon[4], LV_OPA_COVER, LV_PART_MAIN);
         }
     }
 }

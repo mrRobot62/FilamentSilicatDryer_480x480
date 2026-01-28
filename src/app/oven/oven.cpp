@@ -962,6 +962,12 @@ void oven_comm_poll(void) {
         runtimeState.lamp_on = mask_has(st.outputsMask, OVEN_CONNECTOR::LAMP);
         runtimeState.door_open = mask_has(st.outputsMask, OVEN_CONNECTOR::DOOR_ACTIVE);
 
+        OVEN_INFO("[DOOR] outputsMask=0x%04X door_open=%d commAlive=%d linkSynced=%d\n",
+                  st.outputsMask,
+                  runtimeState.door_open ? 1 : 0,
+                  runtimeState.commAlive ? 1 : 0,
+                  runtimeState.linkSynced ? 1 : 0);
+
         g_remoteOutputsMask = st.outputsMask;
 
         if (g_hostComm->lastSetAcked()) {

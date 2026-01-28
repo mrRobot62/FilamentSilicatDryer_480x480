@@ -28,6 +28,9 @@
  *
  * @param serial Reference to HardwareSerial used for the host link, e.g. Serial2.
  */
+
+
+
 ClientComm::ClientComm(HardwareSerial &serial, uint8_t rx, uint8_t tx)
     : _linkSerial(serial),
       _rx(rx),
@@ -247,12 +250,10 @@ void ClientComm::sendErrSet(int errorCode) {
  *   C;PONG\r\n
  */
 void ClientComm::sendPong() {
-    // RAW("[CLIENT] Receiving PING  from host\n");
-    _clientSerialMonitor("Receiving PING  from host", "RX");
+    // _clientSerialMonitor("Receiving PING  from host", "RX");
     String msg = ProtocolCodec::buildClientPong();
     sendLine(msg);
-    _clientSerialMonitor("Sending PONG response to host", "TX");
-    //    RAW("[CLIENT] Sending PONG response to host (%s) \n", msg.c_str());
+    // _clientSerialMonitor("Sending PONG response to host", "TX");
 }
 
 /**
@@ -379,10 +380,18 @@ void ClientComm::sendAckTog(uint16_t newMask) {
     sendLine(ProtocolCodec::buildClientAckTog(newMask));
 }
 
-void ClientComm::setOutputsChangedCallback(OutputsChangedCallback cb) { _onOutputsChanged = cb; }
-void ClientComm::setFillStatusCallback(FillStatusCallback cb) { _fillStatusCb = cb; }
-void ClientComm::setTxLineCallback(TxLineCallback cb) { _clientSerialMonitor = cb; }
-void ClientComm::setHeartBeatCallback(HeartBeatCallback cb) { _heartBeatCb = cb; }
+void ClientComm::setOutputsChangedCallback(OutputsChangedCallback cb) {
+    _onOutputsChanged = cb;
+}
+void ClientComm::setFillStatusCallback(FillStatusCallback cb) {
+    _fillStatusCb = cb;
+}
+void ClientComm::setTxLineCallback(TxLineCallback cb) {
+    _clientSerialMonitor = cb;
+}
+void ClientComm::setHeartBeatCallback(HeartBeatCallback cb) {
+    _heartBeatCb = cb;
+}
 
 void ClientComm::sendLine(const String &lineWithCrlf) {
     _linkSerial.print(lineWithCrlf);

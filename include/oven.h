@@ -2,6 +2,7 @@
 
 #include "HostComm.h"
 #include "log_oven.h"
+#include "output_bitmask.h"
 #include "protocol.h"
 #include <Arduino.h>
 #include <cstring>
@@ -63,14 +64,24 @@ Practical consequences:
 ================================================================================
 */
 
+// enum class OVEN_CONNECTOR : uint16_t {
+//     FAN12V = 1u << 0,        // CH0
+//     FAN230V = 1u << 1,       // CH1
+//     LAMP = 1u << 2,          // CH2
+//     SILICAT_MOTOR = 1u << 3, // CH3
+//     FAN230V_SLOW = 1u << 4,  // CH4
+//     DOOR_ACTIVE = 1u << 5,   // CH5 (GPIO14)  TP10.1 Door-Bugfix
+//     HEATER = 1u << 6         // CH6 (GPIO12) TP10.1 Door-Bugfix
+// };
+
 enum class OVEN_CONNECTOR : uint16_t {
-    FAN12V = 1u << 0,        // bit 0
-    FAN230V = 1u << 1,       // bit 1
-    FAN230V_SLOW = 1u << 2,  // bit 2
-    SILICAT_MOTOR = 1u << 3, // bit 3
-    HEATER = 1u << 4,        // bit 4
-    LAMP = 1u << 5,          // bit 5
-    DOOR_ACTIVE = 1u << 6    // bit 6 (input-like sensor on client side)
+    FAN12V = 1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN12V,              // CH0
+    FAN230V = 1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN230V,            // CH1
+    LAMP = 1u << OUTPUT_BIT_MASK_8BIT::BIT_LAMP,                  // CH2
+    SILICAT_MOTOR = 1u << OUTPUT_BIT_MASK_8BIT::BIT_SILICA_MOTOR, // CH3
+    FAN230V_SLOW = 1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN230V_SLOW,  // CH4
+    DOOR_ACTIVE = 1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR,           // CH5 (GPIO14)  TP10.1 Door-Bugfix
+    HEATER = 1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER               // CH6 (GPIO12) TP10.1 Door-Bugfix
 };
 
 // ----------------------------------------------------------------------------
