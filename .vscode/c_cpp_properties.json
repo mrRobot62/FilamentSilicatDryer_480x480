@@ -598,6 +598,7 @@
                 "CLIENTERR",
                 "CLIENTDBG",
                 "CLIENTWARN",
+                "CLIENTRAW",
                 "ESP32_ARDUINO_LIB_BUILDER",
                 "ESP_PLATFORM",
                 "IDF_VER=\"v5.1.4-972-g632e0c2a9f-dirty\"",

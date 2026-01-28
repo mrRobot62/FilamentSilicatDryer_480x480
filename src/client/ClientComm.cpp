@@ -340,7 +340,9 @@ void ClientComm::handleIncomingLine(const String &line) {
 
         // ACK with resulting mask
         sendAckUpd(_outputsMask);
-        RAW("[CLIENT] Processed Host UPD, new mask=0x%04X\n", _outputsMask);
+        CLIENT_RAW("[CLIENT] Processed Host UPD, new mask=0x%04X\n", _outputsMask);
+        RAW("[CLIENT/RX] HostUpd set=0x%04X clr=0x%04X (prev=0x%04X)\n", setMask, clrMask, _outputsMask);
+
         break;
     }
 

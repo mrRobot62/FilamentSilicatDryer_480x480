@@ -1,5 +1,6 @@
 #pragma once
 
+#include "log_client.h"
 #include "protocol.h"
 #include <Arduino.h>
 

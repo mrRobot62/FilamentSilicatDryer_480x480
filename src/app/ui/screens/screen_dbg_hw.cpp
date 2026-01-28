@@ -16,7 +16,11 @@ namespace {
 // Local UI-only gate (allowed by spec: RUN is purely a UI safety gate)
 // ----------------------------------------------------------------------------
 static bool g_run_gate = false;
-
+// ----------------------------------------------------------------------------
+// UI debounce for icon/row toggles (prevents multi-click from touch repeat)
+// ----------------------------------------------------------------------------
+static uint32_t s_last_toggle_ms[7] = {0};
+static constexpr uint32_t k_toggle_debounce_ms = 350;
 // ----------------------------------------------------------------------------
 // Widget storage
 // ----------------------------------------------------------------------------
@@ -257,23 +261,42 @@ static void icon_click_event_cb(lv_event_t *e) {
     auto *target = static_cast<lv_obj_t *>(lv_event_get_target(e));
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
 
+    if (idx < 0 || idx >= 7) {
+        return;
+    }
+
     if (!g_run_gate) {
         UI_INFO("[DBG_HW] Icon click ignored (RUN=false) idx=%d\n", idx);
         return;
     }
+
+    const uint32_t now = millis();
+    const uint32_t last = s_last_toggle_ms[idx];
+    if ((now - last) < k_toggle_debounce_ms) {
+        UI_INFO("[DBG_HW] Icon click ignored (debounce) idx=%d dt=%lu ms obj=%p\n",
+                idx, (unsigned long)(now - last), (void *)target);
+        return;
+    }
+    s_last_toggle_ms[idx] = now;
+
     oven_dbg_hw_toggle_by_index(idx);
     UI_INFO("[DBG_HW] Icon clicked idx=%d obj=%p (armed)\n", idx, (void *)target);
 }
 
-// static void run_button_event_cb(lv_event_t *e) {
+// static void icon_click_event_cb(lv_event_t *e) {
 //     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
 //         return;
 //     }
 
-//     g_run_gate = !g_run_gate;
-//     UI_INFO("[DBG_HW] RUN gate=%d\n", g_run_gate ? 1 : 0);
+//     auto *target = static_cast<lv_obj_t *>(lv_event_get_target(e));
+//     int idx = (int)(intptr_t)lv_event_get_user_data(e);
 
-//     set_run_button_ui();
+//     if (!g_run_gate) {
+//         UI_INFO("[DBG_HW] Icon click ignored (RUN=false) idx=%d\n", idx);
+//         return;
+//     }
+//     oven_dbg_hw_toggle_by_index(idx);
+//     UI_INFO("[DBG_HW] Icon clicked idx=%d obj=%p (armed)\n", idx, (void *)target);
 // }
 
 static void run_button_event_cb(lv_event_t *e) {
@@ -415,9 +438,6 @@ static void update_icons_and_rows(const OvenRuntimeState &st) {
         // icons
         set_icon_onoff(ui.icon[i], on);
 
-        // rows bg
-        set_row_onoff(ui.row[i], on);
-
         // minimal content text (derived from runtime only)
         if (ui.row_label[i]) {
             char buf[64];
@@ -427,10 +447,13 @@ static void update_icons_and_rows(const OvenRuntimeState &st) {
                 break;
             }
             case 4: {
+                set_row_onoff(ui.row[i], !on); // DOOR_CLOSED = 0, DOOR_OPEN = 1
                 std::snprintf(buf, sizeof(buf), "%s: %s", get_port_name_by_index(i), st.door_open ? "OPEN" : "CLOSED");
                 break;
             }
             default: {
+                // rows bg
+                set_row_onoff(ui.row[i], on);
                 std::snprintf(buf, sizeof(buf), "%s: %s", get_port_name_by_index(i), on ? "ON" : "OFF");
             }
             }

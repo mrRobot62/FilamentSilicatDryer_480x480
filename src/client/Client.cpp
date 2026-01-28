@@ -399,10 +399,25 @@ static void heaterPwmEnable(bool enable) {
             }
 
             g_heaterPwmRunning = true;
+
             CLIENT_INFO("[HEATER] PWM attached. GPIO=%d, Freq=%dHz, Duty=%lu\n",
                         HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, (unsigned long)duty);
+
+            // ------------------------------------------------------------------
+            // IMPORTANT: deterministic PWM start (Kick)
+            // ------------------------------------------------------------------
+            // 1) Force known LOW duty
+            ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
+
+            // 2) Give LEDC / GPIO matrix time to settle
+            delayMicroseconds(200);
         }
 
+        // 3) Apply real duty
+        ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
+
+        // 4) Optional second kick (harmless, but fixes "first-write lost" cases)
+        delayMicroseconds(50);
         ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
 
     } else {

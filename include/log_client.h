@@ -1,6 +1,6 @@
 #pragma once
-#include <Arduino.h>
 #include "log_core.h"
+#include <Arduino.h>
 
 /**
  * CLIENT logging macros.
@@ -17,52 +17,55 @@
 
 #ifdef CLIENTINFO
 #define CLIENT_INFO(...)                          \
-    do                                          \
-    {                                           \
+    do {                                          \
         logPrintf("CLIENT", "INFO", __VA_ARGS__); \
     } while (0)
 #else
 #define CLIENT_INFO(...) \
-    do                 \
-    {                  \
+    do {                 \
     } while (0)
 #endif
 
 #ifdef CLIENTDBG
 #define CLIENT_DBG(...)                            \
-    do                                           \
-    {                                            \
+    do {                                           \
         logPrintf("CLIENT", "DEBUG", __VA_ARGS__); \
     } while (0)
 #else
 #define CLIENT_DBG(...) \
-    do                \
-    {                 \
+    do {                \
     } while (0)
 #endif
 
 #ifdef CLIENTWARN
 #define CLIENT_WARN(...)                          \
-    do                                          \
-    {                                           \
+    do {                                          \
         logPrintf("CLIENT", "WARN", __VA_ARGS__); \
     } while (0)
 #else
 #define CLIENT_WARN(...) \
-    do                 \
-    {                  \
+    do {                 \
     } while (0)
 #endif
 
 #ifdef CLIENTERR
 #define CLIENT_ERR(...)                          \
-    do                                         \
-    {                                          \
+    do {                                         \
         logPrintf("CLIENT", "ERR", __VA_ARGS__); \
     } while (0)
 #else
 #define CLIENT_ERR(...) \
-    do                \
-    {                 \
+    do {                \
+    } while (0)
+#endif
+
+#ifdef CLIENTRAW
+#define CLIENT_RAW(...)            \
+    do {                           \
+        logRawPrintf(__VA_ARGS__); \
+    } while (0)
+#else
+#define CLIENT_RAW(...) \
+    do {                \
     } while (0)
 #endif
