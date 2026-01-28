@@ -87,33 +87,86 @@ static bool parse_hex4_at(const String &s, int start, uint16_t &out) {
 
 static bool isDoorOpen() {
     const int v = digitalRead(OVEN_DOOR_SENSOR);
-    CLIENT_INFO("DOOR_STATE: %s", v==HIGH ? "OPEN" : "CLOSED");
-    return DOOR_OPEN_IS_HIGH ? (v == HIGH) : (v == LOW);
+    // CLIENT_INFO("DOOR_STATE: %s", v == HIGH ? "OPEN" : "CLOSED");
+    // return DOOR_OPEN_IS_HIGH ? (v == HIGH) : (v == LOW);
+
+    static bool last = false;
+    bool now = DOOR_OPEN_IS_HIGH ? (v == HIGH) : (v == LOW);
+    if (now != last) {
+        CLIENT_INFO("[DOOR] state=%s (level=%d)\n", now ? "OPEN" : "CLOSED", v);
+        last = now;
+    }
+    return now;
 }
 
-static void applyOutputs(uint16_t mask) {
+// static void applyOutputs(uint16_t mask) {
+//     const bool doorOpen = isDoorOpen();
+
+//     for (int i = 0; i < 8; ++i) {
+//         const bool requestedOn = (mask & (1u << i)) != 0;
+
+//         // HEATER: requires PWM/toggle, not DC
+//         if (i == HEATER_BIT_INDEX) {
+//             const bool heaterAllowed = requestedOn && !doorOpen; // stop heater if door open
+//             heaterPwmEnable(heaterAllowed);
+//             continue;
+//         }
+
+//         // MOTOR: only allowed if door is CLOSED
+//         if (i == MOTOR_BIT_INDEX) {
+//             const bool motorAllowed = requestedOn && !doorOpen;
+//             digitalWrite(OUT_PINS[i], motorAllowed ? HIGH : LOW);
+//             continue;
+//         }
+
+//         // T10.1.36 - Door-saftey issues
+//         if (i == OUTPUT_BIT_MASK_8BIT::BIT_DOOR) {
+//             continue; // DOOR is input-only
+//         }
+//         // All others: direct mapping
+//         digitalWrite(OUT_PINS[i], requestedOn ? HIGH : LOW);
+//     }
+// }
+
+static uint16_t g_effectiveMask = 0;
+
+// Überarbeitet in T10.1.36
+static void applyOutputs(uint16_t requestedMask) {
     const bool doorOpen = isDoorOpen();
+    uint16_t eff = requestedMask;
 
-    for (int i = 0; i < 8; ++i) {
-        const bool requestedOn = (mask & (1u << i)) != 0;
+    // Never treat DOOR as output
+    eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
 
-        // HEATER: requires PWM/toggle, not DC
-        if (i == HEATER_BIT_INDEX) {
-            const bool heaterAllowed = requestedOn && !doorOpen; // stop heater if door open
-            heaterPwmEnable(heaterAllowed);
-            continue;
-        }
-
-        // MOTOR: only allowed if door is CLOSED
-        if (i == MOTOR_BIT_INDEX) {
-            const bool motorAllowed = requestedOn && !doorOpen;
-            digitalWrite(OUT_PINS[i], motorAllowed ? HIGH : LOW);
-            continue;
-        }
-
-        // All others: direct mapping
-        digitalWrite(OUT_PINS[i], requestedOn ? HIGH : LOW);
+    // Gate heater + motor if door open
+    if (doorOpen) {
+        eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
+        eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_SILICA_MOTOR);
+        // T10.1.36: FAN230 must OFF when door open
+        eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN230V);
+        // FAN230V_SLOW stays "any" => do not touch
     }
+
+    // Apply eff to physical pins (skip DOOR)
+    for (int i = 0; i < 8; ++i) {
+        if (i == OUTPUT_BIT_MASK_8BIT::BIT_DOOR) {
+            continue;
+        }
+        const bool on = (eff & (1u << i)) != 0;
+
+        if (i == HEATER_BIT_INDEX) {
+            heaterPwmEnable(on);
+            continue;
+        }
+        if (i == MOTOR_BIT_INDEX) {
+            digitalWrite(OUT_PINS[i], on ? HIGH : LOW);
+            continue;
+        }
+
+        digitalWrite(OUT_PINS[i], on ? HIGH : LOW);
+    }
+
+    g_effectiveMask = eff;
 }
 
 static int16_t readTempRaw_QuarterC() {
@@ -144,7 +197,9 @@ static int16_t readTempRaw_QuarterC() {
 // T10.1.28 Door-Bugfix
 static void fillStatusCallback(ProtocolStatus &st) {
     // Start from the last applied outputs (CH0..CH7 etc.)
-    st.outputsMask = clientComm.getOutputsMask();
+    // st.outputsMask = clientComm.getOutputsMask();
+    // neu in T10.1.36
+    st.outputsMask = g_effectiveMask;
 
     // Door is an input (CH5 -> bit5). OPEN=HIGH, CLOSED=LOW.
     const bool door_open = isDoorOpen();

@@ -1,4 +1,5 @@
 #include "ClientComm.h"
+#include "output_bitmask.h"
 
 /**
  * Version 0.3 (2026-01-07)
@@ -28,8 +29,6 @@
  *
  * @param serial Reference to HardwareSerial used for the host link, e.g. Serial2.
  */
-
-
 
 ClientComm::ClientComm(HardwareSerial &serial, uint8_t rx, uint8_t tx)
     : _linkSerial(serial),
@@ -276,6 +275,8 @@ void ClientComm::handleIncomingLine(const String &line) {
     int errorCode = 0;
     uint16_t maskB = 0;
     uint16_t maskC = 0;
+    const uint16_t kDoorBit = (1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
+
     // Parse incoming line. For host→client messages we mainly care about:
     //  - HostSet
     //  - HostGetStatus
@@ -293,6 +294,7 @@ void ClientComm::handleIncomingLine(const String &line) {
     case ProtocolMessageType::HostSet:
         // Host wants to set the outputsMask.
         // We store it and notify the application via flag.
+        mask &= ~kDoorBit;
         _outputsMask = mask;
         _newOutputsMask = true;
         if (_onOutputsChanged) {
@@ -326,9 +328,8 @@ void ClientComm::handleIncomingLine(const String &line) {
         break;
 
     case ProtocolMessageType::HostUpd: {
-        const uint16_t setMask = mask;
-        const uint16_t clrMask = maskB;
-
+        uint16_t setMask = mask & ~kDoorBit;
+        uint16_t clrMask = maskB & ~kDoorBit;
         _outputsMask = (_outputsMask | setMask) & static_cast<uint16_t>(~clrMask);
 
         if (_onOutputsChanged) {
@@ -344,8 +345,7 @@ void ClientComm::handleIncomingLine(const String &line) {
     }
 
     case ProtocolMessageType::HostTog: {
-        const uint16_t togMask = mask;
-
+        uint16_t togMask = mask & ~kDoorBit;
         _outputsMask ^= togMask;
 
         // IMPORTANT: notify main sketch that outputsMask changed

@@ -421,13 +421,25 @@ static void update_icons_and_rows(const OvenRuntimeState &st) {
         // minimal content text (derived from runtime only)
         if (ui.row_label[i]) {
             char buf[64];
-            std::snprintf(buf, sizeof(buf), "%s: %s", get_port_name_by_index(i), on ? "ON" : "OFF");
+            switch (i) {
+            case 3: {
+                std::snprintf(buf, sizeof(buf), "%s: %s", get_port_name_by_index(i), on ? "HEATING" : "OFF");
+                break;
+            }
+            case 4: {
+                std::snprintf(buf, sizeof(buf), "%s: %s", get_port_name_by_index(i), st.door_open ? "OPEN" : "CLOSED");
+                break;
+            }
+            default: {
+                std::snprintf(buf, sizeof(buf), "%s: %s", get_port_name_by_index(i), on ? "ON" : "OFF");
+            }
+            }
             lv_label_set_text(ui.row_label[i], buf);
         }
     }
 
     // Door special icon color: when door_open => red (overrides green)
-    // (Only affects the icon; row stays green by "ON")
+    // (Only affects the icon; row stays green by "ON/CLOSED/HEATING")
     if (ui.icon[4]) {
         if (st.door_open) {
             lv_obj_set_style_img_recolor(ui.icon[4], col_hex(UI_COLOR_ICON_DOOR_OPEN_HEX), LV_PART_MAIN);
