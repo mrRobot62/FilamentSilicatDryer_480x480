@@ -246,26 +246,6 @@ static constexpr FilamentPreset kPresets[] = {
     {"Spec-WOOD-Composite", 45.0f, 300, false, {true, 300, PostFanMode::FAST}},
 };
 
-// ----------------------------------------------------------------------------
-// Remote/command mask tracking (host-side)
-// ----------------------------------------------------------------------------
-//
-// g_remoteOutputsMask: last outputsMask received from STATUS (remote truth)
-// g_lastCommandMask:  last SET mask sent by host (for logging/debug)
-// g_preWaitCommandMask: snapshot of "pre-WAIT" command mask for RESUME restoration
-//
-static uint16_t g_remoteOutputsMask = 0;  // last STATUS mask (truth)
-static uint16_t g_lastCommandMask = 0;    // last SET mask we sent
-static uint16_t g_preWaitCommandMask = 0; // snapshot before WAIT
-
-// Communication counters/timestamps
-static uint32_t g_lastStatusRxMs = 0;
-static uint32_t g_statusRxCount = 0;
-static uint32_t g_commErrorCount = 0;
-
-// Alive heuristic (host-side)
-static constexpr uint32_t kCommAliveTimeoutMs = 1500; // tune as needed
-
 static constexpr uint16_t kPresetCount =
     sizeof(kPresets) / sizeof(kPresets[0]);
 static constexpr uint16_t OVEN_DEFAULT_PRESET_INDEX = 5; // PLA

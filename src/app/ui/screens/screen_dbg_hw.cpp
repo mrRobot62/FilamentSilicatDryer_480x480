@@ -19,7 +19,7 @@ static bool g_run_gate = false;
 // ----------------------------------------------------------------------------
 // UI debounce for icon/row toggles (prevents multi-click from touch repeat)
 // ----------------------------------------------------------------------------
-static uint32_t s_last_toggle_ms[7] = {0};
+static uint32_t s_last_toggle_ms[HW_ROWS] = {0};
 static constexpr uint32_t k_toggle_debounce_ms = 350;
 // ----------------------------------------------------------------------------
 // Widget storage
@@ -265,6 +265,12 @@ static void icon_click_event_cb(lv_event_t *e) {
         return;
     }
 
+    // DOOR is input-only => never toggle
+    if (idx == 4) {
+        UI_INFO("[DBG_HW] Icon/Row click ignored (DOOR is input-only)\n");
+        return;
+    }
+
     if (!g_run_gate) {
         UI_INFO("[DBG_HW] Icon click ignored (RUN=false) idx=%d\n", idx);
         return;
@@ -283,22 +289,6 @@ static void icon_click_event_cb(lv_event_t *e) {
     UI_INFO("[DBG_HW] Icon clicked idx=%d obj=%p (armed)\n", idx, (void *)target);
 }
 
-// static void icon_click_event_cb(lv_event_t *e) {
-//     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
-//         return;
-//     }
-
-//     auto *target = static_cast<lv_obj_t *>(lv_event_get_target(e));
-//     int idx = (int)(intptr_t)lv_event_get_user_data(e);
-
-//     if (!g_run_gate) {
-//         UI_INFO("[DBG_HW] Icon click ignored (RUN=false) idx=%d\n", idx);
-//         return;
-//     }
-//     oven_dbg_hw_toggle_by_index(idx);
-//     UI_INFO("[DBG_HW] Icon clicked idx=%d obj=%p (armed)\n", idx, (void *)target);
-// }
-
 static void run_button_event_cb(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
@@ -314,13 +304,6 @@ static void run_button_event_cb(lv_event_t *e) {
         do_clear_ui_and_outputs();
     }
 }
-
-// static void clear_button_event_cb(lv_event_t *e) {
-//     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
-//         return;
-//     }
-//     do_clear_ui_and_outputs();
-// }
 
 // ----------------------------------------------------------------------------
 // Bottom temperature helpers (minimal clone of screen_main logic)
@@ -553,9 +536,6 @@ lv_obj_t *screen_dbg_hw_create(lv_obj_t *parent) {
 
         // default OFF => white
         lv_obj_set_style_img_recolor_opa(ui.icon[i], LV_OPA_TRANSP, LV_PART_MAIN);
-
-        // lv_obj_set_style_line_color(ui.lines[i], lv_color_hex(0xFF00FF), LV_PART_MAIN);
-        // lv_obj_set_style_line_width(ui.lines[i], 4, LV_PART_MAIN);
     }
     // ------------------------------------------------------------------------
     // MIDDLE (CONTENT): 7 framed rows (minimal)
@@ -573,7 +553,7 @@ lv_obj_t *screen_dbg_hw_create(lv_obj_t *parent) {
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(ui.rows_container, 6, 0);
 
-    for (int i = 0; i < 7; ++i) {
+    for (int i = 0; i < HW_ROWS; ++i) {
         ui.row[i] = lv_obj_create(ui.rows_container);
         lv_obj_remove_style_all(ui.row[i]);
 
@@ -606,11 +586,13 @@ lv_obj_t *screen_dbg_hw_create(lv_obj_t *parent) {
 
         // Make the whole row clickable (bigger hit target)
         lv_obj_add_flag(ui.row[i], LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(ui.row[i], icon_click_event_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-
-        // Let label clicks bubble up to the row (optional but nice)
-        lv_obj_add_flag(ui.row_label[i], LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_flag(ui.row_label[i], LV_OBJ_FLAG_EVENT_BUBBLE);
+        if (i != 4) {
+            // not for DOOR Icon
+            lv_obj_add_event_cb(ui.row[i], icon_click_event_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+            // Let label clicks bubble up to the row (optional but nice)
+            lv_obj_add_flag(ui.row_label[i], LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_flag(ui.row_label[i], LV_OBJ_FLAG_EVENT_BUBBLE);
+        }
 
         // ------------------------------------------------------------------------
         // icon-row-container lines
@@ -663,19 +645,6 @@ lv_obj_t *screen_dbg_hw_create(lv_obj_t *parent) {
     ui.lbl_run = lv_label_create(ui.btn_run);
     lv_label_set_text(ui.lbl_run, "RUN");
     lv_obj_center(ui.lbl_run);
-
-    // CLEAR button
-    // ui.btn_clear = lv_btn_create(btn_col);
-    // lv_obj_set_size(ui.btn_clear, UI_START_BUTTON_SIZE, UI_START_BUTTON_SIZE);
-    // lv_obj_set_style_radius(ui.btn_clear, 8, LV_PART_MAIN);
-    // lv_obj_set_style_bg_grad_dir(ui.btn_clear, LV_GRAD_DIR_NONE, LV_PART_MAIN);
-    // lv_obj_set_style_bg_color(ui.btn_clear, col_hex(0x404040), LV_PART_MAIN);
-    // lv_obj_set_style_bg_opa(ui.btn_clear, LV_OPA_COVER, LV_PART_MAIN);
-    // lv_obj_add_event_cb(ui.btn_clear, clear_button_event_cb, LV_EVENT_CLICKED, nullptr);
-
-    // ui.lbl_clear = lv_label_create(ui.btn_clear);
-    // lv_label_set_text(ui.lbl_clear, "CLEAR");
-    // lv_obj_center(ui.lbl_clear);
 
     // Initialize RUN gate UI
     g_run_gate = false;
@@ -778,6 +747,20 @@ void screen_dbg_hw_update_runtime(const OvenRuntimeState *state) {
     if (!state || !ui.root) {
         return;
     }
+
+    // Safety UX: if door opens, disarm RUN gate immediately
+    // T10.1.36b
+    static bool s_last_door_open = false;
+    if (state->door_open && !s_last_door_open) {
+        if (g_run_gate) {
+            UI_WARN("[DBG_HW] DOOR OPEN -> disarm RUN gate\n");
+            screen_dbg_hw_disarm_and_clear(); // makes RUN=false + clears UI
+        } else {
+            // still clear visuals if you want, but optional
+            // screen_dbg_hw_disarm_and_clear();
+        }
+    }
+    s_last_door_open = state->door_open;
 
     if (state->linkSynced) {
         icon_link_synced(ui.icon_sync);

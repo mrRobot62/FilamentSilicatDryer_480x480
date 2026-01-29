@@ -45,13 +45,7 @@ static bool isDoorOpen();
 // -------------------------
 // Helpers
 // -------------------------
-// static void applyOutputs(uint16_t mask) {
-//     // Apply only bits 0..7 to real GPIO pins
-//     for (int i = 0; i < 8; ++i) {
-//         const int level = (mask & (1u << i)) ? HIGH : LOW;
-//         digitalWrite(OUT_PINS[i], level);
-//     }
-// }
+
 static const char *bitmask8_to_str(uint16_t mask) {
     static char buf[9];
     for (int i = 0; i < 8; ++i) {
@@ -60,6 +54,14 @@ static const char *bitmask8_to_str(uint16_t mask) {
     }
     buf[8] = '\0';
     return buf;
+}
+
+static void bitmask8_to_str_r(uint16_t mask, char out[9]) {
+    for (int i = 0; i < 8; ++i) {
+        const uint8_t bit = 1u << (7 - i);
+        out[i] = (mask & bit) ? '1' : '0';
+    }
+    out[8] = '\0';
 }
 
 static bool parse_hex4_at(const String &s, int start, uint16_t &out) {
@@ -85,6 +87,24 @@ static bool parse_hex4_at(const String &s, int start, uint16_t &out) {
     return true;
 }
 
+// -----------------------------------------------------------------------------
+// Door safety gating (authoritative on client)
+// DOOR OPEN => force HEATER + MOTOR OFF, and also FAN230V OFF (per your rule).
+// DOOR bit is input-only and must never be driven as output.
+// -----------------------------------------------------------------------------
+static inline uint16_t applyDoorSafetyGating(uint16_t mask, bool doorOpen) {
+    // Never treat DOOR as output (input-only telemetry bit)
+    mask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
+
+    if (doorOpen) {
+        mask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
+        mask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_SILICA_MOTOR);
+        mask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN230V); // your rule: FAN230 must OFF when door open
+        // FAN230V_SLOW: intentionally not forced either way
+    }
+    return mask;
+}
+
 static bool isDoorOpen() {
     const int v = digitalRead(OVEN_DOOR_SENSOR);
     // CLIENT_INFO("DOOR_STATE: %s", v == HIGH ? "OPEN" : "CLOSED");
@@ -99,75 +119,76 @@ static bool isDoorOpen() {
     return now;
 }
 
-// static void applyOutputs(uint16_t mask) {
-//     const bool doorOpen = isDoorOpen();
-
-//     for (int i = 0; i < 8; ++i) {
-//         const bool requestedOn = (mask & (1u << i)) != 0;
-
-//         // HEATER: requires PWM/toggle, not DC
-//         if (i == HEATER_BIT_INDEX) {
-//             const bool heaterAllowed = requestedOn && !doorOpen; // stop heater if door open
-//             heaterPwmEnable(heaterAllowed);
-//             continue;
-//         }
-
-//         // MOTOR: only allowed if door is CLOSED
-//         if (i == MOTOR_BIT_INDEX) {
-//             const bool motorAllowed = requestedOn && !doorOpen;
-//             digitalWrite(OUT_PINS[i], motorAllowed ? HIGH : LOW);
-//             continue;
-//         }
-
-//         // T10.1.36 - Door-saftey issues
-//         if (i == OUTPUT_BIT_MASK_8BIT::BIT_DOOR) {
-//             continue; // DOOR is input-only
-//         }
-//         // All others: direct mapping
-//         digitalWrite(OUT_PINS[i], requestedOn ? HIGH : LOW);
-//     }
-// }
-
 static uint16_t g_effectiveMask = 0;
 
-// Überarbeitet in T10.1.36
+// Überarbeitet in T10.1.36b
 static void applyOutputs(uint16_t requestedMask) {
     const bool doorOpen = isDoorOpen();
-    uint16_t eff = requestedMask;
-
-    // Never treat DOOR as output
-    eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
-
-    // Gate heater + motor if door open
-    if (doorOpen) {
-        eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
-        eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_SILICA_MOTOR);
-        // T10.1.36: FAN230 must OFF when door open
-        eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN230V);
-        // FAN230V_SLOW stays "any" => do not touch
-    }
+    const uint16_t eff = applyDoorSafetyGating(requestedMask, doorOpen);
 
     // Apply eff to physical pins (skip DOOR)
     for (int i = 0; i < 8; ++i) {
         if (i == OUTPUT_BIT_MASK_8BIT::BIT_DOOR) {
             continue;
         }
+
         const bool on = (eff & (1u << i)) != 0;
 
         if (i == HEATER_BIT_INDEX) {
+            // PWM heater only
             heaterPwmEnable(on);
             continue;
         }
-        if (i == MOTOR_BIT_INDEX) {
-            digitalWrite(OUT_PINS[i], on ? HIGH : LOW);
-            continue;
-        }
 
+        // Motor is normal GPIO (but already gated in eff)
         digitalWrite(OUT_PINS[i], on ? HIGH : LOW);
     }
 
     g_effectiveMask = eff;
+
+    if (g_heaterPwmRunning) {
+        g_effectiveMask |= (1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
+    } else {
+        g_effectiveMask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
+    }
 }
+// static void applyOutputs(uint16_t requestedMask) {
+//     const bool doorOpen = isDoorOpen();
+//     uint16_t eff = requestedMask;
+
+//     // Never treat DOOR as output
+//     eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
+
+//     // Gate heater + motor if door open
+//     if (doorOpen) {
+//         eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
+//         eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_SILICA_MOTOR);
+//         // T10.1.36: FAN230 must OFF when door open
+//         eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN230V);
+//         // FAN230V_SLOW stays "any" => do not touch
+//     }
+
+//     // Apply eff to physical pins (skip DOOR)
+//     for (int i = 0; i < 8; ++i) {
+//         if (i == OUTPUT_BIT_MASK_8BIT::BIT_DOOR) {
+//             continue;
+//         }
+//         const bool on = (eff & (1u << i)) != 0;
+
+//         if (i == HEATER_BIT_INDEX) {
+//             heaterPwmEnable(on);
+//             continue;
+//         }
+//         if (i == MOTOR_BIT_INDEX) {
+//             digitalWrite(OUT_PINS[i], on ? HIGH : LOW);
+//             continue;
+//         }
+
+//         digitalWrite(OUT_PINS[i], on ? HIGH : LOW);
+//     }
+
+//     g_effectiveMask = eff;
+// }
 
 static int16_t readTempRaw_QuarterC() {
     // tempRaw is defined as 0.25°C steps (tempRaw = °C * 4)
@@ -285,6 +306,12 @@ static void txLineCallback(const String &line, const String &dir) {
         hasMask = parse_hex4_at(line, hexPos, mask);
     }
 
+#ifdef CLIENTNOPONGLOG
+    const int idxPONG = line.indexOf("C;PONG");
+    if (idxPONG >= 0) {
+        return;
+    }
+#endif
     if (hasMask) {
         RAW("[CLIENT] [%s]: BitMask: (%s) => %s;",
             dir.c_str(), bitmask8_to_str(mask), line.c_str());
@@ -550,9 +577,51 @@ void setup() {
 //
 // please do not include anything here without knowing the consequences ;-)
 //----------------------------------------------------------------------------
+// überarbeiter in T10.1.36b
 void loop() {
-    // Process link UART + protocol frames
     clientComm.loop();
+
+    static bool lastDoorOpen = false;
+    const bool doorOpenNow = isDoorOpen();
+
+    if (doorOpenNow != lastDoorOpen) {
+        lastDoorOpen = doorOpenNow;
+
+        if (doorOpenNow) {
+            uint16_t before = g_effectiveMask;
+
+            // Make BEFORE reflect PWM truth (so log is meaningful)
+            if (g_heaterPwmRunning) {
+                before |= (1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
+            } else {
+                before &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
+            }
+
+            // NOTE: if you have requestedMask available, use that instead of 'before'
+            const uint16_t after = applyDoorSafetyGating(before, true);
+
+            const bool motorPinHigh = (digitalRead(OUT_PINS[MOTOR_BIT_INDEX]) == HIGH);
+            const bool needKill = g_heaterPwmRunning || motorPinHigh;
+
+            if (after != before) {
+                char b0[9], b1[9];
+                bitmask8_to_str_r(before, b0);
+                bitmask8_to_str_r(after, b1);
+
+                CLIENT_WARN("[DOOR] OPEN -> forcing safe outputs: %s -> %s\n", b0, b1);
+                applyOutputs(after);
+            } else if (needKill) {
+                CLIENT_WARN("[DOOR] OPEN -> forcing safe outputs (PWM/MOTOR still active)\n");
+
+                heaterPwmEnable(false);
+                digitalWrite(OUT_PINS[MOTOR_BIT_INDEX], LOW);
+
+                // keep shadow consistent
+                g_effectiveMask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
+                g_effectiveMask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_SILICA_MOTOR);
+            }
+        }
+    }
 }
 
 // EOF

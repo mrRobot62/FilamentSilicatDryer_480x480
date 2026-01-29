@@ -1010,21 +1010,48 @@ void screen_main_update_runtime(const OvenRuntimeState *state) {
     }
 
     static bool last_door_open = false;
+    const bool door_open_eff = get_effective_door_open(*state);
 
-    if (state->door_open != last_door_open) {
-        UI_INFO("[DOOR] state changed: %d -> %d (running=%d)\n",
-                (int)last_door_open, (int)state->door_open, (int)state->running);
+    if (door_open_eff != last_door_open) {
+        UI_INFO("[DOOR] state changed: %d -> %d (run_state=%d mode=%s running=%d)\n",
+                (int)last_door_open, (int)door_open_eff,
+                (int)g_run_state, oven_mode_to_str(state->mode), (int)state->running);
 
-        last_door_open = state->door_open;
+        last_door_open = door_open_eff;
 
         // Always keep pause button consistent with door
-        pause_button_update_enabled_by_door(state->door_open);
+        pause_button_update_enabled_by_door(door_open_eff);
 
-        // If door opens while countdown is running -> force WAIT immediately
-        if (state->door_open) {
+        // If door opens while RUNNING -> force WAIT immediately AND tell oven once
+        if (door_open_eff && g_run_state == RunState::RUNNING) {
+            // snapshot for later resume (optional, but consistent with your debug toggle)
+            g_pre_wait_snapshot = g_last_runtime;
+            g_has_pre_wait_snapshot = true;
+
             countdown_stop_and_set_wait_ui("door opened");
+
+            // IMPORTANT: make host state consistent (send WAIT policy/mask)
+            oven_pause_wait();
+
+            g_run_state = RunState::WAIT;
+            update_start_button_ui();
         }
     }
+
+    // if (state->door_open != last_door_open) {
+    //     UI_INFO("[DOOR] state changed: %d -> %d (running=%d)\n",
+    //             (int)last_door_open, (int)state->door_open, (int)state->running);
+
+    //     last_door_open = state->door_open;
+
+    //     // Always keep pause button consistent with door
+    //     pause_button_update_enabled_by_door(state->door_open);
+
+    //     // If door opens while countdown is running -> force WAIT immediately
+    //     if (state->door_open) {
+    //         countdown_stop_and_set_wait_ui("door opened");
+    //     }
+    // }
     g_last_runtime = *state;
     ui_temp_target_tolerance_c = state->tempToleranceC;
 
@@ -1830,8 +1857,14 @@ static void update_actuator_icons(const OvenRuntimeState &state) {
     };
     // Door icon is always live from real runtime state
     const bool door_open = get_effective_door_open(state);
-    const lv_color_t col_on = ui_color_from_hex(UI_COLOR_ICON_DOOR_CLOSED_HEX);               // z.B. grün
+    const lv_color_t col_on = ui_color_from_hex(UI_COLOR_ICON_DOOR_CLOSED_HEX);      // z.B. grün
     const lv_color_t col_door_open = ui_color_from_hex(UI_COLOR_ICON_DOOR_OPEN_HEX); // z.B. rot
+
+    // Door icon: always show state (closed=green, open=red), never "white"
+    if (ui.icon_door) {
+        lv_obj_set_style_img_recolor(ui.icon_door, door_open ? col_door_open : col_on, LV_PART_MAIN);
+        lv_obj_set_style_img_recolor_opa(ui.icon_door, LV_OPA_COVER, LV_PART_MAIN);
+    }
 
     // Door always reflects reality
     // if (state.heater_on && g_run_state != RunState::WAIT) {
@@ -1909,6 +1942,14 @@ static void start_button_event_cb(lv_event_t *e) {
     LV_UNUSED(e);
     lv_event_code_t code = lv_event_get_code(e);
 
+    // T10.1.36b (Schritt 2)
+    // Block START if door is open (safety)
+    const bool door_open = get_effective_door_open(g_last_runtime);
+    if (g_run_state == RunState::STOPPED && door_open) {
+        UI_INFO("[START] blocked: door open\n");
+        return;
+    }
+
     // Wichtig: irgendein Log, das du sicher siehst
     UI_INFO("start_button_event_cb(): code=%d\n", (int)code);
 
@@ -1956,7 +1997,14 @@ static void start_button_event_cb(lv_event_t *e) {
 static void pause_button_event_cb(lv_event_t *e) {
     LV_UNUSED(e);
 
+    // erweitert in T10.1.36b (Schritt 2)
     if (g_run_state == RunState::RUNNING) {
+        if (get_effective_door_open(g_last_runtime)) {
+            UI_INFO("[WAIT] cannot enter WAIT: door open (already unsafe)\n");
+            // Optional: wir sind faktisch schon unsafe, aber Client killt; hier keine Aktion
+            return;
+        }
+
         // Enter WAIT: stop countdown timer, snapshot runtime
         if (g_countdown_tick) {
             lv_timer_del(g_countdown_tick);
@@ -1966,11 +2014,33 @@ static void pause_button_event_cb(lv_event_t *e) {
         g_pre_wait_snapshot = g_last_runtime;
         g_has_pre_wait_snapshot = true;
 
+        // IMPORTANT: actually request WAIT in oven (policy mask)
+        oven_pause_wait();
+
         g_run_state = RunState::WAIT;
+
+        pause_button_apply_ui(g_run_state, get_effective_door_open(g_last_runtime));
+        update_start_button_ui();
 
         UI_INFO("[WAIT] (pause_button_event_cb) entered\n");
         return;
     }
+
+    // if (g_run_state == RunState::RUNNING) {
+    //     // Enter WAIT: stop countdown timer, snapshot runtime
+    //     if (g_countdown_tick) {
+    //         lv_timer_del(g_countdown_tick);
+    //         g_countdown_tick = nullptr;
+    //     }
+
+    //     g_pre_wait_snapshot = g_last_runtime;
+    //     g_has_pre_wait_snapshot = true;
+
+    //     g_run_state = RunState::WAIT;
+
+    //     UI_INFO("[WAIT] (pause_button_event_cb) entered\n");
+    //     return;
+    // }
 
     if (g_run_state == RunState::WAIT) {
         if (get_effective_door_open(g_last_runtime)) {
@@ -1984,11 +2054,8 @@ static void pause_button_event_cb(lv_event_t *e) {
         }
 
         g_run_state = RunState::RUNNING;
-
-        // deprecated: oven_tick ist ausschließlich für die Zeit zuständig
-        // if (!g_countdown_tick) {
-        //     g_countdown_tick = lv_timer_create(countdown_tick_cb, COUNT_TICK_UPDATE_FREQ, &ui);
-        // }
+        pause_button_apply_ui(g_run_state, get_effective_door_open(g_last_runtime));
+        update_start_button_ui();
 
         UI_INFO("[WAIT] resumed\n");
         return;

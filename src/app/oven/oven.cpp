@@ -35,6 +35,21 @@ static constexpr uint32_t kAliveTimeoutMs = 1500;        // e.g. 1.5s
 static constexpr uint32_t kPingIntervalUnsyncedMs = 250; // e.g. 4Hz while unsynced
 static constexpr uint32_t kPingIntervalSyncedMs = 1000;  // keep-alive while synced (prevents UI flicker)
 
+// ----------------------------------------------------------------------------
+// Remote/command mask tracking (host-side)
+// ----------------------------------------------------------------------------
+static uint16_t g_remoteOutputsMask = 0;  // last STATUS mask (truth)
+static uint16_t g_lastCommandMask = 0;    // last SET mask we sent
+static uint16_t g_preWaitCommandMask = 0; // snapshot before WAIT
+
+// Communication counters/timestamps
+static uint32_t g_lastStatusRxMs = 0;
+static uint32_t g_statusRxCount = 0;
+static uint32_t g_commErrorCount = 0;
+
+// Alive heuristic (host-side)
+static constexpr uint32_t kCommAliveTimeoutMs = 1500; // tune as needed
+
 /**
  * currentProfile:
  * Host-side plan (duration + target temp + preset id).
