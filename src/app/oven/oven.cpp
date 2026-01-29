@@ -50,6 +50,8 @@ static uint32_t g_commErrorCount = 0;
 // Alive heuristic (host-side)
 static constexpr uint32_t kCommAliveTimeoutMs = 1500; // tune as needed
 
+static bool g_hostOvertempActive = false;
+
 /**
  * currentProfile:
  * Host-side plan (duration + target temp + preset id).
@@ -544,6 +546,45 @@ void oven_tick(void) {
     runtimeState.commErrorCount = g_commErrorCount;
 
     // Future: optional auto-controls based on temperature could be added here.
+
+    // -------------------------------------------------------------------------
+    // HOST-side overtemperature control (soft safety, non-fatal)
+    // -------------------------------------------------------------------------
+    if (runtimeState.mode == OvenMode::RUNNING) {
+        const float cur = runtimeState.tempCurrent;
+        const float tgt = runtimeState.tempTarget;
+        const float tol = HOST_TEMP_TOLERANCE_C;
+
+        // --- Trip condition ---
+        if (!g_hostOvertempActive) {
+            if (cur >= (tgt + tol)) {
+                g_hostOvertempActive = true;
+
+                uint16_t m = g_remoteOutputsMask;
+                m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
+                comm_send_mask(m);
+
+                OVEN_WARN("[HOST-OT] OVER-TEMP: %.1f >= %.1f (target %.1f + tol %.1f) -> HEATER OFF\n",
+                          cur, tgt + tol, tgt, tol);
+            }
+        }
+        // --- Recovery (hysteresis) ---
+        else {
+            // hysteresis: re-enable slightly below target
+            if (cur <= (tgt - 1.0f)) {
+                g_hostOvertempActive = false;
+
+                uint16_t m = g_remoteOutputsMask;
+                m = mask_set(m, OVEN_CONNECTOR::HEATER, true);
+                comm_send_mask(m);
+
+                OVEN_INFO("[HOST-OT] temp %.1f back in range -> HEATER ON\n", cur);
+            }
+        }
+    } else {
+        // Leaving RUNNING clears host overtemp latch
+        g_hostOvertempActive = false;
+    }
 }
 
 // =============================================================================

@@ -119,9 +119,21 @@ static bool isDoorOpen() {
     return now;
 }
 
-static uint16_t g_effectiveMask = 0;
+// neu T10.1.37
+static void safety_check_overtemp(float tempCur) {
+    if (tempCur >= CLIENT_ABS_MAX_TEMP_C) {
+        if (!g_heater_overtemp) {
+            g_heater_overtemp = true;
+
+            heaterPwmEnable(false); // HARD OFF
+            CLIENT_ERR("[SAFETY] ABS OVER-TEMP! cur=%.1f >= %.1f -> HEATER OFF\n",
+                       tempCur, CLIENT_ABS_MAX_TEMP_C);
+        }
+    }
+}
 
 // Überarbeitet in T10.1.36b
+static uint16_t g_effectiveMask = 0;
 static void applyOutputs(uint16_t requestedMask) {
     const bool doorOpen = isDoorOpen();
     const uint16_t eff = applyDoorSafetyGating(requestedMask, doorOpen);
@@ -152,43 +164,6 @@ static void applyOutputs(uint16_t requestedMask) {
         g_effectiveMask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
     }
 }
-// static void applyOutputs(uint16_t requestedMask) {
-//     const bool doorOpen = isDoorOpen();
-//     uint16_t eff = requestedMask;
-
-//     // Never treat DOOR as output
-//     eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
-
-//     // Gate heater + motor if door open
-//     if (doorOpen) {
-//         eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
-//         eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_SILICA_MOTOR);
-//         // T10.1.36: FAN230 must OFF when door open
-//         eff &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN230V);
-//         // FAN230V_SLOW stays "any" => do not touch
-//     }
-
-//     // Apply eff to physical pins (skip DOOR)
-//     for (int i = 0; i < 8; ++i) {
-//         if (i == OUTPUT_BIT_MASK_8BIT::BIT_DOOR) {
-//             continue;
-//         }
-//         const bool on = (eff & (1u << i)) != 0;
-
-//         if (i == HEATER_BIT_INDEX) {
-//             heaterPwmEnable(on);
-//             continue;
-//         }
-//         if (i == MOTOR_BIT_INDEX) {
-//             digitalWrite(OUT_PINS[i], on ? HIGH : LOW);
-//             continue;
-//         }
-
-//         digitalWrite(OUT_PINS[i], on ? HIGH : LOW);
-//     }
-
-//     g_effectiveMask = eff;
-// }
 
 static int16_t readTempRaw_QuarterC() {
     // tempRaw is defined as 0.25°C steps (tempRaw = °C * 4)
@@ -202,12 +177,14 @@ static int16_t readTempRaw_QuarterC() {
 
     // Round to nearest 0.25°C step
     const int32_t raw = (int32_t)lroundf(c * 4.0f);
+
     if (raw < INT16_MIN) {
         return INT16_MIN;
     }
     if (raw > INT16_MAX) {
         return INT16_MAX;
     }
+
     return (int16_t)raw;
 #else
     return 0;
@@ -240,6 +217,13 @@ static void fillStatusCallback(ProtocolStatus &st) {
 
     // Optional MAX6675
     st.tempRaw = readTempRaw_QuarterC();
+
+    // -------------------------------------------------
+    // SAFETY: Over-temperature check (authoritative)
+    // tempRaw is in 0.25°C steps
+    // -------------------------------------------------
+    const float tempCur = (float)st.tempRaw * 0.25f;
+    safety_check_overtemp(tempCur);
 }
 
 // static void fillStatusCallback(ProtocolStatus &st) {

@@ -83,6 +83,17 @@ constexpr int HEATER_SAFE_LEVEL = LOW;      // safe idle level when OFF
 constexpr bool DOOR_OPEN_IS_HIGH = true; // OPEN = 5V => HIGH
 constexpr int MOTOR_BIT_INDEX = 3;       // OUT_PINS[3] = PIN_CH3 = GPIO26
 
+// -------------------------
+// Safey guards
+// -------------------------
+static bool g_heater_overtemp = false;
+// -------------------------------------------------
+// Absolute hardware safety limits (CLIENT)
+// -------------------------------------------------
+// Silicagel drying up to 110°C is allowed.
+// Hard safety cut at 120°C (independent of HOST / presets).
+static constexpr float CLIENT_ABS_MAX_TEMP_C = 120.0f;
+
 #if !defined(ESP_ARDUINO_VERSION_MAJOR)
 // Fallback if the macro is not available
 #define ESP_ARDUINO_VERSION_MAJOR 0

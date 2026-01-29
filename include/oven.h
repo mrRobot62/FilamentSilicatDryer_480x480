@@ -253,6 +253,8 @@ static constexpr uint16_t OVEN_DEFAULT_PRESET_INDEX = 5; // PLA
 // adjusting minutes für HH:MM in this granularity
 static constexpr uint8_t UI_MIN_MINUTES = 1;
 
+static constexpr float HOST_TEMP_TOLERANCE_C = 3.0f;
+
 // ----------------------------------------------------------------------------
 // Public API
 // ----------------------------------------------------------------------------
