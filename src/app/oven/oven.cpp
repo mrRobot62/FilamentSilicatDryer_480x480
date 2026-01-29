@@ -571,7 +571,7 @@ void oven_tick(void) {
         // --- Recovery (hysteresis) ---
         else {
             // hysteresis: re-enable slightly below target
-            if (cur <= (tgt - 1.0f)) {
+            if (cur <= (tgt - tol)) {
                 g_hostOvertempActive = false;
 
                 uint16_t m = g_remoteOutputsMask;
@@ -1004,6 +1004,77 @@ void oven_comm_poll(void) {
     if (g_hostComm->hasNewStatus()) {
         apply_remote_status_to_runtime(g_hostComm->getRemoteStatus());
         g_hostComm->clearNewStatusFlag();
+    }
+
+    // -------------------------------------------------------------------------
+    // T10.1.38 - Host heater control (RUNNING only)
+    // - Hysteresis around target: ON below (target - tol), OFF above (target + tol)
+    // - Overtemp lockout uses same band, clears only when below (target - tol)
+    // - Door open always forces HEATER OFF (best-effort; client is authoritative)
+    // -------------------------------------------------------------------------
+    if (runtimeState.mode == OvenMode::RUNNING) {
+        // ---- T10.1.38: reduce HEATER log spam (log only on state change) ----
+        static bool g_lastHeaterRequest = false;
+        static bool g_lastOvertempLock = false;
+
+        const float cur = runtimeState.tempCurrent;
+        const float tgt = runtimeState.tempTarget;
+        const float tol = runtimeState.tempToleranceC;
+
+        const float hi = tgt + tol;
+        const float lo = tgt - tol;
+
+        // 1) Door safety (host best-effort)
+        // 1) Door safety (host best-effort)
+        if (runtimeState.door_open) {
+            if (mask_has(g_lastCommandMask, OVEN_CONNECTOR::HEATER)) {
+                uint16_t m = g_lastCommandMask;
+                m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
+                comm_send_mask(m);
+                OVEN_WARN("[SAFETY] DOOR OPEN -> HEATER OFF (host)\n");
+            }
+        } else {
+            // 2) Overtemp lock (latched until temp is back below (tgt - tol))
+            if (!g_hostOvertempActive && (cur >= hi)) {
+                g_hostOvertempActive = true;
+                OVEN_WARN("[SAFETY] OVER-TEMP -> lock active (cur=%.1f >= hi=%.1f)\n", cur, hi);
+            } else if (g_hostOvertempActive && (cur <= lo)) {
+                g_hostOvertempActive = false;
+                OVEN_INFO("[SAFETY] OVER-TEMP recovered (cur=%.1f <= lo=%.1f)\n", cur, lo);
+            }
+
+            // 3) Apply heater decision (only affect HEATER bit)
+            //
+            // IMPORTANT:
+            // - g_remoteOutputsMask is telemetry truth and may lag until next STATUS.
+            // - Use g_lastCommandMask as host "intent" to avoid spamming SET/LOG.
+            const bool heaterWanted = (!g_hostOvertempActive) && (cur <= lo);
+
+            // "Current" from host intent (last command we sent), not from telemetry.
+            const bool heaterIsOn = mask_has(g_lastCommandMask, OVEN_CONNECTOR::HEATER);
+
+            // OFF condition: either lock active or above hi (normal hysteresis top)
+            const bool mustForceOff = g_hostOvertempActive || (cur >= hi);
+
+            if (mustForceOff && heaterIsOn) {
+                uint16_t m = g_lastCommandMask; // <- use intent base
+                m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
+                comm_send_mask(m);
+
+                OVEN_INFO("[HEATER] OFF (cur=%.1f, tgt=%.1f, tol=%.1f, lock=%d)\n",
+                          cur, tgt, tol, g_hostOvertempActive ? 1 : 0);
+            } else if (heaterWanted && !heaterIsOn) {
+                uint16_t m = g_lastCommandMask; // <- use intent base
+                m = mask_set(m, OVEN_CONNECTOR::HEATER, true);
+                comm_send_mask(m);
+
+                OVEN_INFO("[HEATER] ON  (cur=%.1f, tgt=%.1f, tol=%.1f)\n", cur, tgt, tol);
+            }
+            // else: hold state
+        }
+    } else {
+        // Not RUNNING: ensure lock is cleared so next RUN starts clean
+        g_hostOvertempActive = false;
     }
 
     // 7) ACK-based outputs update (fast UI feedback)
