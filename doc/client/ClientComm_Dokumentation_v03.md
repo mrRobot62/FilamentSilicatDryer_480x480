@@ -295,6 +295,40 @@ void loop() {
 
 ---
 
+## T10.1.40 – Client Safety Watchdog (Host-Timeout)
+
+### Motivation
+
+Der Client (ESP32-WROOM / Powerboard) ist sicherheitskritisch, da er den
+**HEATER direkt hardwareseitig steuert** (PWM, 4 kHz).
+
+Ein kritisches Fehlerszenario tritt auf, wenn:
+- der **HOST (ESP32-S3)** abstürzt, neu geflasht oder blockiert
+- der **Client weiterläuft**
+- zuvor **HEATER = ON** gesetzt war
+
+Ohne zusätzliche Schutzmechanismen würde der HEATER **unbegrenzt weiterlaufen**.
+
+→ **Gefahr von Überhitzung und Sachschäden (Severity: HIGH)**
+
+---
+
+### Sicherheitskonzept
+
+Der Client implementiert einen **Host-Watchdog**:
+
+- **Jedes gültige Protokoll-Frame** vom Host gilt als *Lebenszeichen*
+  - SET / UPD / TOG
+  - GET STATUS
+  - PING
+- Bleibt dieses Lebenszeichen zu lange aus, wird ein **Hard-Fail-Safe ausgelöst**
+
+---
+
+### Timeout-Definition
+
+```cpp
+static constexpr uint32_t CLIENT_HOST_TIMEOUT_MS = 2000; // 2 Sekunden---
 ## Fazit
 
 `ClientComm` V0.3 ist ein **robuster, non-blocking UART Client-Handler**, der:

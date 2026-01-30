@@ -39,6 +39,12 @@
 
 constexpr const char *VERSION = "V0.4 - 20260130";
 
+// Überarbeitet in T10.1.36b
+static uint16_t g_effectiveMask = 0;
+// T10.1.41: Apply outputs only from main loop (avoid RX/CB timing issues)
+static volatile bool g_applyPending = false;
+static volatile uint16_t g_pendingMask = 0;
+
 static void heaterPwmEnable(bool enable);
 static bool isDoorOpen();
 
@@ -132,8 +138,6 @@ static void safety_check_overtemp(float tempCur) {
     }
 }
 
-// Überarbeitet in T10.1.36b
-static uint16_t g_effectiveMask = 0;
 static void applyOutputs(uint16_t requestedMask) {
     const bool doorOpen = isDoorOpen();
     const uint16_t eff = applyDoorSafetyGating(requestedMask, doorOpen);
@@ -227,11 +231,15 @@ static void fillStatusCallback(ProtocolStatus &st) {
 }
 
 // Apply outputs immediately when mask changes
+// T10.1.41: Do NOT apply outputs inside the callback (RX context).
+// Only mark pending; apply in main loop() deterministically.
 static void outputsChangedCallback(uint16_t newMask) {
-    applyOutputs(newMask);
+    g_pendingMask = newMask;
+    g_applyPending = true;
 
     // Debug (USB serial only)
-    RAW("[outputsChangedCallback] outputsMask=0x%04X; BitMask: %s\n", newMask, bitmask8_to_str(newMask));
+    CLIENT_RAW("[outputsChangedCallback] pending outputsMask=0x%04X; BitMask: %s\n",
+               newMask, bitmask8_to_str(newMask));
 }
 
 // Debug outgoing frames (optional)
@@ -282,10 +290,10 @@ static void txLineCallback(const String &line, const String &dir) {
     }
 #endif
     if (hasMask) {
-        RAW("[CLIENT] [%s]: BitMask: (%s) => %s;",
-            dir.c_str(), bitmask8_to_str(mask), line.c_str());
+        CLIENT_RAW("[CLIENT] [%s]: BitMask: (%s) => %s;",
+                   dir.c_str(), bitmask8_to_str(mask), line.c_str());
     } else {
-        RAW("[CLIENT] [%s]: %s", dir.c_str(), line.c_str());
+        CLIENT_RAW("[CLIENT] [%s]: %s", dir.c_str(), line.c_str());
     }
 }
 
@@ -321,7 +329,7 @@ void heartbeatLED_update() {
         if (++hbCount >= HB_LINE_BREAK) {
             hbCount = 0;
             lastHBCount++;
-            RAW(" (%05lu)\n", (unsigned long)lastHBCount);
+            CLIENT_RAW(" (%05lu)\n", (unsigned long)lastHBCount);
         } else {
             // ausgebaut wegen "Log-Hygiene"
             // RAW(".");
@@ -378,42 +386,49 @@ static void heaterPwmEnable(bool enable) {
 
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
     if (enable) {
-        if (!g_heaterPwmRunning) {
-            const bool ok = ledcAttach((uint8_t)HEATER_PWM_GPIO,
-                                       (uint32_t)HEATER_PWM_FREQ_HZ,
-                                       (uint8_t)HEATER_PWM_RES_BITS);
+        // ------------------------------------------------------------------
+        // T10.1.41: Deterministic PWM start after boot
+        // Force the same "clean attach" behavior as STOP->START:
+        // - ensure GPIO is in a known safe state
+        // - detach unconditionally (even if not running)
+        // - attach fresh
+        // - apply duty with a robust kick
+        // ------------------------------------------------------------------
 
-            if (!ok) {
-                CLIENT_ERR("[HEATER] ledcAttach FAILED (GPIO=%d, Freq=%dHz, Res=%dbit)\n",
-                           HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
+        // 1) Known safe GPIO state first (prevents weird matrix leftovers)
+        pinMode(HEATER_PWM_GPIO, OUTPUT);
+        digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
 
-                // Fail-safe: force safe output level
-                pinMode(HEATER_PWM_GPIO, OUTPUT);
-                digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
-                g_heaterPwmRunning = false;
-                return;
-            }
+        // 2) Hard reset of LEDC routing (unconditional)
+        (void)ledcDetach((uint8_t)HEATER_PWM_GPIO);
+        g_heaterPwmRunning = false;
 
-            g_heaterPwmRunning = true;
+        // 3) Fresh attach
+        const bool ok = ledcAttach((uint8_t)HEATER_PWM_GPIO,
+                                   (uint32_t)HEATER_PWM_FREQ_HZ,
+                                   (uint8_t)HEATER_PWM_RES_BITS);
 
-            CLIENT_INFO("[HEATER] PWM attached. GPIO=%d, Freq=%dHz, Duty=%lu\n",
-                        HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, (unsigned long)duty);
+        if (!ok) {
+            CLIENT_ERR("[HEATER] ledcAttach FAILED (GPIO=%d, Freq=%dHz, Res=%dbit)\n",
+                       HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
 
-            // ------------------------------------------------------------------
-            // IMPORTANT: deterministic PWM start (Kick)
-            // ------------------------------------------------------------------
-            // 1) Force known LOW duty
-            ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
-
-            // 2) Give LEDC / GPIO matrix time to settle
-            delayMicroseconds(200);
+            // Fail-safe: keep safe output level
+            pinMode(HEATER_PWM_GPIO, OUTPUT);
+            digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
+            g_heaterPwmRunning = false;
+            return;
         }
 
-        // 3) Apply real duty
-        ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
+        g_heaterPwmRunning = true;
 
-        // 4) Optional second kick (harmless, but fixes "first-write lost" cases)
-        delayMicroseconds(50);
+        CLIENT_INFO("[HEATER] PWM attached. GPIO=%d, Freq=%dHz, Duty=%lu\n",
+                    HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, (unsigned long)duty);
+
+        // 4) Kick sequence (milliseconds are intentionally robust)
+        ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
+        delay(2);
+        ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
+        delay(2);
         ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
 
     } else {
@@ -434,7 +449,13 @@ static void heaterPwmEnable(bool enable) {
             ledcSetup(HEATER_PWM_CHANNEL, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
             ledcAttachPin(HEATER_PWM_GPIO, HEATER_PWM_CHANNEL);
             g_heaterPwmRunning = true;
+
+            // Optional: deterministic kick for 2.x as well
+            ledcWrite(HEATER_PWM_CHANNEL, 0);
+            delay(2);
         }
+        ledcWrite(HEATER_PWM_CHANNEL, duty);
+        delay(2);
         ledcWrite(HEATER_PWM_CHANNEL, duty);
     } else {
         if (g_heaterPwmRunning) {
@@ -447,6 +468,83 @@ static void heaterPwmEnable(bool enable) {
     }
 #endif
 }
+
+
+
+// static void heaterPwmEnable(bool enable) {
+//     const uint32_t duty = heaterDutyFromPercent(HEATER_PWM_DUTY_PERCENT);
+
+// #if ESP_ARDUINO_VERSION_MAJOR >= 3
+//     if (enable) {
+//         if (!g_heaterPwmRunning) {
+//             const bool ok = ledcAttach((uint8_t)HEATER_PWM_GPIO,
+//                                        (uint32_t)HEATER_PWM_FREQ_HZ,
+//                                        (uint8_t)HEATER_PWM_RES_BITS);
+
+//             if (!ok) {
+//                 CLIENT_ERR("[HEATER] ledcAttach FAILED (GPIO=%d, Freq=%dHz, Res=%dbit)\n",
+//                            HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
+
+//                 // Fail-safe: force safe output level
+//                 pinMode(HEATER_PWM_GPIO, OUTPUT);
+//                 digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
+//                 g_heaterPwmRunning = false;
+//                 return;
+//             }
+
+//             g_heaterPwmRunning = true;
+
+//             CLIENT_INFO("[HEATER] PWM attached. GPIO=%d, Freq=%dHz, Duty=%lu\n",
+//                         HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, (unsigned long)duty);
+
+//             // ------------------------------------------------------------------
+//             // IMPORTANT: deterministic PWM start (Kick)
+//             // ------------------------------------------------------------------
+//             // 1) Force known LOW duty
+//             ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
+
+//             // 2) Give LEDC / GPIO matrix time to settle
+//             delayMicroseconds(200);
+//         }
+
+//         // 3) Apply real duty
+//         ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
+
+//         // 4) Optional second kick (harmless, but fixes "first-write lost" cases)
+//         delayMicroseconds(50);
+//         ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
+
+//     } else {
+//         if (g_heaterPwmRunning) {
+//             ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
+//             ledcDetach((uint8_t)HEATER_PWM_GPIO);
+//             g_heaterPwmRunning = false;
+//             CLIENT_INFO("[HEATER] PWM detached (stopped)\n");
+//         }
+
+//         pinMode(HEATER_PWM_GPIO, OUTPUT);
+//         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
+//     }
+// #else
+//     // Core 2.x: channel-based API
+//     if (enable) {
+//         if (!g_heaterPwmRunning) {
+//             ledcSetup(HEATER_PWM_CHANNEL, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
+//             ledcAttachPin(HEATER_PWM_GPIO, HEATER_PWM_CHANNEL);
+//             g_heaterPwmRunning = true;
+//         }
+//         ledcWrite(HEATER_PWM_CHANNEL, duty);
+//     } else {
+//         if (g_heaterPwmRunning) {
+//             ledcWrite(HEATER_PWM_CHANNEL, 0);
+//             ledcDetachPin(HEATER_PWM_GPIO);
+//             g_heaterPwmRunning = false;
+//         }
+//         pinMode(HEATER_PWM_GPIO, OUTPUT);
+//         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
+//     }
+// #endif
+// }
 
 //----------------------------------------------------------------------------
 // HELPER - END
@@ -516,6 +614,15 @@ void setup() {
 // überarbeiter in T10.1.36b
 void loop() {
     clientComm.loop();
+
+    // T10.1.41: Deterministic output apply from main loop
+    if (g_applyPending) {
+        const uint16_t m = g_pendingMask;
+        g_applyPending = false;
+        applyOutputs(m);
+        CLIENT_RAW("[T10.1.41] applyOutputs() from loop: mask=0x%04X\n", m);
+    }
+
     // ---------------------------------------------------------------------
     // SAFETY T10.1.40: HOST watchdog HARD-KILL
     // If HOST is silent for > CLIENT_HOST_TIMEOUT_MS,
