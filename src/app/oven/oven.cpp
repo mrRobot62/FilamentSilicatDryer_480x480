@@ -554,33 +554,68 @@ void oven_tick(void) {
         const float cur = runtimeState.tempCurrent;
         const float tgt = runtimeState.tempTarget;
         const float tol = HOST_TEMP_TOLERANCE_C;
+        const float hi = tgt + tol;
+        const float lo = tgt - tol;
+        
+        // Trip: enter overtemp lock
+        if (!g_hostOvertempActive && (cur >= hi)) {
+            g_hostOvertempActive = true;
+            OVEN_WARN("[SAFETY] OVER-TEMP -> lock active (cur=%.1f >= hi=%.1f)\n", cur, hi);
 
-        // --- Trip condition ---
-        if (!g_hostOvertempActive) {
-            if (cur >= (tgt + tol)) {
-                g_hostOvertempActive = true;
+            uint16_t m = g_remoteOutputsMask;
 
-                uint16_t m = g_remoteOutputsMask;
-                m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
-                comm_send_mask(m);
+            // Heater OFF
+            m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
 
-                OVEN_WARN("[HOST-OT] OVER-TEMP: %.1f >= %.1f (target %.1f + tol %.1f) -> HEATER OFF\n",
-                          cur, tgt + tol, tgt, tol);
-            }
+            // T10.1.39: fast cooldown airflow while overtemp-locked
+            m = mask_set(m, OVEN_CONNECTOR::FAN230V, true);
+            m = mask_set(m, OVEN_CONNECTOR::FAN230V_SLOW, false);
+
+            comm_send_mask(m);
+
+            OVEN_INFO("[HOST-OT] lock -> HEATER OFF, FAN230=ON, FAN230_SLOW=OFF (cur=%.1f, tgt=%.1f, tol=%.1f)\n",
+                      cur, tgt, tol);
+        } else if (g_hostOvertempActive && (cur <= lo)) {
+            g_hostOvertempActive = false;
+            OVEN_INFO("[SAFETY] OVER-TEMP recovered (cur=%.1f <= lo=%.1f)\n", cur, lo);
+
+            uint16_t m = g_remoteOutputsMask;
+
+            // T10.1.39: restore normal airflow when leaving overtemp lock
+            m = mask_set(m, OVEN_CONNECTOR::FAN230V, false);
+            m = mask_set(m, OVEN_CONNECTOR::FAN230V_SLOW, true);
+
+            // (Optional) Heater is not forced ON here; heater hysteresis will decide below.
+            // If you want it *immediately* when recovery hits AND cur<=lo => heaterWanted true anyway.
+            comm_send_mask(m);
+
+            OVEN_INFO("[HOST-OT] recovered -> FAN230=OFF, FAN230_SLOW=ON (cur=%.1f)\n", cur);
         }
-        // --- Recovery (hysteresis) ---
-        else {
-            // hysteresis: re-enable slightly below target
-            if (cur <= (tgt - tol)) {
-                g_hostOvertempActive = false;
+        // // --- Trip condition ---
+        // if (!g_hostOvertempActive) {
+        //     if (cur >= (tgt + tol)) {
+        //         g_hostOvertempActive = true;
 
-                uint16_t m = g_remoteOutputsMask;
-                m = mask_set(m, OVEN_CONNECTOR::HEATER, true);
-                comm_send_mask(m);
+        //         uint16_t m = g_remoteOutputsMask;
+        //         m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
+        //         comm_send_mask(m);
+        //         OVEN_WARN("[HOST-OT] OVER-TEMP: %.1f >= %.1f (target %.1f + tol %.1f) -> HEATER OFF\n",
+        //                   cur, tgt + tol, tgt, tol);
+        //     }
+        // }
+        // // --- Recovery (hysteresis) ---
+        // else {
+        //     // hysteresis: re-enable slightly below target
+        //     if (cur <= (tgt - tol)) {
+        //         g_hostOvertempActive = false;
 
-                OVEN_INFO("[HOST-OT] temp %.1f back in range -> HEATER ON\n", cur);
-            }
-        }
+        //         uint16_t m = g_remoteOutputsMask;
+        //         m = mask_set(m, OVEN_CONNECTOR::HEATER, true);
+        //         comm_send_mask(m);
+
+        //         OVEN_INFO("[HOST-OT] temp %.1f back in range -> HEATER ON\n", cur);
+        //     }
+        // }
     } else {
         // Leaving RUNNING clears host overtemp latch
         g_hostOvertempActive = false;
