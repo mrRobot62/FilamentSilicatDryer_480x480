@@ -3,6 +3,12 @@
 
 // Color constants as hex values (actual palette can be tuned later)
 #define UI_COLOR_DANGER_HEX 0xFF0000 // unified red: STOP, WAIT blocked, DOOR open
+// #ffa200
+#define UI_COLOR_WARNING_HEX 0xffa200
+// #00b3ff
+#define UI_COLOR_COOLDOWN_HEX 0x00b3ff
+#define UI_COLOR_WHITE_FG_HEX 0xFFFFFF
+
 #define UI_COLOR_BG_HEX 0x101010
 #define UI_COLOR_PANEL_BG_HEX 0x202020
 #define UI_COLOR_PAGE_DOT_ACTIVE_HEX 0xFFFFFF
@@ -30,11 +36,11 @@
 #define UI_COLOR_DIAL_TICKS_MINOR_HEX 0xA0A0A0 // minor ticks
 #define UI_COLOR_DIAL_MARKER_HEX 0x00AAFF      // small triangle marker (12 o'clock)
 
-#define UI_COLOR_ICON_OFF_HEX 0xFFFFFF       // white
-#define UI_COLOR_ICON_ON_HEX 0x00FF00        // green
-#define UI_COLOR_ICON_DOOR_OPEN_HEX 0xFF0000 // red
+#define UI_COLOR_ICON_OFF_HEX 0xFFFFFF         // white
+#define UI_COLOR_ICON_ON_HEX 0x00FF00          // green
+#define UI_COLOR_ICON_DOOR_OPEN_HEX 0xFF0000   // red
 #define UI_COLOR_ICON_DOOR_CLOSED_HEX 0x00FF00 // red
-#define UI_COLOR_ICON_DIMMED_HEX 0x505050    // optional, falls du später "disabled" brauchst
+#define UI_COLOR_ICON_DIMMED_HEX 0x505050      // optional, falls du später "disabled" brauchst
 
 // Icon colors for CONFIG screen
 static constexpr uint32_t ICON_OFF_HEX = 0xFFFFFF;      // white

@@ -163,6 +163,14 @@ static void ui_set_pause_label(const char *txt);
 // WAIT helper
 static void countdown_stop_and_set_wait_ui(const char *why);
 
+// --------------------------------------------------------
+// T10.1.39b – UI Event Edge Tracking
+// --------------------------------------------------------
+static bool g_prev_door_open_eff = false;
+static bool g_prev_host_overtemp = false;
+
+bool hostOvertempActive;
+
 // =============================================================================
 // TopBar2 public API
 // =============================================================================
@@ -668,13 +676,6 @@ static void lamp_toggle_event_cb(lv_event_t *e) {
 
     UI_INFO("[LAMP] toggled (run_state=%d)\n", (int)g_run_state);
 
-    screen_main_topbar2_show(
-        //        "THIS IS A VERY LONG TEST MESSAGE TO VERIFY SCROLLING BEHAVIOR",
-        "SHORT RED FG",
-        0xFFFFFF,
-        0xff5b5b,
-        2000);
-
     // Refresh icons immediately
     update_actuator_icons(g_last_runtime);
 }
@@ -1148,20 +1149,57 @@ void screen_main_update_runtime(const OvenRuntimeState *state) {
         }
     }
 
-    // if (state->door_open != last_door_open) {
-    //     UI_INFO("[DOOR] state changed: %d -> %d (running=%d)\n",
-    //             (int)last_door_open, (int)state->door_open, (int)state->running);
+    // --------------------------------------------------------
+    // T10.1.39b – UI Event: DOOR OPEN / CLOSED (edge based)
+    // --------------------------------------------------------
+    if (door_open_eff != g_prev_door_open_eff) {
+        if (door_open_eff) {
+            // Rising edge: DOOR OPEN
+            screen_main_topbar2_show(
+                "DOOR OPEN",
+                0xFFFFFF,                    // white text
+                UI_COLOR_ICON_DOOR_OPEN_HEX, // red background
+                0                            // no timeout (persistent)
+            );
+        } else {
+            // Falling edge: DOOR CLOSED
+            screen_main_topbar2_show(
+                "DOOR OK",
+                0xFFFFFF,
+                UI_COLOR_ICON_DOOR_CLOSED_HEX, // green background
+                2000                           // auto-hide
+            );
+        }
 
-    //     last_door_open = state->door_open;
+        g_prev_door_open_eff = door_open_eff;
+    }
 
-    //     // Always keep pause button consistent with door
-    //     pause_button_update_enabled_by_door(state->door_open);
+    // --------------------------------------------------------
+    // T10.1.39b – UI Event: HOST OVERTEMP LOCK ON / OFF
+    // --------------------------------------------------------
+    const bool host_ot = state->hostOvertempActive;
 
-    //     // If door opens while countdown is running -> force WAIT immediately
-    //     if (state->door_open) {
-    //         countdown_stop_and_set_wait_ui("door opened");
-    //     }
-    // }
+    if (host_ot != g_prev_host_overtemp) {
+        if (host_ot) {
+            // Rising edge: OverTemp lock engaged
+            screen_main_topbar2_show(
+                "OVERTEMP COOLING",
+                0xFFFFFF,
+                UI_COLOR_WARNING_HEX, // amber/orange
+                0                     // persistent while active
+            );
+        } else {
+            // Falling edge: OverTemp recovered
+            screen_main_topbar2_show(
+                "TEMP OK",
+                0xFFFFFF,
+                UI_COLOR_BG_HEX,
+                2000);
+        }
+
+        g_prev_host_overtemp = host_ot;
+    }
+
     g_last_runtime = *state;
     ui_temp_target_tolerance_c = state->tempToleranceC;
 
@@ -1174,6 +1212,14 @@ void screen_main_update_runtime(const OvenRuntimeState *state) {
     pause_button_apply_ui(g_run_state, get_effective_door_open(g_last_runtime));
     update_post_visuals(*state);
     update_status_icons(*state);
+
+    // Initial sync to prevent false edge-events on first update
+    static bool first_runtime_sync = true;
+    if (first_runtime_sync) {
+        g_prev_door_open_eff = door_open_eff;
+        g_prev_host_overtemp = state->hostOvertempActive;
+        first_runtime_sync = false;
+    }
 }
 
 // Public API: page indicator update
@@ -1230,6 +1276,24 @@ static void create_top_bar(lv_obj_t *parent) {
     lv_obj_align(ui.time_label_remaining, LV_ALIGN_RIGHT_MID, -UI_SIDE_PADDING, 0);
 }
 
+void screen_main_topbar2_clear_text(void) {
+    if (!ui.top_bar2_container || !ui.top_bar2_label) {
+        return;
+    }
+
+    // hide text, keep frame visible (per spec)
+    lv_label_set_text(ui.top_bar2_label, "");
+    lv_obj_add_flag(ui.top_bar2_label, LV_OBJ_FLAG_HIDDEN);
+
+    // subtle frame (transparent background)
+    lv_obj_set_style_bg_opa(ui.top_bar2_container, LV_OPA_TRANSP, LV_PART_MAIN);
+
+    if (ui.top_bar2_timer) {
+        lv_timer_del(ui.top_bar2_timer);
+        ui.top_bar2_timer = nullptr;
+    }
+}
+
 static void topbar2_timeout_cb(lv_timer_t *t) {
     LV_UNUSED(t);
     screen_main_topbar2_clear_text();
@@ -1237,22 +1301,23 @@ static void topbar2_timeout_cb(lv_timer_t *t) {
 
 static void top_bar2_hide_cb(lv_timer_t *t) {
     LV_UNUSED(t);
+    screen_main_topbar2_clear_text();
 
-    if (!ui.top_bar2_label) {
-        return;
-    }
+    // if (!ui.top_bar2_label) {
+    //     return;
+    // }
 
-    // Behavior per spec:
-    // - hide text on timeout
-    // - frame stays visible
-    lv_obj_add_flag(ui.top_bar2_label, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_style_bg_opa(ui.top_bar2_container, LV_OPA_TRANSP, LV_PART_MAIN); // subtle
+    // // Behavior per spec:
+    // // - hide text on timeout
+    // // - frame stays visible
+    // lv_obj_add_flag(ui.top_bar2_label, LV_OBJ_FLAG_HIDDEN);
+    // lv_obj_set_style_bg_opa(ui.top_bar2_container, LV_OPA_TRANSP, LV_PART_MAIN); // subtle
 
-    // One-shot timer cleanup
-    if (ui.top_bar2_timer) {
-        lv_timer_del(ui.top_bar2_timer);
-        ui.top_bar2_timer = nullptr;
-    }
+    // // One-shot timer cleanup
+    // if (ui.top_bar2_timer) {
+    //     lv_timer_del(ui.top_bar2_timer);
+    //     ui.top_bar2_timer = nullptr;
+    // }
 }
 
 static void topbar2_apply_scroll_mode_if_needed(void) {
@@ -1806,24 +1871,94 @@ static void create_bottom_section(lv_obj_t *parent) {
 // -    * .
 // ----------------------------------------------------
 static void update_status_icons(const OvenRuntimeState &state) {
+    // 1) Link icon recolor
     if (state.linkSynced) {
         icon_link_synced(ui.icon_sync); // GREEN
     } else {
         icon_link_unsynced(ui.icon_sync); // RED
     }
-}
 
-/*
-static void update_status_icons(const OvenRuntimeState &state) {
-    // UI_DBG("[update_status_icons] state.commAlive=%s\n",
-    //        (state.commAlive) ? "TRUE" : "FALSE");
-    if (state.commAlive) {
-        icon_link_synced(ui.icon_sync);
-    } else {
-        icon_link_unsynced(ui.icon_sync);
+    // 2) TopBar2 status line (priority-based, edge-triggered)
+    enum class UiStatus : uint8_t {
+        NONE = 0,
+        COMM_DOWN,
+        LINK_UNSYNCED,
+        DOOR_OPEN,
+        OVERTEMP,
+        WAITING,
+        POST_ACTIVE
+    };
+
+    auto pick_status = [&](const OvenRuntimeState &s) -> UiStatus {
+        // Highest priority first
+        if (!s.commAlive) {
+            return UiStatus::COMM_DOWN;
+        }
+        if (!s.linkSynced) {
+            return UiStatus::LINK_UNSYNCED;
+        }
+        if (get_effective_door_open(s)) {
+            return UiStatus::DOOR_OPEN;
+        }
+        if (s.hostOvertempActive) {
+            return UiStatus::OVERTEMP;
+        }
+        if (s.mode == OvenMode::WAITING) {
+            return UiStatus::WAITING;
+        }
+        if (s.mode == OvenMode::POST) {
+            return UiStatus::POST_ACTIVE;
+        }
+        return UiStatus::NONE;
+    };
+
+    static UiStatus s_prev = UiStatus::NONE;
+    const UiStatus cur = pick_status(state);
+
+    if (cur == s_prev) {
+        return; // no change -> avoid flicker/spam
+    }
+    s_prev = cur;
+
+    // Apply on change
+    switch (cur) {
+    case UiStatus::COMM_DOWN:
+        screen_main_topbar2_show("COMM LOST", UI_COLOR_WHITE_FG_HEX, UI_COLOR_DANGER_HEX, 0);
+        break;
+
+    case UiStatus::LINK_UNSYNCED:
+        screen_main_topbar2_show("LINK UNSYNCED", UI_COLOR_WHITE_FG_HEX, UI_COLOR_DANGER_HEX, 0);
+        break;
+
+    case UiStatus::DOOR_OPEN:
+        screen_main_topbar2_show("DOOR OPEN", UI_COLOR_WHITE_FG_HEX, UI_COLOR_DANGER_HEX, 0);
+        break;
+
+    case UiStatus::OVERTEMP:
+        screen_main_topbar2_show("OVER TEMP - COOLING", UI_COLOR_WHITE_FG_HEX, UI_COLOR_COOLDOWN_HEX, 0);
+        break;
+
+    case UiStatus::WAITING:
+        screen_main_topbar2_show("WAIT", UI_COLOR_WHITE_FG_HEX, UI_COLOR_WARNING_HEX, 0);
+        break;
+
+    case UiStatus::POST_ACTIVE:
+        screen_main_topbar2_show("POST COOLING", UI_COLOR_WHITE_FG_HEX, UI_COLOR_COOLDOWN_HEX, 0);
+        break;
+
+    case UiStatus::NONE:
+    default:
+        screen_main_topbar2_clear_text();
+        break;
     }
 }
- */
+// static void update_status_icons(const OvenRuntimeState &state) {
+//     if (state.linkSynced) {
+//         icon_link_synced(ui.icon_sync); // GREEN
+//     } else {
+//         icon_link_unsynced(ui.icon_sync); // RED
+//     }
+// }
 
 //----------------------------------------------------
 // update_time
@@ -2069,14 +2204,35 @@ static void update_actuator_icons(const OvenRuntimeState &state) {
         set_icon_state(ui.icon_motor, col_on, false);      // OFF
         return;
     }
-    // 12V fan: white (off) -> green (on)
-    set_icon_state(ui.icon_fan12v, col_on, state.fan12v_on);
+    // ------------------------------------------------------------
+    // T10.1.39c: Host OverTemp visual override (RUNNING only)
+    // - Ensure icons reflect the intended safety airflow immediately:
+    //   FAN230V=ON, FAN230V_SLOW=OFF
+    // ------------------------------------------------------------
 
-    // 230V fan fast: white (off) -> green (on)
-    set_icon_state(ui.icon_fan230, col_on, state.fan230_on);
+    // // 12V fan: white (off) -> green (on)
+    // set_icon_state(ui.icon_fan12v, col_on, state.fan12v_on);
 
-    // 230V fan slow: white (off) -> green (on)
-    set_icon_state(ui.icon_fan230_slow, col_on, state.fan230_slow_on);
+    // // 230V fan fast: white (off) -> green (on)
+    // set_icon_state(ui.icon_fan230, col_on, state.fan230_on);
+
+    // // 230V fan slow: white (off) -> green (on)
+    // set_icon_state(ui.icon_fan230_slow, col_on, state.fan230_slow_on);
+
+    if (state.hostOvertempActive && (state.mode == OvenMode::RUNNING)) {
+        set_icon_state(ui.icon_fan12v, col_on, state.fan12v_on);
+        set_icon_state(ui.icon_fan230, col_on, true);       // FAST ON
+        set_icon_state(ui.icon_fan230_slow, col_on, false); // SLOW OFF
+
+        // Continue updating the remaining icons normally below
+    } else {
+        // 12V fan normal
+        set_icon_state(ui.icon_fan12v, col_on, state.fan12v_on);
+
+        // Fans normal
+        set_icon_state(ui.icon_fan230, col_on, state.fan230_on);
+        set_icon_state(ui.icon_fan230_slow, col_on, state.fan230_slow_on);
+    }
 
     // Heater: white (off) -> green (on)
     // set_icon_state(ui.icon_heater, col_on, state.heater_on);

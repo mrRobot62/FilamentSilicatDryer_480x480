@@ -83,6 +83,9 @@ static OvenRuntimeState runtimeState = {
     .tempTarget = 40.0f,
 
     .tempToleranceC = 3.0f,
+    // new in T10.1.39b
+    .hostOvertempActive = false,
+
     .filamentId = 0,
 
     .fan12v_on = false,
@@ -449,7 +452,14 @@ void oven_get_runtime_state(OvenRuntimeState *out) {
  *
  * NOTE:
  * - This function does NOT do UART parsing; that is oven_comm_poll().
- */
+ *
+ * -------------------------------------------------------------------------
+ * HOST overtemperature handling (soft safety)
+ * - Host is authoritative for safety reactions
+ * - Overtemp => HEATER OFF + FAN230 FAST
+ * - Recovery => restore normal airflow
+ * - UI only reflects runtimeState.hostOvertempActive
+ * ------------------------------------------------------------------------- */
 void oven_tick(void) {
     static uint32_t lastTick = 0;
     uint32_t now = millis();
@@ -556,7 +566,7 @@ void oven_tick(void) {
         const float tol = HOST_TEMP_TOLERANCE_C;
         const float hi = tgt + tol;
         const float lo = tgt - tol;
-        
+
         // Trip: enter overtemp lock
         if (!g_hostOvertempActive && (cur >= hi)) {
             g_hostOvertempActive = true;
@@ -591,35 +601,15 @@ void oven_tick(void) {
 
             OVEN_INFO("[HOST-OT] recovered -> FAN230=OFF, FAN230_SLOW=ON (cur=%.1f)\n", cur);
         }
-        // // --- Trip condition ---
-        // if (!g_hostOvertempActive) {
-        //     if (cur >= (tgt + tol)) {
-        //         g_hostOvertempActive = true;
 
-        //         uint16_t m = g_remoteOutputsMask;
-        //         m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
-        //         comm_send_mask(m);
-        //         OVEN_WARN("[HOST-OT] OVER-TEMP: %.1f >= %.1f (target %.1f + tol %.1f) -> HEATER OFF\n",
-        //                   cur, tgt + tol, tgt, tol);
-        //     }
-        // }
-        // // --- Recovery (hysteresis) ---
-        // else {
-        //     // hysteresis: re-enable slightly below target
-        //     if (cur <= (tgt - tol)) {
-        //         g_hostOvertempActive = false;
-
-        //         uint16_t m = g_remoteOutputsMask;
-        //         m = mask_set(m, OVEN_CONNECTOR::HEATER, true);
-        //         comm_send_mask(m);
-
-        //         OVEN_INFO("[HOST-OT] temp %.1f back in range -> HEATER ON\n", cur);
-        //     }
-        // }
     } else {
         // Leaving RUNNING clears host overtemp latch
         g_hostOvertempActive = false;
     }
+
+    // new T10.1.39b
+    // --- FINAL mirror into runtime ---
+    runtimeState.hostOvertempActive = g_hostOvertempActive;
 }
 
 // =============================================================================

@@ -172,6 +172,9 @@ typedef struct
     float tempTarget;
     float tempToleranceC;
 
+    // Host-side safety latch (T10.1.39b)
+    bool hostOvertempActive;
+
     int filamentId;
     char presetName[24]; // UI-ready text
     bool rotaryOn;
