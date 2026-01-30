@@ -37,7 +37,7 @@
 // #include "pins_client.h"
 #include <Arduino.h>
 
-constexpr const char *VERSION = "V0.3 - 20260127";
+constexpr const char *VERSION = "V0.4 - 20260130";
 
 static void heaterPwmEnable(bool enable);
 static bool isDoorOpen();
@@ -225,21 +225,6 @@ static void fillStatusCallback(ProtocolStatus &st) {
     const float tempCur = (float)st.tempRaw * 0.25f;
     safety_check_overtemp(tempCur);
 }
-
-// static void fillStatusCallback(ProtocolStatus &st) {
-//     st.outputsMask = clientComm.getOutputsMask();
-
-//     // Raw ADC reading (typical 0..4095)
-//     st.adcRaw[0] = (uint16_t)analogRead(PIN_ADC0);
-
-//     // Not used yet
-//     st.adcRaw[1] = 0;
-//     st.adcRaw[2] = 0;
-//     st.adcRaw[3] = 0;
-
-//     // Optional MAX6675
-//     st.tempRaw = readTempRaw_QuarterC();
-// }
 
 // Apply outputs immediately when mask changes
 static void outputsChangedCallback(uint16_t newMask) {
@@ -442,39 +427,6 @@ static void heaterPwmEnable(bool enable) {
         pinMode(HEATER_PWM_GPIO, OUTPUT);
         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
     }
-
-// #if ESP_ARDUINO_VERSION_MAJOR >= 3
-//     // Core 3.x: pin-based API
-//     if (enable) {
-//         if (!g_heaterPwmRunning) {
-//             // Returns bool; you may log it if desired
-//             (void)ledcAttach((uint8_t)HEATER_PWM_GPIO, (uint32_t)HEATER_PWM_FREQ_HZ, (uint8_t)HEATER_PWM_RES_BITS);
-//             g_heaterPwmRunning = true;
-//             CLIENT_INFO("[HEATER] g_heaterPwmRunning now running. GPIO: %d, Freq: %dHz, Duty:%d%\n",
-//                         HEATER_PWM_GPIO,
-//                         HEATER_PWM_FREQ_HZ,
-//                         duty);
-//         }
-//         ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
-
-//         // DEBUG (temporary): prove the pin is actually connected where we measure
-//         // WARNING: this disturbs PWM, only for a quick sanity test.
-//         pinMode(HEATER_PWM_GPIO, OUTPUT);
-//         digitalWrite(HEATER_PWM_GPIO, HIGH);
-//         delay(50);
-//         digitalWrite(HEATER_PWM_GPIO, LOW);
-//         delay(50);
-
-//     } else {
-//         if (g_heaterPwmRunning) {
-//             ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
-//             ledcDetach((uint8_t)HEATER_PWM_GPIO);
-//             g_heaterPwmRunning = false;
-//             CLIENT_INFO("[HEATER] g_heaterPwmRunning now stopped\n");
-//         }
-//         pinMode(HEATER_PWM_GPIO, OUTPUT);
-//         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
-//     }
 #else
     // Core 2.x: channel-based API
     if (enable) {
@@ -564,7 +516,31 @@ void setup() {
 // überarbeiter in T10.1.36b
 void loop() {
     clientComm.loop();
+    // ---------------------------------------------------------------------
+    // SAFETY T10.1.40: HOST watchdog HARD-KILL
+    // If HOST is silent for > CLIENT_HOST_TIMEOUT_MS,
+    // ClientComm forces outputsMask=0x0000.
+    // We must guarantee HEATER PWM is physically OFF.
+    // ---------------------------------------------------------------------
+    if (clientComm.hasNewOutputsMask()) {
+        const uint16_t m = clientComm.getOutputsMask();
 
+        if (m == 0x0000) {
+            // Absolute safe state
+            if (g_heaterPwmRunning) {
+                CLIENT_ERR("[SAFETY] HOST LOST -> HARD HEATER OFF\n");
+                heaterPwmEnable(false);
+            }
+
+            // Kill motor explicitly as well
+            digitalWrite(OUT_PINS[MOTOR_BIT_INDEX], LOW);
+
+            // Keep shadow mask consistent
+            g_effectiveMask = 0x0000;
+        }
+
+        clientComm.clearNewOutputsMaskFlag();
+    }
     static bool lastDoorOpen = false;
     const bool doorOpenNow = isDoorOpen();
 

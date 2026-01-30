@@ -30,6 +30,13 @@
  * @param serial Reference to HardwareSerial used for the host link, e.g. Serial2.
  */
 
+// -----------------------------------------------------------------------------
+// SAFETY: Host watchdog
+// -----------------------------------------------------------------------------
+static constexpr uint32_t CLIENT_HOST_TIMEOUT_MS = 2000;
+static uint32_t g_lastHostGoodMs = 0;
+static bool g_hostTimeoutActive = false;
+
 ClientComm::ClientComm(HardwareSerial &serial, uint8_t rx, uint8_t tx)
     : _linkSerial(serial),
       _rx(rx),
@@ -53,6 +60,8 @@ ClientComm::ClientComm(HardwareSerial &serial, uint8_t rx, uint8_t tx)
  */
 void ClientComm::begin(uint32_t baudrate) {
     _linkSerial.begin(baudrate, SERIAL_8N1, _rx, _tx);
+    g_lastHostGoodMs = millis();
+    g_hostTimeoutActive = false;
 }
 
 /**
@@ -127,6 +136,26 @@ void ClientComm::loop() {
 
     if (hadActivity && _heartBeatCb) {
         _heartBeatCb();
+    }
+
+    // -----------------------------------------------------------------------------
+    // SAFETY: Host timeout detection
+    // -----------------------------------------------------------------------------
+    const uint32_t now = millis();
+    if (!g_hostTimeoutActive &&
+        (now - g_lastHostGoodMs) >= CLIENT_HOST_TIMEOUT_MS) {
+
+        g_hostTimeoutActive = true;
+
+        // Notify application layer: HOST LOST
+        if (_onOutputsChanged) {
+            _onOutputsChanged(0x0000); // force safe mask
+        }
+
+        _outputsMask = 0x0000;
+        _newOutputsMask = true;
+
+        RAW("[CLIENT][SAFETY] HOST TIMEOUT -> SAFE STATE (outputsMask=0)\n");
     }
 }
 
@@ -289,6 +318,9 @@ void ClientComm::handleIncomingLine(const String &line) {
         RAW("[CLIENT] Failed to parse line: %s\n", line.c_str());
         return;
     }
+    // SAFETY: feed host watchdog on every valid frame
+    g_lastHostGoodMs = millis();
+    g_hostTimeoutActive = false;
 
     switch (type) {
     case ProtocolMessageType::HostSet:
