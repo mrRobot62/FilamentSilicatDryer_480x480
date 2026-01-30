@@ -50,6 +50,12 @@ typedef struct main_screen_widgets_t {
     lv_obj_t *time_label_remaining;
 
     // --------------------------------------------------------
+    // Top bar 2 (marquee / notification line)
+    // --------------------------------------------------------
+    lv_obj_t *top_bar2_container;
+    lv_obj_t *top_bar2_label;
+    lv_timer_t *top_bar2_timer;
+    // --------------------------------------------------------
     // Center
     // --------------------------------------------------------
     lv_obj_t *icons_container;
@@ -133,6 +139,9 @@ static main_screen_widgets_t ui;
 // Forward declarations
 static void create_top_bar(lv_obj_t *parent);
 static void create_center_section(lv_obj_t *parent);
+static void create_top_bar2(lv_obj_t *parent);
+static void top_bar2_hide_cb(lv_timer_t *t);
+
 // static void create_page_indicator(lv_obj_t *parent, uint8_t active_index);
 static void create_page_indicator(lv_obj_t *parent);
 static void create_bottom_section(lv_obj_t *parent);
@@ -153,6 +162,23 @@ static void ui_set_pause_label(const char *txt);
 
 // WAIT helper
 static void countdown_stop_and_set_wait_ui(const char *why);
+
+// =============================================================================
+// TopBar2 public API
+// =============================================================================
+//
+// Behavior:
+// - Frame (rounded container) always stays visible
+// - Text can be shown with optional timeout (ms)
+// - If text fits: centered (no scroll)
+// - If text is long: circular scrolling marquee
+//
+void screen_main_topbar2_show(const char *text,
+                              uint32_t text_hex,
+                              uint32_t bg_hex,
+                              uint32_t timeout_ms);
+
+void screen_main_topbar2_clear_text(void);
 
 static lv_style_t style_dial_border;
 
@@ -642,9 +668,18 @@ static void lamp_toggle_event_cb(lv_event_t *e) {
 
     UI_INFO("[LAMP] toggled (run_state=%d)\n", (int)g_run_state);
 
+    screen_main_topbar2_show(
+        //        "THIS IS A VERY LONG TEST MESSAGE TO VERIFY SCROLLING BEHAVIOR",
+        "SHORT RED FG",
+        0xFFFFFF,
+        0xff5b5b,
+        2000);
+
     // Refresh icons immediately
     update_actuator_icons(g_last_runtime);
 }
+
+// #ff5b5b
 
 static void door_debug_toggle_event_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
@@ -979,6 +1014,8 @@ lv_obj_t *screen_main_create(lv_obj_t *parent) {
 
     // Create sub sections
     create_top_bar(ui.root);
+    create_top_bar2(ui.root);
+
     create_center_section(ui.root);
     create_page_indicator(ui.root);
     // create_page_indicator(ui.page_indicator_container, ScreenId::SCREEN_MAIN);
@@ -987,6 +1024,79 @@ lv_obj_t *screen_main_create(lv_obj_t *parent) {
     UI_DBG("[screen_main_create] screen-addr: %d\n", ui.root);
     return ui.root;
 }
+
+void screen_main_topbar2_show(const char *text,
+                              uint32_t text_color_hex,
+                              uint32_t bg_color_hex,
+                              uint32_t timeout_ms) {
+    if (!ui.top_bar2_container || !ui.top_bar2_label) {
+        return;
+    }
+
+    // Stop previous timeout timer
+    if (ui.top_bar2_timer) {
+        lv_timer_del(ui.top_bar2_timer);
+        ui.top_bar2_timer = nullptr;
+    }
+
+    // Empty text => hide label only (frame stays)
+    if (!text || !text[0]) {
+        lv_obj_add_flag(ui.top_bar2_label, LV_OBJ_FLAG_HIDDEN);
+        if (ui.top_bar2_container) {
+            lv_obj_set_style_bg_opa(ui.top_bar2_container, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(ui.top_bar2_container, ui_color_from_hex(0xFFFFFF), LV_PART_MAIN);
+        }
+        return;
+    }
+
+    // Apply background + text color
+    lv_obj_set_style_bg_color(ui.top_bar2_container, ui_color_from_hex(bg_color_hex), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui.top_bar2_container, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_text_color(ui.top_bar2_label, ui_color_from_hex(text_color_hex), LV_PART_MAIN);
+
+    // Set text and show
+    lv_label_set_text(ui.top_bar2_label, text);
+    lv_obj_clear_flag(ui.top_bar2_label, LV_OBJ_FLAG_HIDDEN);
+
+    // Decide: centered if fits, else scrolling (default LVGL speed)
+    lv_obj_update_layout(ui.top_bar2_container);
+
+    const lv_coord_t container_w = lv_obj_get_width(ui.top_bar2_container);
+    const lv_coord_t pad_l = lv_obj_get_style_pad_left(ui.top_bar2_container, LV_PART_MAIN);
+    const lv_coord_t pad_r = lv_obj_get_style_pad_right(ui.top_bar2_container, LV_PART_MAIN);
+    const lv_coord_t border = lv_obj_get_style_border_width(ui.top_bar2_container, LV_PART_MAIN);
+
+    lv_coord_t inner_w = container_w - pad_l - pad_r - 2 * border;
+    if (inner_w < 10) {
+        inner_w = 10;
+    }
+
+    lv_obj_set_width(ui.top_bar2_label, inner_w);
+
+    const lv_font_t *font = (const lv_font_t *)lv_obj_get_style_text_font(ui.top_bar2_label, LV_PART_MAIN);
+
+    lv_point_t sz;
+    lv_txt_get_size(&sz, text, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+
+    if (sz.x <= inner_w) {
+        // short text => centered
+        lv_label_set_long_mode(ui.top_bar2_label, LV_LABEL_LONG_CLIP);
+        lv_obj_set_style_text_align(ui.top_bar2_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    } else {
+        // long text => scrolling (default speed)
+        lv_label_set_long_mode(ui.top_bar2_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_style_text_align(ui.top_bar2_label, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+    }
+
+    lv_obj_center(ui.top_bar2_label);
+
+    // Timeout: hide text only
+    if (timeout_ms > 0) {
+        ui.top_bar2_timer = lv_timer_create(top_bar2_hide_cb, timeout_ms, nullptr);
+        lv_timer_set_repeat_count(ui.top_bar2_timer, 1);
+    }
+}
+
 //----------------------------------------------------
 //
 //----------------------------------------------------
@@ -1120,14 +1230,155 @@ static void create_top_bar(lv_obj_t *parent) {
     lv_obj_align(ui.time_label_remaining, LV_ALIGN_RIGHT_MID, -UI_SIDE_PADDING, 0);
 }
 
+static void topbar2_timeout_cb(lv_timer_t *t) {
+    LV_UNUSED(t);
+    screen_main_topbar2_clear_text();
+}
+
+static void top_bar2_hide_cb(lv_timer_t *t) {
+    LV_UNUSED(t);
+
+    if (!ui.top_bar2_label) {
+        return;
+    }
+
+    // Behavior per spec:
+    // - hide text on timeout
+    // - frame stays visible
+    lv_obj_add_flag(ui.top_bar2_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_bg_opa(ui.top_bar2_container, LV_OPA_TRANSP, LV_PART_MAIN); // subtle
+
+    // One-shot timer cleanup
+    if (ui.top_bar2_timer) {
+        lv_timer_del(ui.top_bar2_timer);
+        ui.top_bar2_timer = nullptr;
+    }
+}
+
+static void topbar2_apply_scroll_mode_if_needed(void) {
+    if (!ui.top_bar2_container || !ui.top_bar2_label) {
+        return;
+    }
+
+    // Content width = container width - left/right padding - borders
+    lv_obj_update_layout(ui.top_bar2_container);
+
+    const lv_coord_t w = lv_obj_get_width(ui.top_bar2_container);
+    const lv_coord_t pad_l = lv_obj_get_style_pad_left(ui.top_bar2_container, LV_PART_MAIN);
+    const lv_coord_t pad_r = lv_obj_get_style_pad_right(ui.top_bar2_container, LV_PART_MAIN);
+    const lv_coord_t border = lv_obj_get_style_border_width(ui.top_bar2_container, LV_PART_MAIN);
+
+    lv_coord_t content_w = w - pad_l - pad_r - 2 * border;
+    if (content_w < 10) {
+        content_w = 10;
+    }
+
+    // Measure label text width (current font)
+    const char *txt = lv_label_get_text(ui.top_bar2_label);
+    if (!txt) {
+        txt = "";
+    }
+
+    const lv_font_t *font = (const lv_font_t *)lv_obj_get_style_text_font(ui.top_bar2_label, LV_PART_MAIN);
+    if (!font) {
+        font = LV_FONT_DEFAULT;
+    }
+
+    lv_point_t sz;
+    lv_txt_get_size(&sz, txt, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+
+    if (sz.x <= content_w) {
+        // Fits -> centered, no scrolling
+        lv_label_set_long_mode(ui.top_bar2_label, LV_LABEL_LONG_CLIP);
+        lv_obj_set_style_text_align(ui.top_bar2_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    } else {
+        // Long -> marquee
+        // lv_label_set_long_mode(ui.top_bar2_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        // lv_obj_set_style_text_align(ui.top_bar2_label, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+        // lv_label_set_anim_speed(ui.top_bar2_label, 40); // tuned: readable speed
+        lv_label_set_long_mode(ui.top_bar2_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_style_text_align(ui.top_bar2_label, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+    }
+}
+
+// ----------------------------------------------------
+// TopBar2: full width (minus side padding), framed area for marquee/status text
+// Layout rules:
+// - Width: UI_SCREEN_WIDTH - 2*UI_SIDE_PADDING
+// - X: UI_SIDE_PADDING
+// - Y: directly below TopBar1 with a small gap
+// ----------------------------------------------------
+static void create_top_bar2(lv_obj_t *parent) {
+    static constexpr lv_coord_t TOPBAR2_H = 32;
+    static constexpr lv_coord_t GAP_Y = 4;
+
+    // Container (acts as the visible frame)
+    ui.top_bar2_container = lv_obj_create(parent);
+    lv_obj_clear_flag(ui.top_bar2_container, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Full width minus padding
+    lv_obj_set_size(ui.top_bar2_container,
+                    UI_SCREEN_WIDTH - 2 * UI_SIDE_PADDING,
+                    TOPBAR2_H);
+
+    // Place directly below TopBar1 (not relative to center)
+    lv_obj_align_to(ui.top_bar2_container,
+                    ui.top_bar_container,
+                    // LV_ALIGN_OUT_BOTTOM_MID,
+                    LV_ALIGN_TOP_MID,
+                    0,
+                    GAP_Y + 30);
+
+    // Style: rounded frame, visible even when text is hidden
+    lv_obj_set_style_radius(ui.top_bar2_container, 10, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui.top_bar2_container, LV_OPA_TRANSP, LV_PART_MAIN); // subtle
+    lv_obj_set_style_bg_color(ui.top_bar2_container, ui_color_from_hex(0xFFFFFF), LV_PART_MAIN);
+
+    lv_obj_set_style_border_width(ui.top_bar2_container, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_opa(ui.top_bar2_container, LV_OPA_10, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ui.top_bar2_container, ui_color_from_hex(0xFFFFFF), LV_PART_MAIN);
+
+    lv_obj_set_style_pad_left(ui.top_bar2_container, 10, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(ui.top_bar2_container, 10, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(ui.top_bar2_container, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(ui.top_bar2_container, 4, LV_PART_MAIN);
+
+    // IMPORTANT: ensure it sits at the correct x by setting its left padding “anchor”
+    // (LV_ALIGN_OUT_BOTTOM_MID centers it horizontally, width is already correct)
+    // If you prefer explicit x positioning instead of centering, replace align_to with:
+    // lv_obj_set_pos(ui.top_bar2_container, UI_SIDE_PADDING, <computed_y>);
+
+    // Label (marquee text) inside the frame
+    ui.top_bar2_label = lv_label_create(ui.top_bar2_container);
+    lv_label_set_text(ui.top_bar2_label, "");
+
+    // If text is short -> centered (your requirement)
+    lv_obj_set_width(ui.top_bar2_label, LV_PCT(100));
+    lv_obj_set_style_text_align(ui.top_bar2_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+
+    // Default: hidden text, but frame stays visible (your requirement)
+    lv_obj_add_flag(ui.top_bar2_label, LV_OBJ_FLAG_HIDDEN);
+}
+
 //----------------------------------------------------
 //
 //----------------------------------------------------
 static void create_center_section(lv_obj_t *parent) {
     ui.center_container = lv_obj_create(parent);
     lv_obj_clear_flag(ui.center_container, LV_OBJ_FLAG_SCROLLABLE);
+    // lv_obj_set_size(ui.center_container, UI_SCREEN_WIDTH, UI_DIAL_SIZE + 20);
+    // lv_obj_align(ui.center_container, LV_ALIGN_CENTER, 0, -10); // slight up offset
+
+    // neu T10.1.39.3
     lv_obj_set_size(ui.center_container, UI_SCREEN_WIDTH, UI_DIAL_SIZE + 20);
-    lv_obj_align(ui.center_container, LV_ALIGN_CENTER, 0, -10); // slight up offset
+    // Place the center strictly below TopBar2 to avoid overlap.
+    // This makes the layout deterministic even if TopBar2 height changes.
+    static constexpr lv_coord_t GAP_Y = 4;
+    lv_obj_align_to(ui.center_container,
+                    ui.top_bar2_container,
+                    LV_ALIGN_OUT_BOTTOM_MID,
+                    0,
+                    GAP_Y);
 
     lv_obj_set_style_bg_opa(ui.center_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_opa(ui.center_container, LV_OPA_TRANSP, 0);
@@ -1420,62 +1671,8 @@ static void create_center_section(lv_obj_t *parent) {
 }
 
 //----------------------------------------------------
-//
+// Page-Indicator section
 //----------------------------------------------------
-// static void create_page_indicator(lv_obj_t *parent, uint8_t active_index) {
-//     // Swipe target is the whole page indicator area
-//     ui.s_swipe_target = parent;
-
-//     lv_obj_add_flag(ui.s_swipe_target, LV_OBJ_FLAG_CLICKABLE);
-//     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
-//     lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_OFF);
-
-//     // subtle swipe hint
-//     lv_obj_set_style_bg_color(parent, lv_color_hex(0xFFFFFF), 0);
-//     lv_obj_set_style_bg_opa(parent, LV_OPA_35, 0);
-//     lv_obj_set_style_radius(parent, 10, 0);
-
-//     ui.page_indicator_panel = lv_obj_create(parent);
-//     lv_obj_remove_style_all(ui.page_indicator_panel);
-
-//     lv_obj_set_style_radius(ui.page_indicator_panel, 12, 0);
-//     lv_obj_set_style_bg_color(ui.page_indicator_panel, lv_color_hex(0x202020), 0);
-//     lv_obj_set_style_bg_opa(ui.page_indicator_panel, LV_OPA_COVER, 0);
-//     lv_obj_set_style_pad_all(ui.page_indicator_panel, 2, 0);
-
-//     lv_obj_set_flex_flow(ui.page_indicator_panel, LV_FLEX_FLOW_ROW);
-//     lv_obj_set_flex_align(ui.page_indicator_panel,
-//                           LV_FLEX_ALIGN_CENTER,
-//                           LV_FLEX_ALIGN_CENTER,
-//                           LV_FLEX_ALIGN_CENTER);
-
-//     constexpr int DOT = 10;
-//     constexpr int GAP = 6;
-//     constexpr int PAD = 2;
-//     const int n = UI_PAGE_COUNT;
-
-//     const int panel_w = (n * DOT) + ((n - 1) * GAP) + (2 * PAD);
-//     lv_obj_set_size(ui.page_indicator_panel, panel_w, 24);
-//     lv_obj_center(ui.page_indicator_panel);
-
-//     for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i) {
-//         ui.page_dots[i] = lv_obj_create(ui.page_indicator_panel);
-//         lv_obj_remove_style_all(ui.page_dots[i]);
-//         lv_obj_set_size(ui.page_dots[i], DOT, DOT);
-//         lv_obj_set_style_radius(ui.page_dots[i], DOT / 2, 0);
-//         lv_obj_set_style_bg_opa(ui.page_dots[i], LV_OPA_COVER, 0);
-
-//         const bool is_active = (i == active_index);
-//         lv_obj_set_style_bg_color(ui.page_dots[i],
-//                                   is_active ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x606060),
-//                                   0);
-
-//         if (i > 0) {
-//             lv_obj_set_style_margin_left(ui.page_dots[i], GAP, 0);
-//         }
-//     }
-// }
-
 static void create_page_indicator(lv_obj_t *parent) {
     ui.page_indicator_container = lv_obj_create(parent);
     lv_obj_set_size(ui.page_indicator_container, UI_SCREEN_WIDTH, UI_PAGE_INDICATOR_HEIGHT);
@@ -1489,26 +1686,6 @@ static void create_page_indicator(lv_obj_t *parent) {
     // T7
     ui.page_indicator_panel = lv_obj_create(ui.page_indicator_container);
     lv_obj_set_size(ui.page_indicator_panel, 130, 24); // width will auto-fit for 3 dots
-
-    // // T8
-    // // IMPORTANT: prevent any scrollbars here
-    // ui.page_indicator_panel = lv_obj_create(ui.page_indicator_container);
-    // lv_obj_clear_flag(ui.page_indicator_panel, LV_OBJ_FLAG_SCROLLABLE);
-    // lv_obj_set_scrollbar_mode(ui.page_indicator_panel, LV_SCROLLBAR_MODE_OFF);
-
-    // // Compute deterministic width for N dots
-    // const int panel_pad_px = 4;          // must match lv_obj_set_style_pad_all(..., 4)
-    // const int dot = UI_PAGE_DOT_SIZE;    // 10
-    // const int gap = UI_PAGE_DOT_SPACING; // 8
-    // const int n = UI_PAGE_COUNT;
-
-    // const int content_w = (n * dot) + ((n - 1) * gap);
-    // const int panel_w = content_w + (2 * panel_pad_px);
-    // const int panel_h = 24;
-
-    // lv_obj_set_size(ui.page_indicator_panel, panel_w, panel_h);
-    // lv_obj_center(ui.page_indicator_panel);
-
     lv_obj_center(ui.page_indicator_panel);
 
     // after creating ui.page_indicator_panel
