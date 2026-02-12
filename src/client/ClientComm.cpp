@@ -351,7 +351,7 @@ void ClientComm::handleIncomingLine(const String &line) {
         }
 
         sendStatus(s); // IMPORTANT: sendStatus() must use sendLine() internally
-        RAW("[CLIENT] Processed Host GET STATUS\n");
+        // RAW("[CLIENT] Processed Host GET STATUS\n");
         break;
     }
     case ProtocolMessageType::HostPing:
@@ -429,7 +429,7 @@ void ClientComm::setHeartBeatCallback(HeartBeatCallback cb) {
 
 void ClientComm::sendLine(const String &lineWithCrlf) {
     _linkSerial.print(lineWithCrlf);
-    if (_clientSerialMonitor) {
+    if (_clientSerialMonitor ) {
         // String noCrlf = lineWithCrlf;
         // noCrlf.replace("\r", "");
         // noCrlf.replace("\n", "");

@@ -120,7 +120,8 @@ typedef struct
 } PostRuntime;
 
 // Host requests STATUS periodically
-constexpr uint32_t kStatusPollIntervalMs = 2000; // request STATUS every 2 seconds
+// constexpr uint32_t kStatusPollIntervalMs = 2000; // request STATUS every 2 seconds
+constexpr uint32_t kStatusPollIntervalMs = 500; // request STATUS every n ms
 // ----------------------------------------------------------------------------
 // Presets & Profiles
 // ----------------------------------------------------------------------------

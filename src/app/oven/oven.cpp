@@ -34,6 +34,7 @@ static bool g_sentSafeStopOnThisSync = false;
 static constexpr uint32_t kAliveTimeoutMs = 1500;        // e.g. 1.5s
 static constexpr uint32_t kPingIntervalUnsyncedMs = 250; // e.g. 4Hz while unsynced
 static constexpr uint32_t kPingIntervalSyncedMs = 1000;  // keep-alive while synced (prevents UI flicker)
+static constexpr uint16_t OVEN_TICK_MS = 1000;           // do not change, 1hz as countdown level for needles ...
 
 // ----------------------------------------------------------------------------
 // Remote/command mask tracking (host-side)
@@ -175,12 +176,10 @@ static inline void comm_send_mask(uint16_t newMask) {
  *
  * NOTE:
  * - This is the ONLY place where actuator booleans should be updated in T6.
- * - Temperature scaling is currently provisional (tempRaw / 4.0f).
+ * - Temperature scaling is currently provisional (tempRaw / 10.0f).
  */
 static void apply_remote_status_to_runtime(const ProtocolStatus &st) {
-    // TODO: confirm correct temperature scaling (tempRaw encoding)
-    // Current assumption: tempRaw in quarter degrees => °C = tempRaw / 4.0
-    runtimeState.tempCurrent = static_cast<float>(st.tempRaw) / 4.0f;
+    runtimeState.tempCurrent = static_cast<float>(st.tempRaw / 10.f);
 
     // Output mapping using OVEN_CONNECTOR bit positions:
     runtimeState.fan12v_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN12V);
@@ -444,7 +443,7 @@ void oven_get_runtime_state(OvenRuntimeState *out) {
 
 /**
  * oven_tick():
- * Must be called frequently in loop(). Internally runs at 1 Hz.
+ * Must be called frequently in loop(). Internally runs at OVEN_TICK_MS Hz.
  *
  * Responsibilities:
  * - Countdown timer (secondsRemaining) while running
@@ -464,7 +463,7 @@ void oven_tick(void) {
     static uint32_t lastTick = 0;
     uint32_t now = millis();
 
-    if (now - lastTick < 1000) {
+    if (now - lastTick < OVEN_TICK_MS) {
         return;
     }
     lastTick = now;
@@ -1020,11 +1019,17 @@ void oven_comm_poll(void) {
     }
 
     // 5) Poll STATUS periodically (optional: only when synced)
-    if (now - g_lastStatusRequestMs >= kStatusPollIntervalMs) {
-        g_lastStatusRequestMs = now;
-        g_hostComm->requestStatus();
+    // if (now - g_lastStatusRequestMs >= kStatusPollIntervalMs) {
+    //     g_lastStatusRequestMs = now;
+    //     g_hostComm->requestStatus();
+    // }
+    // 5) Poll STATUS periodically (only when link is synced AND alive)
+    if (runtimeState.linkSynced && runtimeState.commAlive) {
+        if (now - g_lastStatusRequestMs >= kStatusPollIntervalMs) {
+            g_lastStatusRequestMs = now;
+            g_hostComm->requestStatus();
+        }
     }
-
     // 6) Apply new telemetry
     if (g_hostComm->hasNewStatus()) {
         apply_remote_status_to_runtime(g_hostComm->getRemoteStatus());

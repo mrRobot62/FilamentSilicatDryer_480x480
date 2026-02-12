@@ -21,6 +21,7 @@
 #include "pins_client.h"
 #include "protocol.h"
 #include <Arduino.h>
+#include <Wire.h>
 
 // -------------------------
 // UART (HOST <-> CLIENT link)
@@ -41,13 +42,20 @@ static constexpr int OUT_PINS[8] = {
     PIN_CH0, PIN_CH1, PIN_CH2, PIN_CH3,
     PIN_CH4, PIN_CH5, PIN_CH6, PIN_CH7};
 
+static bool ntc_available = false;
+static bool max665_available = false;
+
 // -------------------------
 // Optional MAX6675 (K-Type thermocouple)
 // -------------------------
 // If you want MAX6675 integration here, define pins below to match your wiring.
 // If you don't use MAX6675 right now, set ENABLE_MAX6675=0.
 #ifndef ENABLE_MAX6675
-#define ENABLE_MAX6675 1
+#define ENABLE_MAX6675 0
+#endif
+
+#ifndef ENABLE_INTERNAL_NTC
+#define ENABLE_INTERNAL_NTC 1
 #endif
 
 #if ENABLE_MAX6675
@@ -65,6 +73,28 @@ static constexpr int OUT_PINS[8] = {
 #endif
 
 static MAX6675 g_thermocouple(MAX6675_SCK_PIN, MAX6675_CS_PIN, MAX6675_SO_PIN);
+#endif
+
+#if ENABLE_INTERNAL_NTC
+// used if internal original NTC is used.
+// Note: internal NTC seems to be a 100k NTC without knowing used characteristic curve.
+//          without knowing this, we use a "best practice temperature curve" measured by several tests
+//          Values are voltage outputs by temperature send by NTC resistor. We use a cut-off up from 120°
+//
+// Voltage devider:     build in on pcb R1k
+//
+#include "ntc.h"
+#include <Adafruit_ADS1X15.h>
+static constexpr uint8_t I2C_SDA = 22;
+static constexpr uint8_t I2C_SCL = 23;
+static constexpr uint8_t I2C_ADR = 0x48;
+static constexpr uint8_t ADS_NTC_PORT = 0;
+constexpr uint8_t N_AVG_SAMPLES = 10;
+MovingAverage<N_AVG_SAMPLES> tempAvg;
+Adafruit_ADS1115 ads; /* Use this for the 15-bit version */
+
+void i2c_scan();
+
 #endif
 
 // -------------------------
@@ -93,6 +123,7 @@ static bool g_heater_overtemp = false;
 // Silicagel drying up to 110°C is allowed.
 // Hard safety cut at 120°C (independent of HOST / presets).
 static constexpr float CLIENT_ABS_MAX_TEMP_C = 120.0f;
+
 
 #if !defined(ESP_ARDUINO_VERSION_MAJOR)
 // Fallback if the macro is not available

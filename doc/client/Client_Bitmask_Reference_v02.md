@@ -160,3 +160,4 @@ Die UI darf **keine eigenen Zustände erfinden**, sondern rendert ausschließlic
 ---
 
 **Ende des Dokuments**
+D

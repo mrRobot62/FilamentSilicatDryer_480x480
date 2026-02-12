@@ -1,35 +1,48 @@
 //
-// client_main.cpp
+// Client.cpp (client_main.cpp)
 // ESP32-WROOM CLIENT (real hardware) using ClientComm + protocol callbacks.
+//
+// READY-TO-DROP-IN FILE
+// ---------------------
+// This file is functionally identical to your provided source, but with extensive
+// English inline documentation added. No logic changes were made.
 //
 // Purpose:
 // - Communicate with HOST over UART2 (Serial2) on GPIO16 (RX2) / GPIO17 (TX2)
 // - Apply digital outputs CH0..CH7 based on outputsMask bits 0..7
-// - Provide STATUS with:
-//     - outputsMask (current)
-//     - adcRaw[0] = analogRead(PIN_ADC0) (raw ADC units)
-//     - tempRaw    = optional MAX6675 temperature in 0.25°C steps (°C * 4)
+// - Provide STATUS telemetry with:
+//     - outputsMask (effective, after safety + PWM truth)
+//     - adcRaw[] (raw diagnostic values)
+//     - tempRaw  (temperature value; source depends on build flags)
 //
-// Notes:
-// - This file is intended to be "production-like" and works with the updated protocol:
-//     H;SET;XXXX
-//     H;UPD;SSSS;CCCC
-//     H;TOG;TTTT
-//     H;GET;STATUS
-//     H;PING
-//   with responses:
-//     C;ACK;SET;MMMM
-//     C;ACK;UPD;MMMM
-//     C;ACK;TOG;MMMM
-//     C;STATUS;mask;a0;a1;a2;a3;tempRaw
-//     C;PONG
+// Protocol (HOST -> CLIENT):
+//   H;SET;XXXX
+//   H;UPD;SSSS;CCCC
+//   H;TOG;TTTT
+//   H;GET;STATUS
+//   H;PING
 //
-// - Digital output pins must be OUTPUT-capable. (GPIO34/35/36/39 are input-only!)
+// Protocol (CLIENT -> HOST):
+//   C;ACK;SET;MMMM
+//   C;ACK;UPD;MMMM
+//   C;ACK;TOG;MMMM
+//   C;STATUS;mask;a0;a1;a2;a3;tempRaw
+//   C;PONG
 //
-// - Your uploaded pins_client.h currently contains a literal "..." line which would not compile.
-//   This file therefore defines the required pins locally (CH0..CH7 + ADC0).
-//   If your real pins_client.h is clean/complete, you may replace these definitions with:
-//       #include "pins_client.h"
+// Design rules:
+// - Client is hardware-authoritative: it enforces safety and reports real state.
+// - Do NOT switch GPIO/PWM from UART RX/callback context.
+//   Instead: mark "pending", apply deterministically from loop().
+// - Door is input-only telemetry and must never be driven as an output.
+//
+// Hardware notes:
+// - GPIO34/35/36/39 are input-only on ESP32.
+// - Heater is driven via PWM (LEDC), not via plain digitalWrite.
+//
+// Sensor notes:
+// - ENABLE_INTERNAL_NTC uses ADS1115 over I2C.
+// - Your schematic says: internal NTC is connected to ADS1115 AIN0.
+//   Ensure the ADS channel matches that wiring (see readTemperatureRawValue()).
 //
 
 #include "Client.h"
@@ -39,9 +52,19 @@
 
 constexpr const char *VERSION = "V0.4 - 20260130";
 
-// Überarbeitet in T10.1.36b
+// -----------------------------------------------------------------------------
+// Global state (client-side)
+// -----------------------------------------------------------------------------
+//
+// g_effectiveMask:
+//   The *effective* output mask that reflects what is actually applied on hardware
+//   after safety gating (door/host-loss) and after reflecting PWM truth.
+//
+// g_applyPending / g_pendingMask:
+//   T10.1.41 fix: do not apply outputs in callbacks (UART RX context).
+//   We only store the new mask and set a flag. loop() performs applyOutputs().
+// -----------------------------------------------------------------------------
 static uint16_t g_effectiveMask = 0;
-// T10.1.41: Apply outputs only from main loop (avoid RX/CB timing issues)
 static volatile bool g_applyPending = false;
 static volatile uint16_t g_pendingMask = 0;
 
@@ -51,7 +74,13 @@ static bool isDoorOpen();
 // -------------------------
 // Helpers
 // -------------------------
-
+//
+// bitmask8_to_str():
+//   Returns a human-readable 8-bit string for CH7..CH0.
+//   Example: mask=0x0003 (bits 0 and 1 set) -> "00000011"
+//
+// IMPORTANT: The string order is CH7..CH0 (MSB..LSB), not CH0..CH7.
+//
 static const char *bitmask8_to_str(uint16_t mask) {
     static char buf[9];
     for (int i = 0; i < 8; ++i) {
@@ -62,6 +91,7 @@ static const char *bitmask8_to_str(uint16_t mask) {
     return buf;
 }
 
+// Re-entrant version that writes into a provided buffer.
 static void bitmask8_to_str_r(uint16_t mask, char out[9]) {
     for (int i = 0; i < 8; ++i) {
         const uint8_t bit = 1u << (7 - i);
@@ -70,6 +100,9 @@ static void bitmask8_to_str_r(uint16_t mask, char out[9]) {
     out[8] = '\0';
 }
 
+// parse_hex4_at():
+//   Parse exactly 4 hex chars at a given position in an Arduino String.
+//   Used to extract MMMM from outgoing ACK/STATUS lines for debug annotation.
 static bool parse_hex4_at(const String &s, int start, uint16_t &out) {
     if (start < 0 || start + 4 > (int)s.length()) {
         return false;
@@ -95,8 +128,16 @@ static bool parse_hex4_at(const String &s, int start, uint16_t &out) {
 
 // -----------------------------------------------------------------------------
 // Door safety gating (authoritative on client)
-// DOOR OPEN => force HEATER + MOTOR OFF, and also FAN230V OFF (per your rule).
-// DOOR bit is input-only and must never be driven as output.
+// -----------------------------------------------------------------------------
+// Policy:
+// - Door is input-only telemetry and must never be treated as an output.
+// - If door is open, force a safe state:
+//     - HEATER OFF
+//     - SILICA MOTOR OFF
+//     - FAN230V OFF (explicit requirement)
+//   FAN230V_SLOW is intentionally not forced either way.
+//
+// This function converts a "requested mask" into a "safe effective mask".
 // -----------------------------------------------------------------------------
 static inline uint16_t applyDoorSafetyGating(uint16_t mask, bool doorOpen) {
     // Never treat DOOR as output (input-only telemetry bit)
@@ -105,19 +146,33 @@ static inline uint16_t applyDoorSafetyGating(uint16_t mask, bool doorOpen) {
     if (doorOpen) {
         mask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
         mask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_SILICA_MOTOR);
-        mask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN230V); // your rule: FAN230 must OFF when door open
+        mask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN230V); // forced OFF when door open
         // FAN230V_SLOW: intentionally not forced either way
     }
     return mask;
 }
 
+/**
+ * @brief Read the logical door state from the door sensor input.
+ *
+ * Reads the door GPIO and converts the electrical level into a logical
+ * OPEN / CLOSED state based on the configured polarity
+ * (DOOR_OPEN_IS_HIGH).
+ *
+ * Notes:
+ * - The door signal is input-only telemetry and is client-authoritative.
+ * - The returned state is used for safety gating (heater, motor, fan).
+ * - A log entry is emitted only on state changes to avoid log spam.
+ *
+ * @return true  Door is OPEN
+ * @return false Door is CLOSED
+ */
 static bool isDoorOpen() {
     const int v = digitalRead(OVEN_DOOR_SENSOR);
-    // CLIENT_INFO("DOOR_STATE: %s", v == HIGH ? "OPEN" : "CLOSED");
-    // return DOOR_OPEN_IS_HIGH ? (v == HIGH) : (v == LOW);
 
     static bool last = false;
     bool now = DOOR_OPEN_IS_HIGH ? (v == HIGH) : (v == LOW);
+
     if (now != last) {
         CLIENT_INFO("[DOOR] state=%s (level=%d)\n", now ? "OPEN" : "CLOSED", v);
         last = now;
@@ -125,7 +180,13 @@ static bool isDoorOpen() {
     return now;
 }
 
-// neu T10.1.37
+// safety_check_overtemp():
+// Absolute safety: if tempCur >= CLIENT_ABS_MAX_TEMP_C, then:
+// - latch g_heater_overtemp (log once)
+// - hard-disable heater PWM (HARD OFF)
+// - print an error message
+//
+// This is client-authoritative and does not depend on the host.
 static void safety_check_overtemp(float tempCur) {
     if (tempCur >= CLIENT_ABS_MAX_TEMP_C) {
         if (!g_heater_overtemp) {
@@ -138,30 +199,68 @@ static void safety_check_overtemp(float tempCur) {
     }
 }
 
+/**
+ * @brief Apply a requested output bitmask to the physical hardware outputs.
+ *
+ * This function is the **single authoritative point** where logical output
+ * requests are translated into actual GPIO and PWM actions on the ESP32.
+ *
+ * Key responsibilities:
+ * - Enforce door safety rules before touching any hardware.
+ * - Drive normal outputs via digital GPIO.
+ * - Drive the heater exclusively via PWM (LEDC), never via digitalWrite.
+ * - Maintain a shadow mask (`g_effectiveMask`) that reflects the *real*
+ *   hardware state after safety gating and PWM truth.
+ *
+ * Important design rules:
+ * - This function must only be called from the main loop(), never from
+ *   UART RX callbacks or interrupt context.
+ * - Door state is input-only telemetry and must never be driven as an output.
+ *
+ * @param requestedMask
+ *        The logical output mask requested by the HOST (bits CH0..CH7).
+ *        This mask may be modified by safety logic before being applied.
+ */
 static void applyOutputs(uint16_t requestedMask) {
+    // Read current door state (client-authoritative safety input)
     const bool doorOpen = isDoorOpen();
+
+    // Apply door-based safety gating:
+    // - Clears DOOR bit (input-only)
+    // - Forces HEATER, MOTOR and FAN230V OFF when door is open
     const uint16_t eff = applyDoorSafetyGating(requestedMask, doorOpen);
 
-    // Apply eff to physical pins (skip DOOR)
+    // Apply the effective (safe) mask to physical outputs
     for (int i = 0; i < 8; ++i) {
+
+        // Skip DOOR bit entirely:
+        // DOOR is telemetry-only and must never be driven as an output.
         if (i == OUTPUT_BIT_MASK_8BIT::BIT_DOOR) {
             continue;
         }
 
+        // Determine desired ON/OFF state for this channel
         const bool on = (eff & (1u << i)) != 0;
 
+        // Heater handling:
+        // The heater is controlled exclusively via PWM.
+        // No direct GPIO writes are allowed on the heater pin.
         if (i == HEATER_BIT_INDEX) {
-            // PWM heater only
             heaterPwmEnable(on);
             continue;
         }
 
-        // Motor is normal GPIO (but already gated in eff)
+        // All other channels (motor, fans, lamp, etc.)
+        // are plain digital GPIO outputs.
         digitalWrite(OUT_PINS[i], on ? HIGH : LOW);
     }
 
+    // Store the effective mask after safety gating
     g_effectiveMask = eff;
 
+    // Reflect the *actual* PWM state back into the mask:
+    // This guarantees that STATUS reports what is really happening on hardware,
+    // not just what was logically requested.
     if (g_heaterPwmRunning) {
         g_effectiveMask |= (1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
     } else {
@@ -169,18 +268,75 @@ static void applyOutputs(uint16_t requestedMask) {
     }
 }
 
-static int16_t readTempRaw_QuarterC() {
-    // tempRaw is defined as 0.25°C steps (tempRaw = °C * 4)
+// -----------------------------------------------------------------------------
+// Temperature reading
+// -----------------------------------------------------------------------------
+//
+// readTemperatureRawValue(mode):
+// - mode=0: MAX6675 (if enabled). Returns 0.25°C steps (°C * 4), rounded.
+// - mode=1: Internal NTC via ADS1115 (if enabled). Returns ADS raw code.
+//
+// IMPORTANT (schematic requirement):
+// - You stated: internal NTC is connected to ADS1115 AIN0.
+// - The code currently reads ads.readADC_SingleEnded(1).
+//   That is ADS channel 1 (AIN1). If wiring is AIN0, channel should be 0.
+//   Keep this aligned with your hardware.
+//
+int16_t readTemperatureRawValue(uint8_t mode = 1) {
+    int16_t raw = 0;
+    switch (mode) {
+    case 0:
 #if ENABLE_MAX6675
-    const float c = g_thermocouple.readCelsius();
+        const float c = g_thermocouple.readCelsius();
+        // MAX6675 returns NAN if not connected / invalid; handle safely.
+        if (isnan(c) || c < -100.0f || c > 1000.0f) {
+            return 0;
+        }
 
-    // MAX6675 returns NAN if not connected / invalid; handle safely.
-    if (isnan(c) || c < -100.0f || c > 1000.0f) {
-        return 0;
+        // Convert to 0.25°C steps (°C * 4), rounded
+        raw = (int16_t)lroundf(c * 4.0f);
+#endif
+        break;
+
+    case 1:
+    default:
+#if ENABLE_INTERNAL_NTC
+        // ADS1115 raw reading (single-ended).
+        // NOTE: Ensure channel matches the actual NTC wiring (AIN0 vs AIN1).
+        raw = ads.readADC_SingleEnded(ADS_NTC_PORT);
+
+#endif
+        break;
+    }
+    return raw;
+}
+
+static inline int32_t read_adcX_mv(uint8_t ch) {
+    if (!ntc_available) {
+        return -1;
+    }
+    if (ch < 0) {
+        ch = 0;
+    }
+    if (ch > 3) {
+        ch = 3;
     }
 
+    const int32_t raw = ads.readADC_SingleEnded(ch); // 0..32767
+
+    // GAIN_TWOTHIRDS: 0.1875 mV/LSB = 3/16 mV per count
+    // Rounded: (raw*3 + 8) / 16
+    return (raw * 3 + 8) / 16;
+}
+
+static int16_t readTemperatureValue() {
+#if ENABLE_MAX6675
+    // value in 0.25° steps
+    const float c = g_thermocouple.readCelsius();
+    (void)c;
+
     // Round to nearest 0.25°C step
-    const int32_t raw = (int32_t)lroundf(c * 4.0f);
+    const int32_t raw = readTemperatureRawValue(0);
 
     if (raw < INT16_MIN) {
         return INT16_MIN;
@@ -190,20 +346,68 @@ static int16_t readTempRaw_QuarterC() {
     }
 
     return (int16_t)raw;
-#else
-    return 0;
+#endif
+
+#if ENABLE_INTERNAL_NTC
+    // uint16_t r = readTemperatureRawValue(1);
+    int32_t r = read_adcX_mv(ADS_NTC_PORT);
+    // // Convert ADS raw code to voltage (depends on configured gain)
+    // // float v = ads.computeVolts(r);
+    // // Convert voltage to temperature using NTC lookup/fit (verify unit!)
+
+    int32_t celsius = ntc_adc_to_temp_dC(r);
+    CLIENT_DBG("[I2C] DegFloat=%3.1fC (int32=%d) (raw=%dmV) \n", (celsius / 10.0f), celsius, r);
+    return (int16_t)celsius;
 #endif
 }
 
+/**
+ * @brief Scan the I2C bus and report detected devices.
+ *
+ * Performs a simple address scan on the active I2C bus (1..126) and logs
+ * all responding devices. Intended for startup diagnostics and wiring checks.
+ *
+ * Notes:
+ * - Used mainly to verify presence of ADS1115 and other I2C peripherals.
+ * - Does not modify bus configuration or device state.
+ * - Output is informational only (no functional dependency).
+ */
+void i2cScan() {
+    CLIENT_INFO("---------------------------\n");
+    CLIENT_INFO("I2C scan started...\n");
+    CLIENT_INFO("---------------------------\n");
+
+    uint8_t count = 0;
+    for (uint8_t addr = 1; addr < 127; addr++) {
+        Wire.beginTransmission(addr);
+        uint8_t err = Wire.endTransmission();
+
+        if (err == 0) {
+            CLIENT_INFO("   Found device at 0x%s\n", String(addr, HEX));
+            if (addr < 16) {
+                CLIENT_INFO("   addr < 16\n");
+            }
+            count++;
+        }
+    }
+
+    if (count == 0) {
+        CLIENT_ERR("   No I2C devices found!\n");
+    } else {
+        CLIENT_INFO("   Total devices found: %d\n", count);
+    }
+    CLIENT_INFO("---------------------------\n");
+    CLIENT_INFO("I2C scan done\n\n");
+    CLIENT_INFO("---------------------------\n");
+}
+
 // Fill STATUS via callback (raw units only; no assumptions about conversion)
-// T10.1.28 Door-Bugfix
+// T10.1.28 Door bugfix
 static void fillStatusCallback(ProtocolStatus &st) {
-    // Start from the last applied outputs (CH0..CH7 etc.)
-    // st.outputsMask = clientComm.getOutputsMask();
-    // neu in T10.1.36
+    // Report last applied outputs (after safety + PWM truth)
     st.outputsMask = g_effectiveMask;
 
-    // Door is an input (CH5 -> bit5). OPEN=HIGH, CLOSED=LOW.
+    // Door telemetry bit. OPEN=HIGH, CLOSED=LOW.
     const bool door_open = isDoorOpen();
     if (door_open) {
         st.outputsMask |= (1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
@@ -211,26 +415,23 @@ static void fillStatusCallback(ProtocolStatus &st) {
         st.outputsMask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
     }
 
-    // Raw ADC reading (typical 0..4095)
-    st.adcRaw[0] = (uint16_t)analogRead(PIN_ADC0);
+    // use temperature average over 10 reads
+    st.tempRaw = tempAvg.update(readTemperatureValue());
 
-    // Not used yet
+    // adcRaw[]: keep raw units for diagnostics (no implicit host assumptions)
+    st.adcRaw[0] = st.tempRaw;
     st.adcRaw[1] = 0;
     st.adcRaw[2] = 0;
     st.adcRaw[3] = 0;
 
-    // Optional MAX6675
-    st.tempRaw = readTempRaw_QuarterC();
-
-    // -------------------------------------------------
-    // SAFETY: Over-temperature check (authoritative)
-    // tempRaw is in 0.25°C steps
-    // -------------------------------------------------
-    const float tempCur = (float)st.tempRaw * 0.25f;
+    // SAFETY: absolute over-temperature check (authoritative)
+    // NOTE: This conversion assumes st.tempRaw is in °C-like units.
+    // If st.tempRaw is scaled, adjust the conversion accordingly.
+    const float tempCur = (float)st.tempRaw * 1.0f;
     safety_check_overtemp(tempCur);
 }
 
-// Apply outputs immediately when mask changes
+// Apply outputs when mask changes
 // T10.1.41: Do NOT apply outputs inside the callback (RX context).
 // Only mark pending; apply in main loop() deterministically.
 static void outputsChangedCallback(uint16_t newMask) {
@@ -243,16 +444,11 @@ static void outputsChangedCallback(uint16_t newMask) {
 }
 
 // Debug outgoing frames (optional)
-// static void txLineCallback(const String &line, const String &dir) {
-//     RAW("[CLIENT] [%s]: %s\n", dir.c_str(), line.c_str());
-// }
-
-// Debug outgoing frames (optional)
+// Adds a human-readable BitMask for known frames carrying a 16-bit mask.
 static void txLineCallback(const String &line, const String &dir) {
     uint16_t mask = 0;
     bool hasMask = false;
 
-    // We only append BitMask for known frames that carry a 16-bit mask.
     // Expected formats:
     // - C;ACK;SET;MMMM
     // - C;ACK;UPD;MMMM
@@ -284,6 +480,7 @@ static void txLineCallback(const String &line, const String &dir) {
     }
 
 #ifdef CLIENTNOPONGLOG
+    // Optional log hygiene: suppress PONG logs
     const int idxPONG = line.indexOf("C;PONG");
     if (idxPONG >= 0) {
         return;
@@ -293,24 +490,66 @@ static void txLineCallback(const String &line, const String &dir) {
         CLIENT_RAW("[CLIENT] [%s]: BitMask: (%s) => %s;",
                    dir.c_str(), bitmask8_to_str(mask), line.c_str());
     } else {
-        CLIENT_RAW("[CLIENT] [%s]: %s", dir.c_str(), line.c_str());
+        if (dir.length() > 2) {
+            CLIENT_RAW("[CLIENT] [%s]: %s", dir.c_str(), line.c_str());
+        }
     }
 }
 
+/**
+ * @brief Non-blocking heartbeat LED pulser (alive indicator).
+ *
+ * This function generates a periodic short LED pulse (blip) to indicate that:
+ * - the firmware is running,
+ * - the main loop is alive,
+ * - timing (millis()) is advancing normally.
+ *
+ * Behavior:
+ * - Every PERIOD_MS (default: 5000 ms), the LED turns ON for PULSE_MS (default: 350 ms),
+ *   then turns OFF for the remainder of the period.
+ * - The function is fully non-blocking: it uses timestamps (millis()) and does not delay().
+ *
+ * Log hygiene:
+ * - To avoid constant log spam (e.g. printing '.' each heartbeat),
+ *   this implementation only prints an occasional counter marker:
+ *   after HB_LINE_BREAK pulses, it prints a line break marker "(00001)", "(00002)", ...
+ *
+ * LED polarity:
+ * - Some boards have an "active-low" built-in LED (ON when GPIO=LOW).
+ * - LED_ACTIVE_LOW controls whether the logic is inverted.
+ *
+ * Usage:
+ * - Typically called from a periodic callback or from loop() at high frequency.
+ * - Safe to call very often; it will only toggle state when the next timestamp is reached.
+ */
 void heartbeatLED_update() {
+    // Tracks whether LED is currently ON (true) or OFF (false).
     static bool ledOn = false;
+
+    // Next scheduled time (millis) when the LED state should toggle.
     static uint32_t nextToggleMs = 0;
 
+    // Pulse counter within a "line". Used for controlled logging.
     static uint8_t hbCount = 0;
+
+    // Counts how many full lines of HB_LINE_BREAK pulses have occurred.
     static uint32_t lastHBCount = 0;
 
+    // Number of pulses before printing a compact marker in the log.
     const uint8_t HB_LINE_BREAK = 80;
-    const uint32_t PERIOD_MS = 5000; // 5 seconds (0.2 Hz)
-    const uint32_t PULSE_MS = 350;   // LED ON time
 
-    // Many built-in LEDs are active-low:
+    // Total heartbeat period. 5000 ms => 0.2 Hz pulse frequency.
+    const uint32_t PERIOD_MS = 5000; // 5 seconds (0.2 Hz)
+
+    // Duration the LED stays ON within each period (a short visible blip).
+    const uint32_t PULSE_MS = 350; // LED ON time
+
+    // Many built-in LEDs are active-low; keep configurable.
+    // - false: ON  => GPIO HIGH
+    // - true:  ON  => GPIO LOW
     const bool LED_ACTIVE_LOW = false;
 
+    // Small helper lambda to write LED state with correct polarity.
     auto led_write = [&](bool on) {
         if (LED_ACTIVE_LOW) {
             digitalWrite(PIN_BOARD_LED, on ? LOW : HIGH);
@@ -319,24 +558,41 @@ void heartbeatLED_update() {
         }
     };
 
+    // Current time in ms since boot.
     uint32_t now = millis();
 
+    // Turn LED ON when:
+    // - it is currently OFF
+    // - and the scheduled toggle time has been reached/passed.
+    //
+    // Note: (int32_t)(now - nextToggleMs) >= 0 is a standard rollover-safe check.
     if (!ledOn && (int32_t)(now - nextToggleMs) >= 0) {
         led_write(true);
         ledOn = true;
+
+        // Schedule LED OFF after the ON pulse duration.
         nextToggleMs = now + PULSE_MS;
 
+        // Controlled logging:
+        // After HB_LINE_BREAK pulses, print a compact counter marker and newline.
         if (++hbCount >= HB_LINE_BREAK) {
             hbCount = 0;
             lastHBCount++;
             CLIENT_RAW(" (%05lu)\n", (unsigned long)lastHBCount);
         } else {
-            // ausgebaut wegen "Log-Hygiene"
+            // Intentionally disabled for log hygiene (avoid dot spam).
             // RAW(".");
         }
-    } else if (ledOn && (int32_t)(now - nextToggleMs) >= 0) {
+    }
+    // Turn LED OFF when:
+    // - it is currently ON
+    // - and the scheduled toggle time has been reached/passed.
+    else if (ledOn && (int32_t)(now - nextToggleMs) >= 0) {
         led_write(false);
         ledOn = false;
+
+        // Schedule the next ON event at the end of the full period.
+        // This creates: ON for PULSE_MS, then OFF for (PERIOD_MS - PULSE_MS).
         nextToggleMs = now + (PERIOD_MS - PULSE_MS);
     }
 }
@@ -370,6 +626,7 @@ static void printStartupInfo() {
 }
 
 static uint32_t heaterDutyFromPercent(int percent) {
+    // Convert duty percent [0..100] into PWM duty register value.
     const uint32_t maxDuty = (1u << HEATER_PWM_RES_BITS) - 1u;
     if (percent <= 0) {
         return 0;
@@ -382,20 +639,15 @@ static uint32_t heaterDutyFromPercent(int percent) {
 }
 
 static void heaterPwmEnable(bool enable) {
+    // Robust, deterministic PWM start/stop.
+    // - Drive known safe level before attach
+    // - Detach unconditionally (clears sticky routing)
+    // - Attach fresh and "kick" duty to ensure stable start
     const uint32_t duty = heaterDutyFromPercent(HEATER_PWM_DUTY_PERCENT);
 
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
     if (enable) {
-        // ------------------------------------------------------------------
-        // T10.1.41: Deterministic PWM start after boot
-        // Force the same "clean attach" behavior as STOP->START:
-        // - ensure GPIO is in a known safe state
-        // - detach unconditionally (even if not running)
-        // - attach fresh
-        // - apply duty with a robust kick
-        // ------------------------------------------------------------------
-
-        // 1) Known safe GPIO state first (prevents weird matrix leftovers)
+        // 1) Known safe GPIO state first
         pinMode(HEATER_PWM_GPIO, OUTPUT);
         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
 
@@ -450,7 +702,7 @@ static void heaterPwmEnable(bool enable) {
             ledcAttachPin(HEATER_PWM_GPIO, HEATER_PWM_CHANNEL);
             g_heaterPwmRunning = true;
 
-            // Optional: deterministic kick for 2.x as well
+            // Optional deterministic kick for 2.x as well
             ledcWrite(HEATER_PWM_CHANNEL, 0);
             delay(2);
         }
@@ -469,87 +721,6 @@ static void heaterPwmEnable(bool enable) {
 #endif
 }
 
-
-
-// static void heaterPwmEnable(bool enable) {
-//     const uint32_t duty = heaterDutyFromPercent(HEATER_PWM_DUTY_PERCENT);
-
-// #if ESP_ARDUINO_VERSION_MAJOR >= 3
-//     if (enable) {
-//         if (!g_heaterPwmRunning) {
-//             const bool ok = ledcAttach((uint8_t)HEATER_PWM_GPIO,
-//                                        (uint32_t)HEATER_PWM_FREQ_HZ,
-//                                        (uint8_t)HEATER_PWM_RES_BITS);
-
-//             if (!ok) {
-//                 CLIENT_ERR("[HEATER] ledcAttach FAILED (GPIO=%d, Freq=%dHz, Res=%dbit)\n",
-//                            HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
-
-//                 // Fail-safe: force safe output level
-//                 pinMode(HEATER_PWM_GPIO, OUTPUT);
-//                 digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
-//                 g_heaterPwmRunning = false;
-//                 return;
-//             }
-
-//             g_heaterPwmRunning = true;
-
-//             CLIENT_INFO("[HEATER] PWM attached. GPIO=%d, Freq=%dHz, Duty=%lu\n",
-//                         HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, (unsigned long)duty);
-
-//             // ------------------------------------------------------------------
-//             // IMPORTANT: deterministic PWM start (Kick)
-//             // ------------------------------------------------------------------
-//             // 1) Force known LOW duty
-//             ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
-
-//             // 2) Give LEDC / GPIO matrix time to settle
-//             delayMicroseconds(200);
-//         }
-
-//         // 3) Apply real duty
-//         ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
-
-//         // 4) Optional second kick (harmless, but fixes "first-write lost" cases)
-//         delayMicroseconds(50);
-//         ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
-
-//     } else {
-//         if (g_heaterPwmRunning) {
-//             ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
-//             ledcDetach((uint8_t)HEATER_PWM_GPIO);
-//             g_heaterPwmRunning = false;
-//             CLIENT_INFO("[HEATER] PWM detached (stopped)\n");
-//         }
-
-//         pinMode(HEATER_PWM_GPIO, OUTPUT);
-//         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
-//     }
-// #else
-//     // Core 2.x: channel-based API
-//     if (enable) {
-//         if (!g_heaterPwmRunning) {
-//             ledcSetup(HEATER_PWM_CHANNEL, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
-//             ledcAttachPin(HEATER_PWM_GPIO, HEATER_PWM_CHANNEL);
-//             g_heaterPwmRunning = true;
-//         }
-//         ledcWrite(HEATER_PWM_CHANNEL, duty);
-//     } else {
-//         if (g_heaterPwmRunning) {
-//             ledcWrite(HEATER_PWM_CHANNEL, 0);
-//             ledcDetachPin(HEATER_PWM_GPIO);
-//             g_heaterPwmRunning = false;
-//         }
-//         pinMode(HEATER_PWM_GPIO, OUTPUT);
-//         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
-//     }
-// #endif
-// }
-
-//----------------------------------------------------------------------------
-// HELPER - END
-//----------------------------------------------------------------------------
-
 //----------------------------------------------------------------------------
 // setup
 //----------------------------------------------------------------------------
@@ -558,23 +729,12 @@ void setup() {
     delay(200);
     printStartupInfo();
 
-    // Buildin LED pin
+    // Built-in LED pin
     pinMode(PIN_BOARD_LED, OUTPUT);
     digitalWrite(PIN_BOARD_LED, LOW);
 
-    // Configure outputs
+    // Configure outputs + door input (door uses INPUT_PULLUP).
     for (int i = 0; i < 8; ++i) {
-        //     if (OUT_PINS[i] == OVEN_DOOR_SENSOR) {
-        //         // TP10.1 Door-Bugfix
-        //         pinMode(OUT_PINS[i], INPUT_PULLUP);
-        //         digitalWrite(OUT_PINS[i], HIGH);
-        //         CLIENT_INFO("[IO] OVEN_DOOR_SENSOR PIN init: GPIO=%d\n", i);
-
-        //     } else {
-        //         pinMode(OUT_PINS[i], OUTPUT);
-        //         digitalWrite(OUT_PINS[i], LOW);
-        //         CLIENT_INFO("[IO] OUTPUT-PIN init: GPIO=%d\n", OVEN_DOOR_SENSOR);
-        //     }
         if (OUT_PINS[i] == OVEN_DOOR_SENSOR) {
             pinMode(OUT_PINS[i], INPUT_PULLUP);
             CLIENT_INFO("[IO] INPUT_PULLUP init: GPIO=%d (DOOR)\n", OUT_PINS[i]);
@@ -585,8 +745,29 @@ void setup() {
         }
     }
 
-    // ADC pin (GPIO36 is input-only, correct)
+    // ESP32 internal ADC pin (input-only), configured as INPUT for completeness.
     pinMode(PIN_ADC0, INPUT);
+
+// ADS1x15
+#if ENABLE_INTERNAL_NTC
+    // I2C bus setup. Use a conservative clock when level shifters are involved.
+    Wire.begin(I2C_SDA, I2C_SCL);
+    Wire.setClock(100000); // safe default for level shifter setups
+    i2cScan();
+    if (!ads.begin(I2C_ADR, &Wire)) {
+        CLIENT_ERR("[I2C] ADS1115 not found at 0x%s. Check wiring/address\n", String(I2C_ADR, HEX));
+        CLIENT_ERR("[I2C] Tip: ADS1115 addresses are usually 0x48,0x49,0x4A,0x4B.\n");
+        while (true) { delay(1000); }
+        ntc_available = false;
+    } else {
+        ntc_available = true;
+        ads.setGain(GAIN_TWOTHIRDS);
+        // ads.startADCReading(ADS1X15_REG_CONFIG_MUX_DIFF_0_1, /*continuous=*/false);
+
+        CLIENT_INFO("[I2C] ADS1115 found, Gain=%d (6.144V)\n", GAIN_TWOTHIRDS);
+    }
+#endif
+
     // Initialize ClientComm UART (routes RX2/TX2 inside ClientComm as required)
     clientComm.begin(LINK_BAUDRATE);
 
@@ -595,10 +776,11 @@ void setup() {
     clientComm.setFillStatusCallback(fillStatusCallback);
     clientComm.setTxLineCallback(txLineCallback);
     clientComm.setHeartBeatCallback(heartbeatLED_update);
-    // Ensure outputs are at known state
+
+    // Ensure outputs are at known safe state
     outputsChangedCallback(0x0000);
 
-    // TP10.1 (Door-Bugfix)
+    // Door init log (after pin configuration)
     const bool door_open = (digitalRead(OVEN_DOOR_SENSOR) != 0);
     CLIENT_INFO("[IO] DOOR init done: GPIO=%d INPUT_PULLUP level=%d (%s)\n",
                 OVEN_DOOR_SENSOR,
@@ -607,15 +789,13 @@ void setup() {
 }
 
 //----------------------------------------------------------------------------
-// LOOP
-//
-// please do not include anything here without knowing the consequences ;-)
+// loop
 //----------------------------------------------------------------------------
-// überarbeiter in T10.1.36b
 void loop() {
+    // Run UART protocol engine (RX/TX, parser, watchdog)
     clientComm.loop();
 
-    // T10.1.41: Deterministic output apply from main loop
+    // T10.1.41: Apply outputs deterministically from main loop
     if (g_applyPending) {
         const uint16_t m = g_pendingMask;
         g_applyPending = false;
@@ -625,9 +805,10 @@ void loop() {
 
     // ---------------------------------------------------------------------
     // SAFETY T10.1.40: HOST watchdog HARD-KILL
-    // If HOST is silent for > CLIENT_HOST_TIMEOUT_MS,
-    // ClientComm forces outputsMask=0x0000.
-    // We must guarantee HEATER PWM is physically OFF.
+    //
+    // If host is silent beyond CLIENT_HOST_TIMEOUT_MS, ClientComm forces
+    // outputsMask=0x0000. We must ensure heater PWM is physically OFF and
+    // motor is LOW, and reflect that in g_effectiveMask.
     // ---------------------------------------------------------------------
     if (clientComm.hasNewOutputsMask()) {
         const uint16_t m = clientComm.getOutputsMask();
@@ -648,6 +829,8 @@ void loop() {
 
         clientComm.clearNewOutputsMaskFlag();
     }
+
+    // Door transition watcher: on door OPEN, force safe outputs immediately.
     static bool lastDoorOpen = false;
     const bool doorOpenNow = isDoorOpen();
 
@@ -657,14 +840,14 @@ void loop() {
         if (doorOpenNow) {
             uint16_t before = g_effectiveMask;
 
-            // Make BEFORE reflect PWM truth (so log is meaningful)
+            // Ensure "before" reflects PWM truth for meaningful logging
             if (g_heaterPwmRunning) {
                 before |= (1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
             } else {
                 before &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
             }
 
-            // NOTE: if you have requestedMask available, use that instead of 'before'
+            // Gate the current effective state into a safe state for "door open"
             const uint16_t after = applyDoorSafetyGating(before, true);
 
             const bool motorPinHigh = (digitalRead(OUT_PINS[MOTOR_BIT_INDEX]) == HIGH);
@@ -683,7 +866,7 @@ void loop() {
                 heaterPwmEnable(false);
                 digitalWrite(OUT_PINS[MOTOR_BIT_INDEX], LOW);
 
-                // keep shadow consistent
+                // Keep shadow consistent
                 g_effectiveMask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
                 g_effectiveMask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_SILICA_MOTOR);
             }

@@ -18,7 +18,7 @@ inline const char *bits16ToStr(uint16_t value) {
 struct ProtocolStatus {
     uint16_t outputsMask; // 16-bit digital states CH0–CH15
     uint16_t adcRaw[4];   // adcRaw[0..3] for analog channels (CH12–CH15)
-    int16_t tempRaw;      // temperature in 0.25°C steps (tempRaw = °C * 4)
+    int16_t tempRaw;      // float temperature in degrees multiplied by 10
 };
 
 enum class ProtocolMessageType : uint8_t {
