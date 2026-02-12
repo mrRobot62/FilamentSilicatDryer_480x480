@@ -28,51 +28,8 @@ Key idea (T6 architecture):
 - OvenRuntimeState actuator booleans are updated ONLY when telemetry arrives
   from the Client (C;STATUS), never by "wishful thinking" on the Host.
 
-What the Host DOES:
-- Maintains *intent/policy* (START/STOP/WAIT/RESUME policies).
-- Sends SET masks derived from the most recent remote STATUS mask.
-- Runs the countdown timer only in oven_tick() (1 Hz).
-- Provides diagnostics (commAlive, lastStatusAgeMs, counters).
-
-ASCII overview:
-
-   +--------------------+                     +----------------------+
-   |      UI (LVGL)     |   reads state only  |  oven_get_runtime...  |
-   | (screen_main etc.) |<--------------------|  OvenRuntimeState     |
-   +---------+----------+                     +----------+-----------+
-             |                                        |
-             | user actions                           | updated from telemetry
-             v                                        v
-   +--------------------+   policies/commands  +----------------------+
-   |       oven.*       |--------------------->|      HostComm        |
-   | (host logic +      |   UART ASCII (CRLF)  | (ProtocolCodec etc.) |
-   |  countdown + diag) |<---------------------|                      |
-   +--------------------+    STATUS telemetry  +----------+-----------+
-                                                          |
-                                                          | UART
-                                                          v
-                                               +----------------------+
-                                               | Client/Powerboard    |
-                                               | (authoritative I/O)  |
-                                               +----------------------+
-
-Practical consequences:
-- START/STOP/WAIT send *policy masks*; UI changes only after STATUS confirms.
-- Manual toggles (fan230/motor/lamp) are requests (SET masks), not direct writes.
-- Door is treated as an input-like bit: preserve it as reported by the client.
-
 ================================================================================
 */
-
-// enum class OVEN_CONNECTOR : uint16_t {
-//     FAN12V = 1u << 0,        // CH0
-//     FAN230V = 1u << 1,       // CH1
-//     LAMP = 1u << 2,          // CH2
-//     SILICAT_MOTOR = 1u << 3, // CH3
-//     FAN230V_SLOW = 1u << 4,  // CH4
-//     DOOR_ACTIVE = 1u << 5,   // CH5 (GPIO14)  TP10.1 Door-Bugfix
-//     HEATER = 1u << 6         // CH6 (GPIO12) TP10.1 Door-Bugfix
-// };
 
 enum class OVEN_CONNECTOR : uint16_t {
     FAN12V = 1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN12V,              // CH0
@@ -120,12 +77,11 @@ typedef struct
 } PostRuntime;
 
 // Host requests STATUS periodically
-// constexpr uint32_t kStatusPollIntervalMs = 2000; // request STATUS every 2 seconds
 constexpr uint32_t kStatusPollIntervalMs = 500; // request STATUS every n ms
+
 // ----------------------------------------------------------------------------
 // Presets & Profiles
 // ----------------------------------------------------------------------------
-
 typedef struct
 {
     const char *name;
@@ -138,15 +94,6 @@ typedef struct
 
 } FilamentPreset;
 
-/**
- * OvenProfile:
- * Host-side configuration that represents the active drying setup:
- * - durationMinutes: total duration
- * - targetTemperature: target temperature in °C
- * - filamentId: index into kPresets (0 = CUSTOM)
- *
- * Note: This is a "host plan". The actual heating behavior is handled by the client.
- */
 typedef struct
 {
     uint32_t durationMinutes; // in minutes
@@ -157,27 +104,19 @@ typedef struct
 /**
  * OvenRuntimeState:
  * The single UI-facing state snapshot.
- *
- * IMPORTANT:
- * - Actuator booleans (fan/heater/motor/lamp) should represent the *remote truth*
- *   and must be derived from client telemetry (STATUS).
- * - Fields like running/waiting are host-side state machine flags.
- * - Countdown secondsRemaining is host-side (oven_tick()).
  */
 typedef struct
 {
     uint32_t durationMinutes;
     uint32_t secondsRemaining;
 
-    float tempCurrent;
-    float tempTarget;
-    float tempToleranceC;
-
-    // Host-side safety latch (T10.1.39b)
+    float tempCurrent;    // raw sensor temp (STATUS tempRaw / 10)
+    float tempTarget;     // UI target
+    float tempToleranceC; // hysteresis band (host-side)
     bool hostOvertempActive;
 
     int filamentId;
-    char presetName[24]; // UI-ready text
+    char presetName[24];
     bool rotaryOn;
 
     // Remote truth (from client STATUS)
@@ -195,14 +134,14 @@ typedef struct
     bool lamp_manual_allowed;
 
     // Communication diagnostics (host-side)
-    uint32_t lastStatusAgeMs; // age of last received STATUS (ms), for UI/diag
-    uint32_t lastRxAnyAgeMs;  // last time we received ANY valid frame (ACK/STATUS/PONG/RST/...)
+    uint32_t lastStatusAgeMs;
+    uint32_t lastRxAnyAgeMs;
     uint32_t statusRxCount;
     uint32_t commErrorCount;
 
     // Communication / link diagnostics
-    bool commAlive;  // true if we consider the client link alive (age < timeout)
-    bool linkSynced; // true if HostComm linkSync is established (stable PONG streak)
+    bool commAlive;
+    bool linkSynced;
 
     // Host-side mode (not remote truth)
     OvenMode mode;
@@ -213,16 +152,42 @@ typedef struct
     // T7: POST runtime state
     PostRuntime post;
 
+    // ------------------------------------------------------------------------
+    // T11: Thermal Model (Host-side)
+    // ------------------------------------------------------------------------
+    float tempNtcC;               // Raw NTC temperature (STATUS-derived, near heater)
+    float tempCoreC;              // Estimated "core" temperature (filtered + bias)
+    bool tempCoreValid;           // True once model initialized
+    uint32_t lastThermalUpdateMs; // millis() of last model update
+
 } OvenRuntimeState;
+
+// ----------------------------------------------------------------------------
+// T11: Thermal Model Configuration
+// ----------------------------------------------------------------------------
+struct ThermalModelConfig {
+    float coreTauSeconds;  // PT1 time constant (seconds)
+    float heatBiasC;       // Bias added while heater intent is active
+    float coolBiasC;       // Bias added while heater intent is inactive
+    uint32_t heatWindowMs; // Heating window duration (pulse ON window)
+    uint32_t restMs;       // Rest duration after heating window (forced OFF)
+};
+
+// Default configuration for T11
+inline constexpr ThermalModelConfig kThermalConfig{
+    .coreTauSeconds = 45.0f,
+    .heatBiasC = 2.5f,
+    .coolBiasC = -0.5f,
+    .heatWindowMs = 2000,
+    .restMs = 2000,
+};
 
 // ----------------------------------------------------------------------------
 // Preset list (immutable factory presets)
 // ----------------------------------------------------------------------------
-
 static constexpr FilamentPreset kPresets[] = {
-    // Name, Temp(C), Dur(min), Rotary, POST{active, seconds, fanMode}
     {"CUSTOM", 0.0f, 0, false, {false, 0, PostFanMode::SLOW}},
-    {"SILICA", 105.0f, 90, true, {true, 60, PostFanMode::FAST}}, // example: 5 min cooling
+    {"SILICA", 105.0f, 90, true, {true, 60, PostFanMode::FAST}},
     {"ABS", 80.0f, 300, false, {true, 300, PostFanMode::FAST}},
     {"ASA", 82.5f, 300, false, {true, 300, PostFanMode::FAST}},
     {"PETG", 62.5f, 360, false, {true, 300, PostFanMode::SLOW}},
@@ -254,68 +219,48 @@ static constexpr uint16_t kPresetCount =
     sizeof(kPresets) / sizeof(kPresets[0]);
 static constexpr uint16_t OVEN_DEFAULT_PRESET_INDEX = 5; // PLA
 
-// adjusting minutes für HH:MM in this granularity
 static constexpr uint8_t UI_MIN_MINUTES = 1;
-
 static constexpr float HOST_TEMP_TOLERANCE_C = 1.5f;
 
 // ----------------------------------------------------------------------------
 // Public API
 // ----------------------------------------------------------------------------
-
-// Initialization – called from setup()
 void oven_init(void);
-
-// Called in loop() to update timing, state machine, sensors, etc.
 void oven_tick(void);
 
-// Start/stop the drying process (host policy -> SET mask)
 void oven_start(void);
 void oven_stop(void);
 bool oven_is_running(void);
 bool oven_is_alive(void);
 
-// Current runtime state for UI (single read-only snapshot)
 void oven_get_runtime_state(OvenRuntimeState *stateOut);
 
-// Manual commands triggered by icon buttons on the main screen
 void oven_command_toggle_motor_manual(void);
 void oven_fan230_toggle_manual(void);
 void oven_lamp_toggle_manual(void);
-// Debug HW screen: request a toggle on a specific connector.
-// Uses remote-truth mask (g_remoteOutputsMask) and sends a TOGGLE-like request via SET.
+
 void oven_dbg_hw_toggle_by_index(int idx);
 void oven_force_outputs_off(void);
 
-// Pause/Resume (WAIT mode)
 void oven_pause_wait(void);
 bool oven_resume_from_wait(void);
 bool oven_is_waiting(void);
 
-// Preset helpers
 uint16_t oven_get_preset_count(void);
 void oven_get_preset_name(uint16_t index, char *out, size_t out_len);
 void oven_select_preset(uint16_t index);
 int oven_get_current_preset_index(void);
 const FilamentPreset *oven_get_preset(uint16_t index);
 
-// Setters for runtime adjustments (non-persistent):
-// These affect the host-side profile/countdown targets only.
-// (Remote control policies still go via SET masks.)
 void oven_set_runtime_duration_minutes(uint16_t duration_min);
 void oven_set_runtime_temp_target(uint16_t temp_c);
 
-// NOTE ABOUT ACTUATOR "SETTERS":
-// In T6, actuator booleans are remote truth and should be updated only from STATUS.
-// If you keep these setters, treat them as *host-local placeholders* or deprecate them.
-// The preferred way is to implement actuator requests via mask policies (like manual toggles).
 void oven_set_runtime_actuator_fan230(bool on);
 void oven_set_runtime_actuator_fan230_slow(bool on);
 void oven_set_runtime_actuator_heater(bool on);
 void oven_set_runtime_actuator_motor(bool on);
 void oven_set_runtime_actuator_lamp(bool on);
 
-// Communication link (Host <-> Client over UART)
 void oven_comm_init(HardwareSerial &serial, uint32_t baudrate, uint8_t rx, uint8_t tx);
 void oven_comm_poll(void);
 
