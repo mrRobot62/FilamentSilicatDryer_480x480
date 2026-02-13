@@ -110,6 +110,7 @@ typedef struct
     uint32_t durationMinutes;
     uint32_t secondsRemaining;
 
+    // - tempCurrent: UI/control temperature (tempCoreC if valid, otherwise tempNtcC)
     float tempCurrent;    // raw sensor temp (STATUS tempRaw / 10)
     float tempTarget;     // UI target
     float tempToleranceC; // hysteresis band (host-side)
@@ -155,9 +156,14 @@ typedef struct
     // ------------------------------------------------------------------------
     // T11: Thermal Model (Host-side)
     // ------------------------------------------------------------------------
-    float tempNtcC;               // Raw NTC temperature (STATUS-derived, near heater)
-    float tempCoreC;              // Estimated "core" temperature (filtered + bias)
-    bool tempCoreValid;           // True once model initialized
+
+    // - tempNtcC: raw sensor temperature (near heater) from STATUS
+    float tempNtcC; // Raw NTC temperature (STATUS-derived, near heater)
+
+    // - tempCoreC: estimated "core" temperature (filtered + bias)
+    float tempCoreC;    // Estimated "core" temperature (filtered + bias)
+    bool tempCoreValid; // True once model initialized
+
     uint32_t lastThermalUpdateMs; // millis() of last model update
 
 } OvenRuntimeState;
