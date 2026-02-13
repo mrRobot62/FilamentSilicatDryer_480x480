@@ -92,6 +92,17 @@ static bool thermal_pulse_allow_heater_now(const ThermalModelConfig &cfg,
     tms.restUntilMs = tms.heatPhaseUntilMs + cfg.restMs;
     return true;
 }
+
+static void thermal_apply_ui_temp(OvenRuntimeState &rt) {
+    // UI uses tempCurrent everywhere.
+    // From T11.2 on: tempCurrent becomes "display/control temperature"
+    // Raw NTC remains in tempNtcC.
+    if (rt.tempCoreValid) {
+        rt.tempCurrent = rt.tempCoreC;
+    } else {
+        rt.tempCurrent = rt.tempNtcC;
+    }
+}
 } // namespace
 
 // =============================================================================
@@ -234,6 +245,7 @@ static void apply_remote_status_to_runtime(const ProtocolStatus &st) {
     // T11 input: STATUS temperature is the NTC sensor near heater
     thermal_model_on_new_ntc(runtimeState.tempCurrent, g_therm);
     thermal_model_copy_to_runtime(g_therm, runtimeState);
+    thermal_apply_ui_temp(runtimeState);
 
     runtimeState.fan12v_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN12V);
     runtimeState.fan230_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN230V);
@@ -288,7 +300,7 @@ void oven_init(void) {
     // T11: init thermal model from current runtime snapshot
     thermal_model_init(runtimeState.tempCurrent, g_therm);
     thermal_model_copy_to_runtime(g_therm, runtimeState);
-
+    thermal_apply_ui_temp(runtimeState);
     OVEN_INFO("[OVEN] Init OK\n");
 }
 
@@ -417,6 +429,23 @@ void oven_tick(void) {
     const bool heaterIntent = mask_has(g_lastCommandMask, OVEN_CONNECTOR::HEATER);
     thermal_model_update_pt1_1hz(kThermalConfig, heaterIntent, g_therm);
     thermal_model_copy_to_runtime(g_therm, runtimeState);
+    thermal_apply_ui_temp(runtimeState);
+
+    // T11 - thermal - debug-log
+    static uint32_t s_lastDbgMs = 0;
+    const uint32_t dbgNow = millis();
+    if (dbgNow - s_lastDbgMs >= 5000) {
+        s_lastDbgMs = dbgNow;
+
+        const bool heaterIntent = mask_has(g_lastCommandMask, OVEN_CONNECTOR::HEATER);
+
+        OVEN_INFO("[T11] ntc=%.2f core=%.2f ui=%.2f tgt=%.2f heaterIntent=%d\n",
+                  runtimeState.tempNtcC,
+                  runtimeState.tempCoreC,
+                  runtimeState.tempCurrent,
+                  runtimeState.tempTarget,
+                  heaterIntent ? 1 : 0);
+    }
 
     // Countdown
     if (runtimeState.mode == OvenMode::RUNNING) {
