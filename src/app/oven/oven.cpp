@@ -66,6 +66,15 @@ static void thermal_pulse_reset(ThermalModelState &tms) {
     tms.restUntilMs = 0;
 }
 
+static uint32_t clamp_u32_min(uint32_t v, uint32_t vmin) {
+    return (v < vmin) ? vmin : v;
+}
+
+static uint32_t add_ms_sat(uint32_t a, uint32_t b) {
+    const uint32_t r = a + b;
+    return (r < a) ? 0xFFFFFFFFu : r; // saturate on overflow
+}
+
 // Returns whether we are allowed to set HEATER ON right now (pulse gating),
 // given that "heaterWanted" is true.
 static bool thermal_pulse_allow_heater_now(const ThermalModelConfig &cfg,
@@ -88,8 +97,12 @@ static bool thermal_pulse_allow_heater_now(const ThermalModelConfig &cfg,
     }
 
     // Start a new heating window now
-    tms.heatPhaseUntilMs = nowMs + cfg.heatWindowMs;
-    tms.restUntilMs = tms.heatPhaseUntilMs + cfg.restMs;
+    const uint32_t heatWinMs = clamp_u32_min(cfg.heatWindowMs, 100u);
+    const uint32_t restMs = cfg.restMs;
+
+    tms.heatPhaseUntilMs = add_ms_sat(nowMs, heatWinMs);
+    tms.restUntilMs = add_ms_sat(tms.heatPhaseUntilMs, restMs);
+    return true;
     return true;
 }
 
@@ -439,12 +452,21 @@ void oven_tick(void) {
 
         const bool heaterIntent = mask_has(g_lastCommandMask, OVEN_CONNECTOR::HEATER);
 
-        OVEN_INFO("[T11] ntc=%.2f core=%.2f ui=%.2f tgt=%.2f heaterIntent=%d\n",
+        const int32_t heatRem = (g_therm.heatPhaseUntilMs != 0 && dbgNow < g_therm.heatPhaseUntilMs)
+                                    ? (int32_t)(g_therm.heatPhaseUntilMs - dbgNow)
+                                    : 0;
+        const int32_t restRem = (g_therm.restUntilMs != 0 && dbgNow < g_therm.restUntilMs)
+                                    ? (int32_t)(g_therm.restUntilMs - dbgNow)
+                                    : 0;
+
+        OVEN_INFO("[T11] ntc=%.2f core=%.2f ui=%.2f tgt=%.2f heaterIntent=%d heatRemMs=%ld restRemMs=%ld\n",
                   runtimeState.tempNtcC,
                   runtimeState.tempCoreC,
                   runtimeState.tempCurrent,
                   runtimeState.tempTarget,
-                  heaterIntent ? 1 : 0);
+                  heaterIntent ? 1 : 0,
+                  (long)heatRem,
+                  (long)restRem);
     }
 
     // Countdown

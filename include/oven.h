@@ -173,13 +173,17 @@ struct ThermalModelConfig {
     uint32_t restMs;       // Rest duration after heating window (forced OFF)
 };
 
-// Default configuration for T11
+// Default configuration for T11 (tuneable constants)
+// Notes:
+// - coreTauSeconds: larger => slower/steadier core estimate
+// - heatBiasC/coolBiasC: compensate sensor placement vs. true core temperature
+// - heatWindowMs/restMs: pulse gating for heater requests (ms-based)
 inline constexpr ThermalModelConfig kThermalConfig{
-    .coreTauSeconds = 45.0f,
-    .heatBiasC = 2.5f,
-    .coolBiasC = -0.5f,
-    .heatWindowMs = 2000,
-    .restMs = 2000,
+    .coreTauSeconds = 60.0f, // core inertia (~60s time constant)
+    .heatBiasC = 3.0f,       // core tends to run hotter while heating
+    .coolBiasC = -0.75f,     // slight undershoot while cooling
+    .heatWindowMs = 2000,    // 2s heating pulse window
+    .restMs = 1500           // 1.5s rest period
 };
 
 // ----------------------------------------------------------------------------
