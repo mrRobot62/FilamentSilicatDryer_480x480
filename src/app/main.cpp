@@ -12,19 +12,54 @@
 #include "ui/screens/screen_main.h"
 #include "ui_events.h"
 
+#include "wifi_net.h"
+#include "wifi_secrets.h"
+
 static uint32_t last_beat = 0;
 static uint32_t last_tick_ms = 0;
 // Host UART pins on ESP32-S3
 constexpr int HOST_RX_PIN = 2;  // IO02 = relay2
 constexpr int HOST_TX_PIN = 40; // IO40 = relay1
 
+#if defined(WIFI_LOGGING_HOST_UDP)
+#include "fsd_udp.h" // your renamed udp header
+
+void udp_log_selftest() {
+    Serial.println("[UDP] selftest: sending 3 packets...");
+    udp_log::send_cstr("[UDP] selftest packet 1\n");
+    delay(50);
+    udp_log::send_cstr("[UDP] selftest packet 2\n");
+    delay(50);
+    udp_log::send_cstr("[UDP] selftest packet 3\n");
+    Serial.println("[UDP] selftest: done");
+}
+#endif
+
 void setup() {
     Serial.begin(115200);
-    delay(4000); // damit du sicher die Setup-Logs siehst
+
+    delay(5000); // damit du sicher die Setup-Logs siehst
+
+#if defined(WIFI_LOGGING_HOST_UDP)
+    Serial.println("[UDP] WIFI_LOGGING_HOST_UDP is ENABLED");
+#else
+    Serial.println("[UDP] WIFI_LOGGING_HOST_UDP is DISABLED");
+#endif
+
+    wifi_net::begin_sta(WIFI_SSID, WIFI_PASS);
+    wifi_net::wait_connected(12000);
 
     INFO("======================================================\n");
     INFO("=== ESP32-S3 + ST7701 480x480 + LVGL 9.4.x + Touch ===\n");
     INFO("======================================================\n");
+    INFO("Version: 0.3 - T12.0");
+    INFO("2026-02-13");
+
+#if defined(WIFI_LOGGING_HOST_UDP)
+    extern void udp_log_selftest(); // forward
+    udp_log_selftest();
+    INFO("[UDP] INFO-macro test line\n");
+#endif
 
     oven_comm_init(Serial2, 115200, HOST_RX_PIN, HOST_TX_PIN);
 

@@ -45,7 +45,7 @@
 //   Ensure the ADS channel matches that wiring (see readTemperatureRawValue()).
 //
 
-#include "Client.h"
+#include "FSD_Client.h"
 #include "log_client.h"
 // #include "pins_client.h"
 #include <Arduino.h>

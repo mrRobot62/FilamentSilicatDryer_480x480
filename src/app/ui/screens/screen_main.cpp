@@ -2178,18 +2178,30 @@ static void update_actuator_icons(const OvenRuntimeState &state) {
         lv_obj_set_style_img_recolor_opa(ui.icon_door, LV_OPA_COVER, LV_PART_MAIN);
     }
 
-    // Door always reflects reality
-    // if (state.heater_on && g_run_state != RunState::WAIT) {
-
     // T7 AP4.3 - easier to read as above version
-    if (state.heater_on && (g_run_state == RunState::RUNNING || state.mode == OvenMode::POST)) {
+    // if (state.heater_on && (g_run_state == RunState::RUNNING || state.mode == OvenMode::POST)) {
+    //     const uint32_t hex = temp_status_color_hex(state.tempCurrent, state.tempTarget);
+    //     set_icon_state(ui.icon_heater, ui_color_from_hex(hex), true);
+
+    //     // Subtle pulse while heating
+    //     heater_pulse_start(ui.icon_heater);
+    // } else {
+    //     // No heating (or WAIT): no pulse
+    //     heater_pulse_stop(ui.icon_heater);
+    //     set_icon_state(ui.icon_heater, col_on, false);
+    // }
+
+    // T11
+    // Heater icon must follow oven runtime truth (state.mode), not UI-local g_run_state.
+    // Otherwise the icon can get stuck OFF when g_run_state is desynced.
+    if (state.heater_on && (state.mode == OvenMode::RUNNING)) {
         const uint32_t hex = temp_status_color_hex(state.tempCurrent, state.tempTarget);
         set_icon_state(ui.icon_heater, ui_color_from_hex(hex), true);
 
         // Subtle pulse while heating
         heater_pulse_start(ui.icon_heater);
     } else {
-        // No heating (or WAIT): no pulse
+        // No heating: no pulse
         heater_pulse_stop(ui.icon_heater);
         set_icon_state(ui.icon_heater, col_on, false);
     }

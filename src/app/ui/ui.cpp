@@ -55,7 +55,7 @@ static void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data) {
         data->point.x = touch_last_x;
         data->point.y = touch_last_y;
 
-        UI_DBG("[TOUCH] PRESSED at %d, %d\n", data->point.x, data->point.y);
+        // UI_DBG("[TOUCH] PRESSED at %d, %d\n", data->point.x, data->point.y);
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }

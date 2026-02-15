@@ -1,6 +1,6 @@
 # Project excludes
 .pio
-
+include/wifi_secrets.h
 
 # Prerequisites
 *.d

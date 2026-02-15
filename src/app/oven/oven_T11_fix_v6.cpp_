@@ -290,6 +290,7 @@ static void apply_remote_status_to_runtime(const ProtocolStatus &st) {
     runtimeState.lamp_on = mask_has(st.outputsMask, OVEN_CONNECTOR::LAMP);
     runtimeState.door_open = mask_has(st.outputsMask, OVEN_CONNECTOR::DOOR_ACTIVE);
 
+
     // For UI responsiveness during short heater pulses, reflect host intent while RUNNING.
     if (runtimeState.mode == OvenMode::RUNNING) {
         runtimeState.heater_on = g_heaterIntentOn;
@@ -932,6 +933,7 @@ void oven_comm_poll(void) {
         const ProtocolStatus &st = g_hostComm->getRemoteStatus();
         uint16_t mask = preserve_inputs(st.outputsMask);
 
+
         runtimeState.fan12v_on = mask_has(mask, OVEN_CONNECTOR::FAN12V);
         runtimeState.fan230_on = mask_has(mask, OVEN_CONNECTOR::FAN230V);
         runtimeState.fan230_slow_on = mask_has(mask, OVEN_CONNECTOR::FAN230V_SLOW);
@@ -939,6 +941,7 @@ void oven_comm_poll(void) {
         runtimeState.heater_on = mask_has(mask, OVEN_CONNECTOR::HEATER);
         runtimeState.lamp_on = mask_has(mask, OVEN_CONNECTOR::LAMP);
         runtimeState.door_open = mask_has(mask, OVEN_CONNECTOR::DOOR_ACTIVE);
+
 
         // For UI responsiveness during short heater pulses, reflect host intent while RUNNING.
         if (runtimeState.mode == OvenMode::RUNNING) {
