@@ -21,17 +21,35 @@ static uint32_t last_tick_ms = 0;
 constexpr int HOST_RX_PIN = 2;  // IO02 = relay2
 constexpr int HOST_TX_PIN = 40; // IO40 = relay1
 
+#include "esp_heap_caps.h"
+
+static void udp_diag_print() {
+    Serial.printf(
+        "[UDP/DIAG] freeHeap=%u internal=%u largestInt=%u psram=%u wifi=%d rssi=%d\n",
+        (unsigned)ESP.getFreeHeap(),
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+        (int)WiFi.status(),
+        (int)WiFi.RSSI());
+}
+
 #if defined(WIFI_LOGGING_HOST_UDP)
 #include "fsd_udp.h" // your renamed udp header
+
+#include "esp_heap_caps.h"
 
 void udp_log_selftest() {
     Serial.println("[UDP] selftest: sending 3 packets...");
     udp_log::send_cstr("[UDP] selftest packet 1\n");
     delay(50);
+    udp_diag_print();
     udp_log::send_cstr("[UDP] selftest packet 2\n");
     delay(50);
+    udp_diag_print();
     udp_log::send_cstr("[UDP] selftest packet 3\n");
     Serial.println("[UDP] selftest: done");
+    udp_diag_print();
 }
 #endif
 
@@ -52,8 +70,8 @@ void setup() {
     INFO("======================================================\n");
     INFO("=== ESP32-S3 + ST7701 480x480 + LVGL 9.4.x + Touch ===\n");
     INFO("======================================================\n");
-    INFO("Version: 0.3 - T12.0");
-    INFO("2026-02-13");
+    INFO("Version: 0.3 - T12.0 + UDP-Logging\n");
+    INFO("2026-02-13\n\n");
 
 #if defined(WIFI_LOGGING_HOST_UDP)
     extern void udp_log_selftest(); // forward

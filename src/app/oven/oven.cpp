@@ -1,4 +1,65 @@
+/**
+ * =============================================================================
+ * oven.cpp — Host-side oven logic (T11 thermal model rework)
+ * =============================================================================
+ *
+ * This file is intentionally heavily documented.
+ * It is the single place where host policy and the T11 thermal model are applied.
+ *
+ * Architecture recap (T6+):
+ * - Host (ESP32-S3): UI + policy + countdown + thermal model.
+ * - Client (ESP32-WROOM): authoritative IO (outputs + sensors) and telemetry.
+ * - UART protocol (HostComm): line-based ASCII frames with CRLF.
+ *
+ * "Single Source of Truth":
+ * - UI renders ONLY from OvenRuntimeState.
+ * - Actuator booleans in OvenRuntimeState are updated ONLY from client telemetry
+ *   (C;STATUS). Host commands are intents; telemetry is truth.
+ *
+ * -----------------------------------------------------------------------------
+ * T11 Thermal Model (Variant B: PT1 + bias)
+ * -----------------------------------------------------------------------------
+ * Sensor reality:
+ * - The NTC is physically close to the heater and sees a hot spot.
+ * - Directly controlling to that value leads to overshoot and jitter.
+ *
+ * We therefore model:
+ *   T_ntc   : raw sensor temperature from STATUS (hot spot)
+ *   bias    : delta between hot spot and chamber "core" temperature
+ *   T_core  : estimated chamber core temperature (used for UI + control)
+ *
+ * Update strategy:
+ * - New STATUS -> store latest T_ntc
+ * - oven_tick() (1 Hz) -> update bias PT1 and core PT1 deterministically
+ *
+ * Equations (discrete PT1 at 1 Hz):
+ *   x = x + alpha * (x_target - x)   with alpha = dt / (tau + dt), dt=1s
+ *
+ * bias_target:
+ *   heater_intent_on  -> heatBiasC (+ optional slope vs. (T_ntc - target))
+ *   heater_intent_off -> coolBiasC (typically ~0)
+ *
+ * core_target:
+ *   core_target = T_ntc - bias
+ *
+ * Heater pulse shaping:
+ * - heaterWanted is derived from (T_core vs target ± tolerance) + safety gates.
+ * - pulse gating enforces a fixed ON window and OFF rest to avoid chattering.
+ *
+ * Safety:
+ * - Door open => heater OFF (best effort).
+ * - Overtemp lock (latched) => heater OFF until below (target - tol).
+ * - Comm loss => SAFE STOP (SET 0x0000) best effort.
+ *
+ * =============================================================================
+ */
+
+
 #include "oven_utils.h" // includes "oven.h"
+// =============================================================================
+// Includes
+// =============================================================================
+
 #include <Arduino.h>
 
 // =============================================================================
@@ -171,6 +232,10 @@ static OvenProfile currentProfile = {
 
 static PostConfig g_currentPostPlan = {false, 0, PostFanMode::FAST};
 
+// =============================================================================
+// UI-facing runtime state (Single Source of Truth for rendering)
+// =============================================================================
+
 static OvenRuntimeState runtimeState = {
     .durationMinutes = 60,
     .secondsRemaining = 60 * 60,
@@ -216,6 +281,10 @@ static OvenRuntimeState runtimeState = {
 
 // =============================================================================
 // HostComm integration (UART protocol, T6)
+// =============================================================================
+
+// =============================================================================
+// HostComm / UART communication state
 // =============================================================================
 static HostComm *g_hostComm = nullptr;
 static bool g_hasRealTelemetry = false;
@@ -453,6 +522,13 @@ void oven_get_runtime_state(OvenRuntimeState *out) {
 
 // =============================================================================
 // Timebase / countdown / diagnostics
+// =============================================================================
+
+// =============================================================================
+// oven_tick(): 1 Hz timebase
+// - countdown
+// - deterministic T11 thermal model update
+// - RUN -> POST -> STOP transitions
 // =============================================================================
 void oven_tick(void) {
     static uint32_t lastTick = 0;
@@ -774,6 +850,15 @@ void oven_comm_init(HardwareSerial &serial, uint32_t baudrate, uint8_t rx, uint8
     g_safeStopSent = false;
     g_lastPingMs = 0;
 }
+
+// =============================================================================
+// oven_comm_poll(): fast non-blocking comm loop (called frequently)
+// - UART RX processing
+// - Link sync & alive tracking
+// - STATUS polling
+// - Applies telemetry to runtime state
+// - Applies heater policy (T11) while RUNNING
+// =============================================================================
 
 void oven_comm_poll(void) {
     if (!g_hostComm) {

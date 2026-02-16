@@ -637,7 +637,7 @@
                 "UIWARN",
                 "EVENTINFO",
                 "WIFI_LOGGING_HOST_UDP=1",
-                "WIFI_LOGGING_UDP_IP=\"192.168.0.147\"",
+                "WIFI_LOGGING_UDP_IP=\"192.168.0.153\"",
                 "WIFI_LOGGING_UDP_PORT=10514",
                 "ESP32_ARDUINO_LIB_BUILDER",
                 "ESP_PLATFORM",
