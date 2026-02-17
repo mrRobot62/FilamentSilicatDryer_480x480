@@ -1,0 +1,46 @@
+.
+├── archiv
+├── assets
+│   └── icons
+├── doc
+│   ├── bugfixings
+│   ├── client
+│   ├── deep_dives
+│   │   └── Dev
+│   ├── display
+│   ├── hardware
+│   │   ├── ESP32-S3 4848S04_Display
+│   │   │   ├── 2-Specification
+│   │   │   ├── 3-Structure_Diagram
+│   │   │   ├── 4-Driver_IC_Data_Sheet
+│   │   │   ├── 5-IO pin distribution
+│   │   │   ├── 6-User_Manual
+│   │   │   ├── 7-Character&Picture_Molding_Tool
+│   │   │   └── 8-Burn operation
+│   │   └── kicad
+│   │       └── Filament-Silicagel-Dryer
+│   ├── host
+│   ├── images
+│   ├── oven
+│   ├── reverse_engineering
+│   │   └── img
+│   └── screens
+├── include
+└── src
+    ├── app
+    │   ├── display
+    │   ├── oven
+    │   ├── touch
+    │   └── ui
+    │       ├── icons
+    │       └── screens
+    ├── client
+    ├── share
+    └── test
+        ├── host
+        │   └── test_cases
+        ├── host_uart_client
+        ├── i2c
+        └── i2c_scanner
+
+44 directories

@@ -157,3 +157,9 @@ inline void logRawPrintf(const char *fmt, ...) {
     do {                                       \
         logPrintf("MAIN", "ERR", __VA_ARGS__); \
     } while (0)
+
+// Alias for convenience (some modules prefer ERROR over ERR).
+#define ERROR(...)                              \
+    do {                                        \
+        logPrintf("MAIN", "ERR", __VA_ARGS__);  \
+    } while (0)
