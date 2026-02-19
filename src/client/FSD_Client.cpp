@@ -46,6 +46,10 @@
 //
 
 #include "FSD_Client.h"
+#include "t13/ntc/ntc_convert.h"
+#include "t13/ntc/ntc_divider_config.h"
+#include "t13/ntc/ntc_table_10k_ioveo_036HS05201.h"
+#include "t13/sensors/ads1115_config.h"
 #include "log_client.h"
 // #include "pins_client.h"
 #include <Arduino.h>

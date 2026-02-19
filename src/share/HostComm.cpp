@@ -39,7 +39,9 @@ HostComm::HostComm(HardwareSerial &serial)
     _remoteStatus.adcRaw[1] = 0;
     _remoteStatus.adcRaw[2] = 0;
     _remoteStatus.adcRaw[3] = 0;
-    _remoteStatus.tempRaw = 0;
+    //_remoteStatus.tempRaw = 0;
+    _remoteStatus.tempHotspot_dC = (int16_t)-32768;
+    _remoteStatus.tempChamber_dC = (int16_t)-32768;
 
     // Communication / state flags
     _newStatus = false;    // becomes true when a valid STATUS frame is received

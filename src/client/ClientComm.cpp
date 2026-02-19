@@ -343,7 +343,9 @@ void ClientComm::handleIncomingLine(const String &line) {
 
         // Safe defaults
         s.adcRaw[0] = s.adcRaw[1] = s.adcRaw[2] = s.adcRaw[3] = 0;
-        s.tempRaw = 0;
+        s.tempHotspot_dC = (int16_t)-32768;
+        s.tempChamber_dC = (int16_t)-32768;
+        s.tempRaw = s.tempChamber_dC;
 
         // Let the sketch fill real hardware values
         if (_fillStatusCb) {

@@ -16,9 +16,16 @@ inline const char *bits16ToStr(uint16_t value) {
 
 // Holds status data exchanged between host and client
 struct ProtocolStatus {
-    uint16_t outputsMask; // 16-bit digital states CH0–CH15
-    uint16_t adcRaw[4];   // adcRaw[0..3] for analog channels (CH12–CH15)
-    int16_t tempRaw;      // float temperature in degrees multiplied by 10
+    uint16_t outputsMask;     // 16-bit digital states CH0–CH15
+    int16_t  adcRaw[4];       // RAW ADS1115 conversion counts for CH0..CH3 (signed)
+
+    // T13 Dual-NTC temperatures (°C×10)
+    int16_t  tempHotspot_dC;  // Hotspot (safety)
+    int16_t  tempChamber_dC;  // Chamber (control/UI)
+
+    // Deprecated (kept temporarily for Step-3 compile-safety if any legacy code still references it).
+    // Semantics: equals tempChamber_dC.
+    int16_t  tempRaw;
 };
 
 enum class ProtocolMessageType : uint8_t {

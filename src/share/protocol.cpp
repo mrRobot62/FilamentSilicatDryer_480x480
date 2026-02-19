@@ -162,7 +162,9 @@ String ProtocolCodec::buildClientStatus(const ProtocolStatus &status) {
     msg += ';';
     msg += String(status.adcRaw[3]);
     msg += ';';
-    msg += String(status.tempRaw);
+    msg += String(status.tempHotspot_dC);
+    msg += ';';
+    msg += String(status.tempChamber_dC);
     msg += CRLF;
     return msg;
 }
@@ -395,7 +397,7 @@ bool ProtocolCodec::parseLine(const String &line,
             // [5]=a2
             // [6]=a3
             // [7]=temp
-            if (partCount != 8) {
+            if (partCount != 9) {
                 return false;
             }
 
@@ -409,7 +411,9 @@ bool ProtocolCodec::parseLine(const String &line,
             status.adcRaw[1] = static_cast<uint16_t>(parts[4].toInt());
             status.adcRaw[2] = static_cast<uint16_t>(parts[5].toInt());
             status.adcRaw[3] = static_cast<uint16_t>(parts[6].toInt());
-            status.tempRaw = static_cast<int16_t>(parts[7].toInt());
+            status.tempHotspot_dC = static_cast<int16_t>(parts[7].toInt());
+            status.tempChamber_dC = static_cast<int16_t>(parts[8].toInt());
+            status.tempRaw = status.tempChamber_dC;
 
             type = ProtocolMessageType::ClientStatus;
             return true;
