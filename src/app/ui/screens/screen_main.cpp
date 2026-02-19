@@ -76,6 +76,9 @@ typedef struct main_screen_widgets_t {
     // -- Synchronization icon (esp32-s3 -> esp32-wroom)
     lv_obj_t *icon_sync;
 
+    // -- Safety icon (T13 safetyCutoffActive)
+    lv_obj_t *icon_safety;
+
     // --------------------------------------------------------
     // Dial
     // --------------------------------------------------------
@@ -795,6 +798,22 @@ static void icon_link_unused(lv_obj_t *link_icon) {
     lv_obj_set_style_image_recolor_opa(link_icon, LV_OPA_30, LV_PART_MAIN);
 }
 
+static void icon_safety_ok(lv_obj_t *safety_icon) {
+    if (!safety_icon) {
+        return;
+    }
+    lv_obj_set_style_image_recolor_opa(safety_icon, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_image_recolor(safety_icon, ui_color_from_hex(UI_COLOR_LINK_SYNCED), LV_PART_MAIN); // GREEN
+}
+
+static void icon_safety_active(lv_obj_t *safety_icon) {
+    if (!safety_icon) {
+        return;
+    }
+    lv_obj_set_style_image_recolor_opa(safety_icon, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_image_recolor(safety_icon, ui_color_from_hex(UI_COLOR_ICON_DOOR_OPEN_HEX), LV_PART_MAIN); // RED
+}
+
 static void update_post_visuals(const OvenRuntimeState &state) {
     if (!ui.preset_box || !ui.dial || !g_main_line_style_inited) {
         return;
@@ -1259,6 +1278,11 @@ static void create_top_bar(lv_obj_t *parent) {
     lv_image_set_src(ui.icon_sync, &link_wht);
     lv_obj_set_size(ui.icon_sync, 32, 32);
 
+    // safety icon (placeholder: link icon asset)
+    ui.icon_safety = lv_image_create(ui.top_bar_container);
+    lv_image_set_src(ui.icon_safety, &saftey_protect_wht); // <tbd> gegen echtes icon austauschen
+    lv_obj_set_size(ui.icon_safety, 32, 32);
+    lv_obj_align(ui.icon_safety, LV_ALIGN_LEFT_MID, 36, 0);
     // Time progress bar
     ui.time_bar = lv_bar_create(ui.top_bar_container);
     lv_obj_set_size(ui.time_bar, UI_TIME_BAR_WIDTH, UI_TIME_BAR_HEIGHT);
@@ -1876,6 +1900,12 @@ static void update_status_icons(const OvenRuntimeState &state) {
         icon_link_synced(ui.icon_sync); // GREEN
     } else {
         icon_link_unsynced(ui.icon_sync); // RED
+    }
+    // 1b) Safety icon recolor (T13)
+    if (state.safetyCutoffActive) {
+        icon_safety_active(ui.icon_safety); // RED
+    } else {
+        icon_safety_ok(ui.icon_safety); // GREEN
     }
 
     // 2) TopBar2 status line (priority-based, edge-triggered)

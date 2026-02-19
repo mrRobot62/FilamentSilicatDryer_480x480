@@ -18,6 +18,7 @@ extern const lv_image_dsc_t door_open_wht;
 extern const lv_image_dsc_t temp_tri_up_wht;
 extern const lv_image_dsc_t temp_tri_down_wht;
 extern const lv_image_dsc_t link_wht;
+extern const lv_image_dsc_t saftey_protect_wht;
 
 #ifdef __cplusplus
 } /* extern "C" */
