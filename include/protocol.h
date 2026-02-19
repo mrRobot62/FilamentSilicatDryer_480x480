@@ -25,7 +25,6 @@ struct ProtocolStatus {
 
     // Deprecated (kept temporarily for Step-3 compile-safety if any legacy code still references it).
     // Semantics: equals tempChamber_dC.
-    int16_t  tempRaw;
 };
 
 enum class ProtocolMessageType : uint8_t {

@@ -413,7 +413,7 @@ bool ProtocolCodec::parseLine(const String &line,
             status.adcRaw[3] = static_cast<uint16_t>(parts[6].toInt());
             status.tempHotspot_dC = static_cast<int16_t>(parts[7].toInt());
             status.tempChamber_dC = static_cast<int16_t>(parts[8].toInt());
-            status.tempRaw = status.tempChamber_dC;
+            
 
             type = ProtocolMessageType::ClientStatus;
             return true;

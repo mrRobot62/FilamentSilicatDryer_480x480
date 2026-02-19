@@ -344,7 +344,7 @@ static inline void comm_send_mask(uint16_t newMask) {
 // Telemetry -> runtime mapping
 // =============================================================================
 static void apply_remote_status_to_runtime(const ProtocolStatus &st) {
-    runtimeState.tempCurrent = static_cast<float>(st.tempRaw / 10.f);
+    runtimeState.tempCurrent = static_cast<float>(st.tempChamber_dC) / 10.f;
 
     // T11 input: STATUS temperature is the NTC sensor near heater
     thermal_model_on_new_ntc(runtimeState.tempCurrent, g_therm);

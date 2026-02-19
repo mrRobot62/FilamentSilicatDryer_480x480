@@ -339,11 +339,11 @@ void HostComm::handleIncomingLine(const String &line) {
         _newStatus = true;
         _lastStatusMs = millis();
         // _lastRxAnyMs = millis();
-        HOST_INFO("STATUS received, mask=0x%04X (%10s), adc=[%u,%u,%u,%u] tempRaw=%d\n",
+        HOST_INFO("STATUS received, mask=0x%04X (%10s), adc=[%u,%u,%u,%u] tempChamber_dC=%d\n",
                   statusTmp.outputsMask,
                   oven_outputs_mask_to_str(statusTmp.outputsMask),
                   statusTmp.adcRaw[0], statusTmp.adcRaw[1], statusTmp.adcRaw[2], statusTmp.adcRaw[3],
-                  statusTmp.tempRaw);
+                  statusTmp.tempChamber_dC);
         break;
 
     case ProtocolMessageType::ClientPong:
