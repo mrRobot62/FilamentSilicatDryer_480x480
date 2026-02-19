@@ -225,6 +225,17 @@ static constexpr uint32_t kCommAliveTimeoutMs = 1500;
 
 static bool g_hostOvertempActive = false;
 
+
+// -------------------------------------------------------------------------
+// T13 Safety / Relay timing
+// -------------------------------------------------------------------------
+static constexpr float HOTSPOT_MAX_C   = 140.0f; // safety sensor cutoff (near heater)
+static constexpr float CHAMBER_MAX_C   = 120.0f; // absolute fail-safe limit
+static constexpr float OVERSHOOT_CAP_C = 2.0f;   // cap above target (filament protection)
+
+static constexpr uint32_t MIN_HEATER_ON_MS  = 2000; // relay-safe minimum ON time
+static constexpr uint32_t MIN_HEATER_OFF_MS = 3000; // relay-safe minimum OFF time
+
 static OvenProfile currentProfile = {
     .durationMinutes = 60,
     .targetTemperature = 45.0f,
@@ -344,12 +355,15 @@ static inline void comm_send_mask(uint16_t newMask) {
 // Telemetry -> runtime mapping
 // =============================================================================
 static void apply_remote_status_to_runtime(const ProtocolStatus &st) {
+    // T13: Dual-NTC
+    // - Chamber temperature is the ONLY control/UI temperature.
+    // - Hotspot temperature is used ONLY for safety supervision.
     runtimeState.tempCurrent = static_cast<float>(st.tempChamber_dC) / 10.f;
+    runtimeState.tempNtcC    = static_cast<float>(st.tempHotspot_dC) / 10.f;
 
-    // T11 input: STATUS temperature is the NTC sensor near heater
-    thermal_model_on_new_ntc(runtimeState.tempCurrent, g_therm);
-    thermal_model_copy_to_runtime(g_therm, runtimeState);
-    thermal_apply_ui_temp(runtimeState);
+    // Legacy T11 fields are kept in the struct for now but are no longer used.
+    runtimeState.tempCoreC = runtimeState.tempCurrent;
+    runtimeState.tempCoreValid = false;
 
     runtimeState.fan12v_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN12V);
     runtimeState.fan230_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN230V);
@@ -539,50 +553,7 @@ void oven_tick(void) {
     }
     lastTick = now;
 
-    // T11: update PT1 core model at 1 Hz.
-    // Use host "intent" (last command mask) for heater state, not telemetry (may lag).
-    const bool heaterIntent = g_heaterIntentOn;
-    thermal_model_update_pt1_1hz(kThermalConfig, heaterIntent, g_therm);
-    thermal_model_copy_to_runtime(g_therm, runtimeState);
-    thermal_apply_ui_temp(runtimeState);
-
-    // T11 - thermal - debug-log
-    static uint32_t s_lastDbgMs = 0;
-    const uint32_t dbgNow = millis();
-    if (dbgNow - s_lastDbgMs >= 5000) {
-        s_lastDbgMs = dbgNow;
-
-        const bool heaterIntent = mask_has(g_lastCommandMask, OVEN_CONNECTOR::HEATER);
-
-        const int32_t heatRem = (g_therm.heatPhaseUntilMs != 0 && dbgNow < g_therm.heatPhaseUntilMs)
-                                    ? (int32_t)(g_therm.heatPhaseUntilMs - dbgNow)
-                                    : 0;
-        const int32_t restRem = (g_therm.restUntilMs != 0 && dbgNow < g_therm.restUntilMs)
-                                    ? (int32_t)(g_therm.restUntilMs - dbgNow)
-                                    : 0;
-
-        const float curCtrl = runtimeState.tempCoreValid ? runtimeState.tempCoreC : runtimeState.tempCurrent;
-        const float tgtCtrl = runtimeState.tempTarget;
-        const float tolCtrl = runtimeState.tempToleranceC;
-
-        const float hiCtrl = tgtCtrl + tolCtrl;
-        const float loCtrl = tgtCtrl - tolCtrl;
-
-        OVEN_INFO("[T11] mode=%d door=%d lock=%d ntc=%.2f core=%.2f ui=%.2f ctrl=%.2f tgt=%.2f lo=%.2f hi=%.2f heaterIntent=%d heatRemMs=%ld restRemMs=%ld\n",
-                  (int)runtimeState.mode,
-                  runtimeState.door_open ? 1 : 0,
-                  g_hostOvertempActive ? 1 : 0,
-                  runtimeState.tempNtcC,
-                  runtimeState.tempCoreC,
-                  runtimeState.tempCurrent,
-                  curCtrl,
-                  tgtCtrl,
-                  loCtrl,
-                  hiCtrl,
-                  heaterIntent ? 1 : 0,
-                  (long)heatRem,
-                  (long)restRem);
-    }
+    // T13: no thermal model update in oven_tick()
 
     // Countdown
     if (runtimeState.mode == OvenMode::RUNNING) {
@@ -916,97 +887,78 @@ void oven_comm_poll(void) {
     }
 
     // -------------------------------------------------------------------------
-    // T11: Heater request policy (RUNNING only)
-    // - Uses tempCoreC (estimated) for decision, not raw tempCurrent.
-    // - Pulse-gates heater via heatWindow/restMs (ms-based).
-    // - Door open ALWAYS forces heater OFF (best-effort).
-    // - Overtemp lock also forces OFF.
-    // -------------------------------------------------------------------------
-    if (runtimeState.mode == OvenMode::RUNNING) {
-        // -------------------------------------------------------------------------
-        // T11.4: Heater request policy (RUNNING only)
-        // - Uses tempCoreC (estimated) as control temperature if valid
-        // - Hysteresis around target: ON below (tgt - tol), OFF above (tgt + tol)
-        // - Pulse gating: heater can only be ON during heatWindowMs, then forced OFF for restMs
-        // - Door open ALWAYS forces heater OFF (best-effort)
-        // - Overtemp lockout forces OFF, clears only when <= (tgt - tol)
-        // -------------------------------------------------------------------------
+// T13: Heater control + safety (RUNNING only)
+// - Control temperature: runtimeState.tempCurrent (Chamber)
+// - Safety temperature:  runtimeState.tempNtcC (Hotspot)
+// - Simple hysteresis: ON below (tgt - tol), OFF above (tgt + tol)
+// - Safety cutoffs force heater OFF
+// - Relay-safe timing guard prevents rapid toggling
+// -------------------------------------------------------------------------
+if (runtimeState.mode == OvenMode::RUNNING) {
+    const float chamberC = runtimeState.tempCurrent;
+    const float hotspotC = runtimeState.tempNtcC;
+    const float tgt = runtimeState.tempTarget;
+    const float tol = runtimeState.tempToleranceC;
 
-        const float cur = runtimeState.tempCoreValid ? runtimeState.tempCoreC : runtimeState.tempCurrent;
-        const float tgt = runtimeState.tempTarget;
-        const float tol = runtimeState.tempToleranceC;
+    // Safety evaluation (non-latching; becomes true while any condition is violated)
+    bool safety = false;
 
-        const float hi = tgt + tol;
-        const float lo = tgt - tol;
+    if (hotspotC >= HOTSPOT_MAX_C) {
+        safety = true;
+    }
+    if (chamberC >= CHAMBER_MAX_C) {
+        safety = true;
+    }
+    if (chamberC >= (tgt + OVERSHOOT_CAP_C)) {
+        safety = true;
+    }
 
-        // 1) Door safety: force OFF and reset pulse scheduler
-        if (runtimeState.door_open) {
-            thermal_pulse_reset(g_therm);
+    runtimeState.safetyCutoffActive = safety;
 
-            if (mask_has(g_lastCommandMask, OVEN_CONNECTOR::HEATER)) {
-                uint16_t m = g_lastCommandMask;
-                m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
-                comm_send_mask(m);
-                OVEN_WARN("[SAFETY] DOOR OPEN -> HEATER OFF (host)\n");
-            }
+    // Door open: best-effort force heater OFF
+    if (runtimeState.door_open) {
+        safety = true;
+    }
+
+    // Hysteresis decision (desired heater intent)
+    const float lo = tgt - tol;
+    const float hi = tgt + tol;
+
+    bool desiredHeater = false;
+    if (!safety) {
+        if (g_heaterIntentOn) {
+            // currently ON -> turn OFF when above hi
+            desiredHeater = (chamberC <= hi);
         } else {
-            // 2) Overtemp lock (latched until <= lo)
-            if (!g_hostOvertempActive && (cur >= hi)) {
-                g_hostOvertempActive = true;
-                OVEN_WARN("[SAFETY] OVER-TEMP -> lock active (core=%.2f >= hi=%.2f)\n", cur, hi);
-            } else if (g_hostOvertempActive && (cur <= lo)) {
-                g_hostOvertempActive = false;
-                OVEN_INFO("[SAFETY] OVER-TEMP recovered (core=%.2f <= lo=%.2f)\n", cur, lo);
-            }
-
-            // 3) Base heater desire (hysteresis bottom)
-            //    "Wanted" means: we are below lower threshold AND not locked.
-            const bool heaterWanted = (!g_hostOvertempActive) && (cur <= lo);
-
-            // 4) Pulse gating (ms-based)
-            //    If heaterWanted -> allow ON only during heatWindowMs, then force OFF for restMs.
-            //    If heaterWanted=false -> OFF and reset pulse state.
-            bool heaterAllowedNow = false;
-
-            // While the core estimate is not valid yet, do NOT pulse-gate.
-            // Fall back to plain hysteresis behavior (heaterWanted).
-            if (!runtimeState.tempCoreValid) {
-                thermal_pulse_reset(g_therm);
-                heaterAllowedNow = heaterWanted;
-            } else {
-                heaterAllowedNow = thermal_pulse_allow_heater_now(kThermalConfig, now, heaterWanted, g_therm);
-            }
-            // 5) Hard OFF at/above hi (top of hysteresis)
-            //    This also resets pulse scheduler (prevents immediate re-ON).
-            if (cur >= hi) {
-                heaterAllowedNow = false;
-                thermal_pulse_reset(g_therm);
-            }
-
-            // 6) Apply to command mask (intent), not telemetry
-            const bool heaterIsOn = mask_has(g_lastCommandMask, OVEN_CONNECTOR::HEATER);
-
-            if (heaterAllowedNow && !heaterIsOn) {
-                uint16_t m = g_lastCommandMask;
-                m = mask_set(m, OVEN_CONNECTOR::HEATER, true);
-                comm_send_mask(m);
-
-                OVEN_INFO("[HEATER] ON  (core=%.2f tgt=%.2f tol=%.2f win=%lu rest=%lu)\n",
-                          cur, tgt, tol,
-                          (unsigned long)kThermalConfig.heatWindowMs,
-                          (unsigned long)kThermalConfig.restMs);
-            } else if (!heaterAllowedNow && heaterIsOn) {
-                uint16_t m = g_lastCommandMask;
-                m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
-                comm_send_mask(m);
-
-                OVEN_INFO("[HEATER] OFF (core=%.2f tgt=%.2f tol=%.2f lock=%d)\n",
-                          cur, tgt, tol, g_hostOvertempActive ? 1 : 0);
-            }
-            // else: hold
+            // currently OFF -> turn ON when below lo
+            desiredHeater = (chamberC < lo);
         }
+    }
 
-    } else {
+    // Relay timing guard
+    static uint32_t s_lastHeaterSwitchMs = 0;
+    const uint32_t nowMs = millis();
+    const uint32_t since = (s_lastHeaterSwitchMs > 0) ? (nowMs - s_lastHeaterSwitchMs) : 0xFFFFFFFFu;
+
+    if (desiredHeater != g_heaterIntentOn) {
+        const uint32_t minHold = g_heaterIntentOn ? MIN_HEATER_ON_MS : MIN_HEATER_OFF_MS;
+        if (since >= minHold) {
+            s_lastHeaterSwitchMs = nowMs;
+            g_heaterIntentOn = desiredHeater;
+        }
+    }
+
+    // Apply heater intent to command mask (best-effort; remote truth is still telemetry)
+    uint16_t cmd = g_lastCommandMask;
+    cmd = mask_set(cmd, OVEN_CONNECTOR::HEATER, g_heaterIntentOn);
+
+    // Overtemp indicator mirrors safety for now (kept for existing UI/logic)
+    g_hostOvertempActive = runtimeState.safetyCutoffActive;
+    runtimeState.hostOvertempActive = g_hostOvertempActive;
+
+    comm_send_mask(cmd);
+}
+ else {
         // Not RUNNING: clear latch, stop pulses
         g_hostOvertempActive = false;
         thermal_pulse_reset(g_therm);

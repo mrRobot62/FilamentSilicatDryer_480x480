@@ -111,10 +111,11 @@ typedef struct
     uint32_t secondsRemaining;
 
     // - tempCurrent: UI/control temperature (tempCoreC if valid, otherwise tempNtcC)
-    float tempCurrent;    // raw sensor temp (STATUS tempRaw / 10)
+    float tempCurrent;    // control/UI temperature (Chamber)
     float tempTarget;     // UI target
     float tempToleranceC; // hysteresis band (host-side)
     bool hostOvertempActive;
+    bool safetyCutoffActive; // T13: true when any safety cutoff is active
 
     int filamentId;
     char presetName[24];
