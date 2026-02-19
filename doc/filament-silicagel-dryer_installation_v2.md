@@ -245,7 +245,15 @@ Typisch (CLIENT):
 - **Lösung:** 
 `rm -f .pio/libdeps/host_esp32s3_st7701/lvgl/src/draw/sw/blend/helium/lv_blend_helium.S`
 
+## Drift Screen
+Bildschirm schiebt sich nach rechts aus dem Rand und kommt links wieder rein
+```
+  // RGB pixel clock. Higher values increase bandwidth and may cause slow horizontal drift/wrap on some panels.
+// 12 MHz proved stable in long-running tests.
+static constexpr uint32_t RGB_PCLK_HZ = 12'000'000;
 
+```
+runter setzen auf 10'000'000 oder was anderes
 
 
 

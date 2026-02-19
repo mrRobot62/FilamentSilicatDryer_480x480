@@ -5,10 +5,9 @@ Arduino_RGB_Display *gfx = nullptr;
 
 // RGB pixel clock. Higher values increase bandwidth and may cause slow horizontal drift/wrap on some panels.
 // 12 MHz proved stable in long-running tests.
-static constexpr uint32_t RGB_PCLK_HZ = 12'000'000;
+static constexpr uint32_t RGB_PCLK_HZ = 10'000'000;
 
-bool init_display()
-{
+bool init_display() {
     Serial.println(F("[DISPLAY] init_display() start"));
 
     // --- 1) SWSPI-Bus für ST7701-Register (SPI_WriteComm/Data-Äquivalent) ---
@@ -22,7 +21,6 @@ bool init_display()
     );
 
     // --- 2) RGB-Panel (DE/VS/HS/PCLK + 16bit-RGB Bus) ---
-    // Dies ist das Schema, das bei dir schon OK war.
     static Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
         // Timing-Signale
         18, // DE
@@ -58,7 +56,7 @@ bool init_display()
         sizeof(st7701_hsd040bpn1_init_operations));
 
     // --- 4) Display starten ---
-    //    if (!gfx->begin(16'000'000)) // 16 MHz PCLK, lief bei dir stabil
+    //    if (!gfx->begin(16'000'000)) // 16 MHz PCLK,
     if (!gfx->begin(RGB_PCLK_HZ)) // 12 MHz PCLK, lief bei dir stabil
     {
         Serial.println(F("[DISPLAY] gfx->begin() FAILED"));
