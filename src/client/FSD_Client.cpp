@@ -13,7 +13,7 @@
 // - Provide STATUS telemetry with:
 //     - outputsMask (effective, after safety + PWM truth)
 //     - adcRaw[] (raw diagnostic values)
-//     - tempRaw  (temperature value; source depends on build flags)
+//     - tempChamber_dC  (temperature value; source depends on build flags)
 //
 // Protocol (HOST -> CLIENT):
 //   H;SET;XXXX
@@ -26,7 +26,7 @@
 //   C;ACK;SET;MMMM
 //   C;ACK;UPD;MMMM
 //   C;ACK;TOG;MMMM
-//   C;STATUS;mask;a0;a1;a2;a3;tempRaw
+//   C;STATUS;mask;a0;a1;a2;a3;tempChamber_dC
 //   C;PONG
 //
 // Design rules:
@@ -46,13 +46,24 @@
 //
 
 #include "FSD_Client.h"
+#include "log_client.h"
 #include "t13/ntc/ntc_convert.h"
-#include "t13/ntc/ntc_divider_config.h"
+#include "t13/ntc/ntc_divider_config_chamber.h"
+#include "t13/ntc/ntc_divider_config_hotspot.h"
 #include "t13/ntc/ntc_table_10k_ioveo_036HS05201.h"
 #include "t13/sensors/ads1115_config.h"
-#include "log_client.h"
 // #include "pins_client.h"
+#include "wifi_net.h"
+#include "wifi_secrets.h"
 #include <Arduino.h>
+
+// T13 Dual-NTC ADS channel mapping
+#ifndef ADS_NTC_PORT_HOTSPOT
+#define ADS_NTC_PORT_HOTSPOT 0 // CH0
+#endif
+#ifndef ADS_NTC_PORT_CHAMBER
+#define ADS_NTC_PORT_CHAMBER 1 // CH1
+#endif
 
 constexpr const char *VERSION = "V0.4 - 20260130";
 
@@ -419,20 +430,38 @@ static void fillStatusCallback(ProtocolStatus &st) {
         st.outputsMask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
     }
 
-    // use temperature average over 10 reads
-    st.tempRaw = tempAvg.update(readTemperatureValue());
+    // ---------------------------------------------------------------------
+    // T13 Dual-NTC (ADS1115):
+    // - CH0: Hotspot (safety)  -> 100k NTC + 100k pull-up (table currently unknown)
+    // - CH1: Chamber (control) -> 10k NTC + 10k pull-up (iOVEO table available)
+    //
+    // adcRaw[] is transmitted as RAW ADS1115 counts (signed int16), unscaled.
+    // tempHotspot_dC / tempChamber_dC are transmitted as °C×10 (int16).
+    // ---------------------------------------------------------------------
 
-    // adcRaw[]: keep raw units for diagnostics (no implicit host assumptions)
-    st.adcRaw[0] = st.tempRaw;
-    st.adcRaw[1] = 0;
+    // Read RAW ADS1115 counts (signed)
+    const int16_t rawHot = (int16_t)ads.readADC_SingleEnded(ADS_NTC_PORT_HOTSPOT);
+    const int16_t rawCh = (int16_t)ads.readADC_SingleEnded(ADS_NTC_PORT_CHAMBER);
+
+    st.adcRaw[0] = rawHot;
+    st.adcRaw[1] = rawCh;
     st.adcRaw[2] = 0;
     st.adcRaw[3] = 0;
 
-    // SAFETY: absolute over-temperature check (authoritative)
-    // NOTE: This conversion assumes st.tempRaw is in °C-like units.
-    // If st.tempRaw is scaled, adjust the conversion accordingly.
-    const float tempCur = (float)st.tempRaw * 1.0f;
-    safety_check_overtemp(tempCur);
+    // Hotspot: table/model currently not available for the internal 100k NTC.
+    // Option B (bring-up): transmit INVALID and do not block heater on host side
+    // (host still has chamber fail-safe + overshoot protections).
+    st.tempHotspot_dC = t13::TEMP_INVALID_DC;
+
+    // Chamber: valid conversion using iOVEO 10k NTC table + 10k pull-up divider.
+    st.tempChamber_dC = t13::calc_temp_from_ads_raw_dC(
+        rawCh,
+        t13::kNtc10k_Chamber_Table,
+        t13::kNtc10k_Chamber_TableCount,
+        t13::kNtcTableMode,
+        t13::chamber::NTC_VREF_MV,
+        t13::chamber::NTC_R_FIXED_OHM,
+        t13::chamber::NTC_TO_GND);
 }
 
 // Apply outputs when mask changes
@@ -726,11 +755,125 @@ static void heaterPwmEnable(bool enable) {
 }
 
 //----------------------------------------------------------------------------
+// WiFi & UDP
+//----------------------------------------------------------------------------
+static void udp_diag_print() {
+    Serial.printf(
+        "[UDP/DIAG] freeHeap=%u internal=%u largestInt=%u psram=%u wifi=%d rssi=%d\n",
+        (unsigned)ESP.getFreeHeap(),
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+        (int)WiFi.status(),
+        (int)WiFi.RSSI());
+}
+
+#if defined(WIFI_LOGGING_CLIENT_UDP)
+#include "fsd_udp.h" // your renamed udp header
+
+#include "esp_heap_caps.h"
+#include "udp_config.h"
+#include "udp_config_store.h"
+
+void udp_log_selftest() {
+    Serial.println("[UDP] selftest: sending 3 packets...");
+    udp_log::send_cstr("[UDP] selftest packet 1\n");
+    delay(50);
+    udp_diag_print();
+    udp_log::send_cstr("[UDP] selftest packet 2\n");
+    delay(50);
+    udp_diag_print();
+    udp_log::send_cstr("[UDP] selftest packet 3\n");
+    Serial.println("[UDP] selftest: done");
+    udp_diag_print();
+}
+#endif
+
+//----------------------------------------------------------------------------
 // setup
 //----------------------------------------------------------------------------
+
+#ifdef T13_NTC_CHAMBER_TEST
+static uint32_t g_lastNtcTestMs = 0;
+
+static void t13_ntc_chamber_test_tick() {
+    const uint32_t now = millis();
+    if (now - g_lastNtcTestMs < 1000) {
+        return;
+    }
+    g_lastNtcTestMs = now;
+
+    const int16_t rawCh = (int16_t)ads.readADC_SingleEnded(ADS_NTC_PORT_CHAMBER);
+
+    const int16_t chamber_dC = t13::calc_temp_from_ads_raw_dC(
+        rawCh,
+        t13::kNtc10k_Chamber_Table,
+        t13::kNtc10k_Chamber_TableCount,
+        t13::kNtcTableMode,
+        t13::chamber::NTC_VREF_MV,
+        t13::chamber::NTC_R_FIXED_OHM,
+        t13::chamber::NTC_TO_GND);
+
+    CLIENT_INFO("[T13][NTC_TEST] CH1 raw=%d chamber_dC=%d (%.1fC)\n",
+                (int)rawCh, (int)chamber_dC, (float)chamber_dC / 10.0f);
+}
+#endif
+
+
 void setup() {
     Serial.begin(115200);
-    delay(200);
+    delay(2000);
+
+    // ****** Wifi & udp setup
+#if defined(WIFI_LOGGING_CLIENT_UDP)
+    Serial.println("[UDP] WIFI_LOGGING_CLIENT_UDP is ENABLED");
+#else
+    Serial.println("[UDP] WIFI_LOGGING_CLIENT_UDP is DISABLED");
+#endif
+    UdpLogConfig udpCfg{};
+    const bool hasUdpCfg = udp_cfg_load(udpCfg);
+
+    if (hasUdpCfg) {
+        INFO("UDP CFG: loaded from Preferences (NVS)\n");
+        INFO("UDP CFG: ssid='%s' pw_len=%u\n", udpCfg.ssid, (unsigned)strlen(udpCfg.password));
+        INFO("UDP CFG: target=%s:%u\n", udpCfg.targetIp, (unsigned)udpCfg.targetPort);
+
+        // Apply runtime config for other modules (UI can read back via udp_config_current()).
+        udp_config_apply(udpCfg);
+
+        // Configure UDP destination (IP + PORT) for WiFi logging.
+        udp_log::configure(udpCfg.targetIp, udpCfg.targetPort);
+    } else {
+        WARN("UDP CFG: no Preferences config found -> using build defaults (Fall A)\n");
+
+        // Choose WiFi credentials: Preferences (if present) else compile-time secrets.
+        const char *wifiSsid = hasUdpCfg ? udpCfg.ssid : WIFI_SSID;
+        const char *wifiPass = hasUdpCfg ? udpCfg.password : WIFI_PASS;
+
+        INFO("WIFI: connecting to ssid='%s' (source=%s)\n",
+             wifiSsid, hasUdpCfg ? "prefs" : "build");
+        wifi_net::begin_sta(wifiSsid, wifiPass);
+        wifi_net::wait_connected(12000);
+
+        // --- T12: Post-connect summary (visible in UDP viewer) ---
+        //
+        // Reason: Early boot logs before WiFi connect are only visible on Serial.
+        // After WL_CONNECTED, the same info is emitted again so it is also visible via UDP logging.
+        {
+            const UdpLogConfig &cur = udp_config_current();
+            if (cur.isValid()) {
+                INFO("UDP CFG (post-connect): ssid='%s' pw_len=%u target=%s:%u\n",
+                     cur.ssid, (unsigned)strlen(cur.password), cur.targetIp, (unsigned)cur.targetPort);
+            } else {
+                WARN("UDP CFG (post-connect): runtime config not valid -> using build defaults\n");
+            }
+        }
+
+        // Keep backward compatible defaults (build flags / hardcoded defaults in fsd_udp.h).
+        udp_config_reset();
+    }
+    // ****** Wifi & udp setup
+
     printStartupInfo();
 
     // Built-in LED pin
@@ -796,6 +939,12 @@ void setup() {
 // loop
 //----------------------------------------------------------------------------
 void loop() {
+#ifdef T13_NTC_CHAMBER_TEST
+    // Standalone chamber NTC bring-up (no Host required)
+    t13_ntc_chamber_test_tick();
+    return;
+#endif
+
     // Run UART protocol engine (RX/TX, parser, watchdog)
     clientComm.loop();
 

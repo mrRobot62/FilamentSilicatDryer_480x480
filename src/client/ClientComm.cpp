@@ -232,7 +232,7 @@ void ClientComm::clearStatusRequestedFlag() {
  * You are responsible for filling the ProtocolStatus fields correctly:
  * - outputsMask: current digital states for CH0..CH15
  * - adcRaw[0..3]: raw ADC readings for CH12..CH15
- * - tempRaw: temperature in 0.25°C units
+ * - tempChamber_dC: temperature in 0.25°C units
  *
  * @param status Status data to send.
  */
@@ -343,11 +343,7 @@ void ClientComm::handleIncomingLine(const String &line) {
 
         // Safe defaults
         s.adcRaw[0] = s.adcRaw[1] = s.adcRaw[2] = s.adcRaw[3] = 0;
-        s.tempHotspot_dC = (int16_t)-32768;
-        s.tempChamber_dC = (int16_t)-32768;
-        s.tempRaw = s.tempChamber_dC;
-
-        // Let the sketch fill real hardware values
+// Let the sketch fill real hardware values
         if (_fillStatusCb) {
             _fillStatusCb(s);
         }
