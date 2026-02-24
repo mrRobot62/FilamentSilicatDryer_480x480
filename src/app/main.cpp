@@ -34,7 +34,7 @@ static void udp_diag_print() {
         (int)WiFi.RSSI());
 }
 
-#if defined(WIFI_LOGGING_HOST_UDP)
+#if defined(DWIFI_LOGGING_ENABLE)
 #include "fsd_udp.h" // your renamed udp header
 
 #include "esp_heap_caps.h"
@@ -66,58 +66,14 @@ void setup() {
     Serial.println("[UDP] WIFI_LOGGING_CLIENT_UDP is DISABLED");
 #endif
 
-    // --- T12: Load UDP/WiFi config from Preferences at boot (works without opening screen_udp) ---
-    //
-    // Why: UDP logging must work immediately after boot, even if the user never opens screen_udp.
-    // We therefore load SSID/PW/IP/PORT from Preferences (NVS) here and configure the UDP transport.
-    //
-    // Visibility: We emit a small, privacy-safe boot report:
-    // - whether Preferences config was found (Fall A vs. Fall B)
-    // - which SSID is used
-    // - which UDP target IP/port is used
-    // (password is NOT printed; only its length).
-    UdpLogConfig udpCfg{};
-    const bool hasUdpCfg = udp_cfg_load(udpCfg);
-
-    if (hasUdpCfg) {
-        INFO("UDP CFG: loaded from Preferences (NVS)\n");
-        INFO("UDP CFG: ssid='%s' pw_len=%u\n", udpCfg.ssid, (unsigned)strlen(udpCfg.password));
-        INFO("UDP CFG: target=%s:%u\n", udpCfg.targetIp, (unsigned)udpCfg.targetPort);
-
-        // Apply runtime config for other modules (UI can read back via udp_config_current()).
-        udp_config_apply(udpCfg);
-
-        // Configure UDP destination (IP + PORT) for WiFi logging.
-        udp_log::configure(udpCfg.targetIp, udpCfg.targetPort);
-    } else {
-        WARN("UDP CFG: no Preferences config found -> using build defaults (Fall A)\n");
-
-        // Keep backward compatible defaults (build flags / hardcoded defaults in fsd_udp.h).
-        udp_config_reset();
-    }
-
     // Choose WiFi credentials: Preferences (if present) else compile-time secrets.
-    const char *wifiSsid = hasUdpCfg ? udpCfg.ssid : WIFI_SSID;
-    const char *wifiPass = hasUdpCfg ? udpCfg.password : WIFI_PASS;
+    // const char *wifiSsid = hasUdpCfg ? udpCfg.ssid : WIFI_SSID;
+    // const char *wifiPass = hasUdpCfg ? udpCfg.password : WIFI_PASS;
 
-    INFO("WIFI: connecting to ssid='%s' (source=%s)\n",
-         wifiSsid, hasUdpCfg ? "prefs" : "build");
-    wifi_net::begin_sta(wifiSsid, wifiPass);
-    wifi_net::wait_connected(12000);
-
-    // --- T12: Post-connect summary (visible in UDP viewer) ---
-    //
-    // Reason: Early boot logs before WiFi connect are only visible on Serial.
-    // After WL_CONNECTED, the same info is emitted again so it is also visible via UDP logging.
-    {
-        const UdpLogConfig &cur = udp_config_current();
-        if (cur.isValid()) {
-            INFO("UDP CFG (post-connect): ssid='%s' pw_len=%u target=%s:%u\n",
-                 cur.ssid, (unsigned)strlen(cur.password), cur.targetIp, (unsigned)cur.targetPort);
-        } else {
-            WARN("UDP CFG (post-connect): runtime config not valid -> using build defaults\n");
-        }
-    }
+    // INFO("WIFI: connecting to ssid='%s' (source=%s)\n",
+    //      wifiSsid, hasUdpCfg ? "prefs" : "build");
+    // wifi_net::begin_sta(wifiSsid, wifiPass);
+    // wifi_net::wait_connected(12000);
 
     INFO("======================================================\n");
     INFO("=== ESP32-S3 + ST7701 480x480 + LVGL 9.4.x + Touch ===\n");
