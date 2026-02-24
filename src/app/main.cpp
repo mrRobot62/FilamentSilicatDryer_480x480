@@ -12,6 +12,11 @@
 #include "ui/screens/screen_main.h"
 #include "ui_events.h"
 
+// --- UDP logging (shared) ----------------------------------------------------
+#if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
+#include "fsd_udp.h"
+#endif
+
 #include "wifi_net.h"
 #include "wifi_secrets.h"
 
@@ -60,10 +65,22 @@ void setup() {
 
     delay(5000); // damit du sicher die Setup-Logs siehst
 
-#if defined(DWIFI_LOGGING_CLIENT_UDP)
+#if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
+    // Start WiFi + UDP logger (uses WIFI_SSID/WIFI_PASS from wifi_secrets.h internally)
+    const bool ok = udp_log::begin("HOST");
     Serial.println("[UDP] WIFI_LOGGING_CLIENT_UDP is ENABLED");
+
+    // simple selftest packets (helps to verify UDP path immediately)
+    if (ok) {
+        udp_log::send_cstr("[UDP] selftest packet 1 (HOST)\n");
+        delay(50);
+        udp_log::send_cstr("[UDP] selftest packet 2 (HOST)\n");
+        delay(50);
+        udp_log::send_cstr("[UDP] selftest packet 3 (HOST)\n");
+    }
 #else
     Serial.println("[UDP] WIFI_LOGGING_CLIENT_UDP is DISABLED");
+
 #endif
 
     // Choose WiFi credentials: Preferences (if present) else compile-time secrets.

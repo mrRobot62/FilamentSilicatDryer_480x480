@@ -57,6 +57,10 @@
 #include "wifi_secrets.h"
 #include <Arduino.h>
 
+#if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
+#include "fsd_udp.h"
+#endif
+
 // T13 Dual-NTC ADS channel mapping
 #ifndef ADS_NTC_PORT_HOTSPOT
 #define ADS_NTC_PORT_HOTSPOT 0 // CH0
@@ -768,27 +772,6 @@ static void udp_diag_print() {
         (int)WiFi.RSSI());
 }
 
-#if defined(WIFI_LOGGING_CLIENT_UDP)
-#include "fsd_udp.h" // your renamed udp header
-
-#include "esp_heap_caps.h"
-#include "udp_config.h"
-#include "udp_config_store.h"
-
-void udp_log_selftest() {
-    Serial.println("[UDP] selftest: sending 3 packets...");
-    udp_log::send_cstr("[UDP] selftest packet 1\n");
-    delay(50);
-    udp_diag_print();
-    udp_log::send_cstr("[UDP] selftest packet 2\n");
-    delay(50);
-    udp_diag_print();
-    udp_log::send_cstr("[UDP] selftest packet 3\n");
-    Serial.println("[UDP] selftest: done");
-    udp_diag_print();
-}
-#endif
-
 //----------------------------------------------------------------------------
 // setup
 //----------------------------------------------------------------------------
@@ -822,15 +805,6 @@ static void t13_ntc_chamber_test_tick() {
 void setup() {
     Serial.begin(115200);
     delay(2000);
-
-    // ****** Wifi & udp setup
-#if defined(WIFI_LOGGING_CLIENT_UDP)
-    Serial.println("[UDP] WIFI_LOGGING_CLIENT_UDP is ENABLED");
-#else
-    Serial.println("[UDP] WIFI_LOGGING_CLIENT_UDP is DISABLED");
-#endif
-
-    // ****** Wifi & udp setup
 
     printStartupInfo();
 
