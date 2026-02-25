@@ -343,7 +343,7 @@ void ClientComm::handleIncomingLine(const String &line) {
 
         // Safe defaults
         s.adcRaw[0] = s.adcRaw[1] = s.adcRaw[2] = s.adcRaw[3] = 0;
-// Let the sketch fill real hardware values
+        // Let the sketch fill real hardware values
         if (_fillStatusCb) {
             _fillStatusCb(s);
         }
@@ -427,7 +427,7 @@ void ClientComm::setHeartBeatCallback(HeartBeatCallback cb) {
 
 void ClientComm::sendLine(const String &lineWithCrlf) {
     _linkSerial.print(lineWithCrlf);
-    if (_clientSerialMonitor ) {
+    if (_clientSerialMonitor) {
         // String noCrlf = lineWithCrlf;
         // noCrlf.replace("\r", "");
         // noCrlf.replace("\n", "");
