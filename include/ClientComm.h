@@ -13,6 +13,7 @@ enum class ClientSafetyReason : uint8_t {
     HostRst = 5
 };
 class ClientComm {
+
   public:
     explicit ClientComm(HardwareSerial &serial, uint8_t rx, uint8_t tx);
 
