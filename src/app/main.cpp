@@ -95,14 +95,8 @@ void setup() {
     INFO("======================================================\n");
     INFO("=== ESP32-S3 + ST7701 480x480 + LVGL 9.4.x + Touch ===\n");
     INFO("======================================================\n");
-    INFO("Version: 0.3 - T12.0 + UDP-Logging\n");
-    INFO("2026-02-13\n\n");
-
-#if defined(WIFI_LOGGING_HOST_UDP)
-    extern void udp_log_selftest(); // forward
-    udp_log_selftest();
-    INFO("[UDP] INFO-macro test line\n");
-#endif
+    INFO("Version: 0.4 - T13.0 + UDP-Logging\n");
+    INFO("2026-02-25\n\n");
 
     oven_comm_init(Serial2, 115200, HOST_RX_PIN, HOST_TX_PIN);
 

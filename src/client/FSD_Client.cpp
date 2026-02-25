@@ -69,7 +69,7 @@
 #define ADS_NTC_PORT_CHAMBER 1 // CH1
 #endif
 
-constexpr const char *VERSION = "V0.4 - 20260130";
+constexpr const char *VERSION = "V0.4.1 - 20260225 (T13)";
 
 // -----------------------------------------------------------------------------
 // Global state (client-side)
@@ -805,6 +805,17 @@ static void t13_ntc_chamber_test_tick() {
 void setup() {
     Serial.begin(115200);
     delay(2000);
+
+#if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
+    const bool ok = udp_log::begin("CLIENT");
+    if (ok) {
+        udp_log::send_cstr("[UDP] selftest packet 1 (CLIENT)\n");
+        delay(50);
+        udp_log::send_cstr("[UDP] selftest packet 2 (CLIENT)\n");
+        delay(50);
+        udp_log::send_cstr("[UDP] selftest packet 3 (CLIENT)\n");
+    }
+#endif
 
     printStartupInfo();
 

@@ -623,7 +623,7 @@
                 "ARDUINO_RUNNING_CORE=1",
                 "ARDUINO_EVENT_RUNNING_CORE=1",
                 "WIFI_LOGGING_ENABLE=1",
-                "WIFI_LOGGING_UDP_IP=\"192.168.0.112\"",
+                "WIFI_LOGGING_UDP_IP=\"192.168.0.249\"",
                 "WIFI_LOGGING_UDP_PORT=10514",
                 "LV_CONF_INCLUDE_SIMPLE",
                 "BOARD_HAS_PSRAM",
