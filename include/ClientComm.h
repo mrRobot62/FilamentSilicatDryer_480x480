@@ -4,6 +4,14 @@
 #include "protocol.h"
 #include <Arduino.h>
 
+enum class ClientSafetyReason : uint8_t {
+    Boot = 0,
+    HostTimeout = 1,
+    ParseError = 2,
+    RxOverflow = 3,
+    UnexpectedFrame = 4,
+    HostRst = 5
+};
 class ClientComm {
   public:
     explicit ClientComm(HardwareSerial &serial, uint8_t rx, uint8_t tx);
@@ -65,6 +73,14 @@ class ClientComm {
     FillStatusCallback _fillStatusCb = nullptr;
     TxLineCallback _clientSerialMonitor = nullptr;
     HeartBeatCallback _heartBeatCb = nullptr;
+
+    // --- T14.0 SafetyGuard additions (Step 1) ---
+    void enterSafeState_(uint8_t reasonRaw);
+    void clearSafetyLatch_();
+
+    bool _safetyLatched = false;
+    uint8_t _lastSafetyReason = 0;
+    uint32_t _lastSafetyMs = 0;
 };
 
 // EOF
