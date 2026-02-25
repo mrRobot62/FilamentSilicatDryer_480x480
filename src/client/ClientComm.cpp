@@ -298,6 +298,7 @@ void ClientComm::sendPong() {
  *
  * @param line A full protocol line without trailing CR/LF.
  */
+
 void ClientComm::handleIncomingLine(const String &line) {
     ProtocolMessageType type;
     ProtocolStatus dummyStatus; // not used for host messages
@@ -308,35 +309,94 @@ void ClientComm::handleIncomingLine(const String &line) {
     const uint16_t kDoorBit = (1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
 
     // Parse incoming line. For host→client messages we mainly care about:
-    //  - HostSet
+    //  - HostSet / HostUpd / HostTog
     //  - HostGetStatus
     //  - HostPing
-    bool ok = ProtocolCodec::parseLine(line, type, dummyStatus, mask, errorCode, maskB, maskC);
+    //  - HostRst  (T14 SafetyGuard)
+    const bool ok = ProtocolCodec::parseLine(line, type, dummyStatus, mask, errorCode, maskB, maskC);
     if (!ok) {
-        // If parsing fails, we currently do not send an error.
-        // You could extend this to log or handle the errorCode.
         (void)errorCode;
-        RAW("[CLIENT] Failed to parse line: %s\n", line.c_str());
+        RAW("[CLIENT][T14] Failed to parse line -> SAFE: %s\n", line.c_str());
+        enterSafeState_(static_cast<uint8_t>(ClientSafetyReason::ParseError));
         return;
     }
-    // SAFETY: feed host watchdog on every valid frame
-    g_lastHostGoodMs = millis();
-    g_hostTimeoutActive = false;
 
+    // SAFETY: feed host watchdog ONLY on expected host frames.
+    // Do NOT clear the safety latch here. Only explicit SET/UPD/TOG can re-arm outputs.
     switch (type) {
     case ProtocolMessageType::HostSet:
-        // Host wants to set the outputsMask.
-        // We store it and notify the application via flag.
+    case ProtocolMessageType::HostUpd:
+    case ProtocolMessageType::HostTog:
+    case ProtocolMessageType::HostGetStatus:
+    case ProtocolMessageType::HostPing:
+    case ProtocolMessageType::HostRst:
+        g_lastHostGoodMs = millis();
+        break;
+    default:
+        RAW("[CLIENT][T14] Unexpected frame type -> SAFE (line=%s)\n", line.c_str());
+        enterSafeState_(static_cast<uint8_t>(ClientSafetyReason::UnexpectedFrame));
+        return;
+    }
+
+    switch (type) {
+    case ProtocolMessageType::HostSet: {
+        clearSafetyLatch_();
+
         mask &= ~kDoorBit;
         _outputsMask = mask;
         _newOutputsMask = true;
+
         if (_onOutputsChanged) {
             _onOutputsChanged(_outputsMask);
         }
-        // Immediately acknowledge the SET command.
+
         sendAckSet(mask);
         RAW("[CLIENT] Processed Host SET, new mask=0x%04X\n", mask);
         break;
+    }
+
+    case ProtocolMessageType::HostUpd: {
+        clearSafetyLatch_();
+
+        const uint16_t prevMask = _outputsMask;
+        const uint16_t setMask = mask & ~kDoorBit;
+        const uint16_t clrMask = maskB & ~kDoorBit;
+
+        _outputsMask = (_outputsMask | setMask) & static_cast<uint16_t>(~clrMask);
+        _newOutputsMask = true;
+
+        if (_onOutputsChanged) {
+            _onOutputsChanged(_outputsMask);
+        }
+
+        // ACK with resulting mask (current protocol)
+        sendAckUpd(_outputsMask);
+
+        RAW("[CLIENT/RX] HostUpd set=0x%04X clr=0x%04X prev=0x%04X new=0x%04X\n",
+            setMask, clrMask, prevMask, _outputsMask);
+        break;
+    }
+
+    case ProtocolMessageType::HostTog: {
+        clearSafetyLatch_();
+
+        const uint16_t prevMask = _outputsMask;
+        const uint16_t togMask = mask & ~kDoorBit;
+
+        _outputsMask ^= togMask;
+        _newOutputsMask = true;
+
+        if (_onOutputsChanged) {
+            _onOutputsChanged(_outputsMask);
+        }
+
+        // ACK with resulting mask (current protocol)
+        sendAckTog(_outputsMask);
+
+        RAW("[CLIENT/RX] HostTog tog=0x%04X prev=0x%04X new=0x%04X\n",
+            togMask, prevMask, _outputsMask);
+        break;
+    }
 
     case ProtocolMessageType::HostGetStatus: {
         ProtocolStatus s{};
@@ -344,60 +404,130 @@ void ClientComm::handleIncomingLine(const String &line) {
 
         // Safe defaults
         s.adcRaw[0] = s.adcRaw[1] = s.adcRaw[2] = s.adcRaw[3] = 0;
-        // Let the sketch fill real hardware values
+
         if (_fillStatusCb) {
             _fillStatusCb(s);
         }
 
-        sendStatus(s); // IMPORTANT: sendStatus() must use sendLine() internally
-        // RAW("[CLIENT] Processed Host GET STATUS\n");
+        sendStatus(s);
         break;
     }
+
     case ProtocolMessageType::HostPing:
-        // Simple connectivity test. Respond with PONG.
         sendPong();
         break;
 
-    case ProtocolMessageType::HostUpd: {
-        uint16_t setMask = mask & ~kDoorBit;
-        uint16_t clrMask = maskB & ~kDoorBit;
-        _outputsMask = (_outputsMask | setMask) & static_cast<uint16_t>(~clrMask);
-
-        if (_onOutputsChanged) {
-            _onOutputsChanged(_outputsMask);
-        }
-        // IMPORTANT: notify main sketch that outputsMask changed
-        _newOutputsMask = true;
-
-        // ACK with resulting mask
-        sendAckUpd(_outputsMask);
-        CLIENT_RAW("[CLIENT] Processed Host UPD, new mask=0x%04X\n", _outputsMask);
-        RAW("[CLIENT/RX] HostUpd set=0x%04X clr=0x%04X (prev=0x%04X)\n", setMask, clrMask, _outputsMask);
-
+    case ProtocolMessageType::HostRst:
+        // T14 SafetyGuard: treat RST as an immediate safe-state condition.
+        enterSafeState_(static_cast<uint8_t>(ClientSafetyReason::HostRst));
         break;
-    }
 
-    case ProtocolMessageType::HostTog: {
-        uint16_t togMask = mask & ~kDoorBit;
-        _outputsMask ^= togMask;
-
-        // IMPORTANT: notify main sketch that outputsMask changed
-        _newOutputsMask = true;
-
-        // IMPORTANT: notify main sketch that outputsMask changed
-        _newOutputsMask = true;
-
-        // ACK with resulting mask
-        sendAckTog(_outputsMask);
-        RAW("[CLIENT] Processed Host TOG, new mask=0x%04X\n", _outputsMask);
-        break;
-    }
     default:
-        // Client should not receive client messages or unknown types.
-        // We simply ignore them (could be extended with logging).
+        // Already handled above (unexpected -> SAFE).
         break;
     }
 }
+
+// void ClientComm::handleIncomingLine(const String &line) {
+//     ProtocolMessageType type;
+//     ProtocolStatus dummyStatus; // not used for host messages
+//     uint16_t mask = 0;
+//     int errorCode = 0;
+//     uint16_t maskB = 0;
+//     uint16_t maskC = 0;
+//     const uint16_t kDoorBit = (1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
+
+//     // Parse incoming line. For host→client messages we mainly care about:
+//     //  - HostSet
+//     //  - HostGetStatus
+//     //  - HostPing
+//     bool ok = ProtocolCodec::parseLine(line, type, dummyStatus, mask, errorCode, maskB, maskC);
+//     if (!ok) {
+//         // If parsing fails, we currently do not send an error.
+//         // You could extend this to log or handle the errorCode.
+//         (void)errorCode;
+//         RAW("[CLIENT] Failed to parse line: %s\n", line.c_str());
+//         return;
+//     }
+//     // SAFETY: feed host watchdog on every valid frame
+//     g_lastHostGoodMs = millis();
+//     g_hostTimeoutActive = false;
+
+//     switch (type) {
+//     case ProtocolMessageType::HostSet:
+//         // Host wants to set the outputsMask.
+//         // We store it and notify the application via flag.
+//         mask &= ~kDoorBit;
+//         _outputsMask = mask;
+//         _newOutputsMask = true;
+//         if (_onOutputsChanged) {
+//             _onOutputsChanged(_outputsMask);
+//         }
+//         // Immediately acknowledge the SET command.
+//         sendAckSet(mask);
+//         RAW("[CLIENT] Processed Host SET, new mask=0x%04X\n", mask);
+//         break;
+
+//     case ProtocolMessageType::HostGetStatus: {
+//         ProtocolStatus s{};
+//         s.outputsMask = _outputsMask;
+
+//         // Safe defaults
+//         s.adcRaw[0] = s.adcRaw[1] = s.adcRaw[2] = s.adcRaw[3] = 0;
+//         // Let the sketch fill real hardware values
+//         if (_fillStatusCb) {
+//             _fillStatusCb(s);
+//         }
+
+//         sendStatus(s); // IMPORTANT: sendStatus() must use sendLine() internally
+//         // RAW("[CLIENT] Processed Host GET STATUS\n");
+//         break;
+//     }
+//     case ProtocolMessageType::HostPing:
+//         // Simple connectivity test. Respond with PONG.
+//         sendPong();
+//         break;
+
+//     case ProtocolMessageType::HostUpd: {
+//         uint16_t setMask = mask & ~kDoorBit;
+//         uint16_t clrMask = maskB & ~kDoorBit;
+//         _outputsMask = (_outputsMask | setMask) & static_cast<uint16_t>(~clrMask);
+
+//         if (_onOutputsChanged) {
+//             _onOutputsChanged(_outputsMask);
+//         }
+//         // IMPORTANT: notify main sketch that outputsMask changed
+//         _newOutputsMask = true;
+
+//         // ACK with resulting mask
+//         sendAckUpd(_outputsMask);
+//         CLIENT_RAW("[CLIENT] Processed Host UPD, new mask=0x%04X\n", _outputsMask);
+//         RAW("[CLIENT/RX] HostUpd set=0x%04X clr=0x%04X (prev=0x%04X)\n", setMask, clrMask, _outputsMask);
+
+//         break;
+//     }
+
+//     case ProtocolMessageType::HostTog: {
+//         uint16_t togMask = mask & ~kDoorBit;
+//         _outputsMask ^= togMask;
+
+//         // IMPORTANT: notify main sketch that outputsMask changed
+//         _newOutputsMask = true;
+
+//         // IMPORTANT: notify main sketch that outputsMask changed
+//         _newOutputsMask = true;
+
+//         // ACK with resulting mask
+//         sendAckTog(_outputsMask);
+//         RAW("[CLIENT] Processed Host TOG, new mask=0x%04X\n", _outputsMask);
+//         break;
+//     }
+//     default:
+//         // Client should not receive client messages or unknown types.
+//         // We simply ignore them (could be extended with logging).
+//         break;
+//     }
+// }
 
 void ClientComm::processLine(const String &line) {
     // Directly feed a protocol line into the normal handler.
