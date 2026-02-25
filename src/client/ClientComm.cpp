@@ -129,8 +129,9 @@ void ClientComm::loop() {
 
         // Optional safety against runaway garbage without '\n'
         if (_rxBuffer.length() > 120) {
+            CLIENT_INFO("[CLIENTCOMM][T14] RX overflow -> SAFE");
+            enterSafeState_(static_cast<uint8_t>(ClientSafetyReason::RxOverflow));
             _rxBuffer = "";
-            // optionally count/log overflow
         }
     }
 
@@ -432,6 +433,37 @@ void ClientComm::sendLine(const String &lineWithCrlf) {
         // noCrlf.replace("\r", "");
         // noCrlf.replace("\n", "");
         _clientSerialMonitor(lineWithCrlf, "TX");
+    }
+}
+
+void ClientComm::enterSafeState_(uint8_t reasonRaw) {
+    const ClientSafetyReason reason = static_cast<ClientSafetyReason>(reasonRaw);
+    // Idempotent: don't spam if already safe & latched.
+    if (_safetyLatched && _outputsMask == 0) {
+        return;
+    }
+
+    _safetyLatched = true;
+    _lastSafetyReason = reasonRaw;
+    _lastSafetyMs = millis();
+
+    _outputsMask = 0;
+    _newOutputsMask = true;
+
+    if (_onOutputsChanged) {
+        _onOutputsChanged(0);
+    }
+
+    g_hostTimeoutActive = true;
+
+    CLIENT_INFO("[CLIENTCOMM][T14] ENTER SAFE STATE reason=%u", (unsigned)reasonRaw);
+}
+
+void ClientComm::clearSafetyLatch_() {
+    if (_safetyLatched) {
+        _safetyLatched = false;
+        g_hostTimeoutActive = false;
+        CLIENT_INFO("[CLIENTCOMM][T14] Safety latch cleared by explicit host command");
     }
 }
 
