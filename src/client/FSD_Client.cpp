@@ -53,6 +53,7 @@
 #include "t13/ntc/ntc_table_10k_ioveo_036HS05201.h"
 #include "t13/sensors/ads1115_config.h"
 // #include "pins_client.h"
+#include "versions.h"
 #include "wifi_net.h"
 #include "wifi_secrets.h"
 #include <Arduino.h>
@@ -68,8 +69,6 @@
 #ifndef ADS_NTC_PORT_CHAMBER
 #define ADS_NTC_PORT_CHAMBER 1 // CH1
 #endif
-
-constexpr const char *VERSION = "V0.4.1 - 20260225 (T13)";
 
 // -----------------------------------------------------------------------------
 // Global state (client-side)
@@ -639,7 +638,8 @@ static void printStartupInfo() {
     CLIENT_INFO("----------------------------------------------\n");
     CLIENT_INFO("- ESP32-WROOM CLIENT Hardware connector.   ---\n");
     CLIENT_INFO("----------------------------------------------\n");
-    CLIENT_INFO("Version: %s\n\n", VERSION);
+    CLIENT_INFO("%s\n", CLIENT_VERSION_NAME);
+    CLIENT_INFO("%s\n\n", CLIENT_VERSION_DATE);
 
     CLIENT_INFO("UART link: Serial2 (RX2=GPIO16, TX2=GPIO17)\n");
     CLIENT_INFO("Supported HOST frames:\n");

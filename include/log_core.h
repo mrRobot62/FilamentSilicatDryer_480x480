@@ -43,7 +43,9 @@ inline void logWriteUdpIfEnabled(const char *s, size_t n) {
 
 inline void logWriteSerial(const char *s, size_t n) {
     if (s && n) {
-        Serial.write(reinterpret_cast<const uint8_t *>(s), n);
+        if (s[0] != ';' && n > 1) {
+            Serial.write(reinterpret_cast<const uint8_t *>(s), n);
+        }
     }
 }
 
@@ -159,7 +161,7 @@ inline void logRawPrintf(const char *fmt, ...) {
     } while (0)
 
 // Alias for convenience (some modules prefer ERROR over ERR).
-#define ERROR(...)                              \
-    do {                                        \
-        logPrintf("MAIN", "ERR", __VA_ARGS__);  \
+#define ERROR(...)                             \
+    do {                                       \
+        logPrintf("MAIN", "ERR", __VA_ARGS__); \
     } while (0)

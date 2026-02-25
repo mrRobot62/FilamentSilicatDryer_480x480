@@ -11,6 +11,7 @@
 #include "ui/screens/screen_dbg_hw.h"
 #include "ui/screens/screen_main.h"
 #include "ui_events.h"
+#include "versions.h"
 
 // --- UDP logging (shared) ----------------------------------------------------
 #if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
@@ -100,8 +101,8 @@ void setup() {
     INFO("======================================================\n");
     INFO("=== ESP32-S3 + ST7701 480x480 + LVGL 9.4.x + Touch ===\n");
     INFO("======================================================\n");
-    INFO("Version: 0.4 - T13.0 + UDP-Logging\n");
-    INFO("2026-02-25\n\n");
+    INFO("%s\n", HOST_VERSION_NAME);
+    INFO("%s\n\n", HOST_VERSION_DATE);
 
     oven_comm_init(Serial2, 115200, HOST_RX_PIN, HOST_TX_PIN);
 
