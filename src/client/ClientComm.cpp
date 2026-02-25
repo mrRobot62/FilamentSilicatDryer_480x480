@@ -134,7 +134,6 @@ void ClientComm::loop() {
             _rxBuffer = "";
         }
     }
-
     if (hadActivity && _heartBeatCb) {
         _heartBeatCb();
     }
@@ -566,6 +565,33 @@ void ClientComm::sendLine(const String &lineWithCrlf) {
     }
 }
 
+//-----------------------------------------------------------------------------
+// T14.0 SafetyGuard reporting helpers (Step 3)
+// -----------------------------------------------------------------------------
+static const char *safetyReasonToStr_(ClientSafetyReason r) {
+    switch (r) {
+    case ClientSafetyReason::Boot:
+        return "Boot";
+    case ClientSafetyReason::HostTimeout:
+        return "HostTimeout";
+    case ClientSafetyReason::ParseError:
+        return "ParseError";
+    case ClientSafetyReason::RxOverflow:
+        return "RxOverflow";
+    case ClientSafetyReason::UnexpectedFrame:
+        return "UnexpectedFrame";
+    case ClientSafetyReason::HostRst:
+        return "HostRst";
+    default:
+        return "Unknown";
+    }
+}
+
+const char *ClientComm::lastSafetyReasonStr() const {
+    return safetyReasonToStr_(static_cast<ClientSafetyReason>(_lastSafetyReason));
+}
+
+
 void ClientComm::enterSafeState_(uint8_t reasonRaw) {
     const ClientSafetyReason reason = static_cast<ClientSafetyReason>(reasonRaw);
     // Idempotent: don't spam if already safe & latched.
@@ -586,7 +612,8 @@ void ClientComm::enterSafeState_(uint8_t reasonRaw) {
 
     g_hostTimeoutActive = true;
 
-    CLIENT_INFO("[CLIENTCOMM][T14] ENTER SAFE STATE reason=%u", (unsigned)reasonRaw);
+    RAW("[CLIENT][SAFETY] ENTER SAFE STATE reason=%s (outputsMask=0)\n",
+        safetyReasonToStr_(static_cast<ClientSafetyReason>(reasonRaw)));
 }
 
 void ClientComm::clearSafetyLatch_() {
@@ -597,4 +624,4 @@ void ClientComm::clearSafetyLatch_() {
     }
 }
 
-// EOF
+/// EOF

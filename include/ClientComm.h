@@ -82,6 +82,14 @@ class ClientComm {
     bool _safetyLatched = false;
     uint8_t _lastSafetyReason = 0;
     uint32_t _lastSafetyMs = 0;
+
+    // -------------------------------------------------------------------------
+    // T14.0 SafetyGuard reporting (Step 3)
+    // -------------------------------------------------------------------------
+    bool isSafetyLatched() const { return _safetyLatched; }
+    uint8_t lastSafetyReasonRaw() const { return _lastSafetyReason; }
+    uint32_t lastSafetyMs() const { return _lastSafetyMs; }
+    const char *lastSafetyReasonStr() const;
 };
 
 // EOF
