@@ -31,7 +31,7 @@
 #endif
 
 inline void logWriteUdpIfEnabled(const char *s, size_t n) {
-#if defined(WIFI_LOGGING_HOST_UDP) || defined(WIFI_LOGGING_CLIENT_UDP)
+#if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
     if (s && n) {
         udp_log::send_bytes(reinterpret_cast<const uint8_t *>(s), n);
     }

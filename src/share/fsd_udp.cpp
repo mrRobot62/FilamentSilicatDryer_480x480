@@ -69,6 +69,8 @@ static bool wifi_connect_blocking(const char *ssid, const char *pass, uint32_t t
 bool begin(const char *roleLabel) {
     g_role = (roleLabel && roleLabel[0] != '\0') ? roleLabel : "UNK";
 
+    Serial.print("[UDP] apply_defaults_if_needed() - role:");
+    Serial.println(g_role);
     apply_defaults_if_needed();
 
     // If secrets are missing, disable cleanly
@@ -76,6 +78,7 @@ bool begin(const char *roleLabel) {
         g_enabled = false;
         g_wifi_ok = false;
         g_udp_ok = false;
+        Serial.println("[UDP] ERROR::WIFI SSID not configured");
         return false;
     }
 
@@ -84,16 +87,21 @@ bool begin(const char *roleLabel) {
     if (!g_wifi_ok) {
         g_enabled = false;
         g_udp_ok = false;
+        Serial.println("[UDP] ERROR::g_wifi_ok = wifi_connect_blocking(WIFI_SSID, WIFI_PASS, 8000);");
         return false;
     }
+    Serial.print("[UDP] WIFI connected to SSID: ");
+    Serial.println(WIFI_SSID);
 
     // Bind a local port (can be same as target port)
     g_udp_ok = g_udp.begin(g_target_port);
 
     if (!g_udp_ok) {
         g_enabled = false;
+        Serial.println("[UDP] ERROR::g_udp_ok = g_udp.begin(g_target_port);");
         return false;
     }
+    Serial.println("[UDP] WIFI & UDP ready");
 
     return true;
 }
@@ -105,6 +113,7 @@ void end() {
     g_udp_ok = false;
     g_wifi_ok = false;
     g_enabled = false;
+    Serial.println("[UDP] end() - ok");
 }
 
 bool send_bytes(const uint8_t *data, size_t len) {

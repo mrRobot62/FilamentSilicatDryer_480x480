@@ -815,6 +815,10 @@ void setup() {
         delay(50);
         udp_log::send_cstr("[UDP] selftest packet 3 (CLIENT)\n");
     }
+
+    else {
+        ERROR("UDP can't establish WIFI_LOGGING_ENABLE !!!!");
+    }
 #endif
 
     printStartupInfo();
