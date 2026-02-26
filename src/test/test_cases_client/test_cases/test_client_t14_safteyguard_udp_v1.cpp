@@ -1,0 +1,239 @@
+#include <Arduino.h>
+#include <unity.h>
+
+// -----------------------------------------------------------------------------
+// T14 SafetyGuard Test (CLIENT) - uses the SAME WiFi/UDP path as FSD_Client.cpp
+// -----------------------------------------------------------------------------
+//
+// Goal:
+// - Verify T14.0 SafetyGuard behavior WITHOUT a physical HOST connection.
+// - Reuse the real CLIENT WiFi/UDP logging initialization path (Variant 1),
+//   i.e. NO SSID/PW inside this test.
+// - Keep ClientComm in the loop by injecting frames via handleIncomingLine().
+//
+// Location (as requested):
+//   src/test/client/test_client_t14_safteyguard.cpp
+//
+// Requirements:
+// - Your project provides the modules used by FSD_Client.cpp:
+//     - wifi_net.h
+//     - wifi_secrets.h
+// - UDP logger namespace is available:
+//     - udp_log::begin(tag)
+//     - udp_log::send_cstr(str)
+// - WIFI_LOGGING_ENABLE must be set like in production (build_flags/config).
+//
+// Notes:
+// - Unity output itself may still go to Serial depending on your setup.
+//   However, all udp_log::send_cstr() markers and ClientComm RAW() logs will
+//   flow through your existing UDP pipeline.
+// -----------------------------------------------------------------------------
+
+#include "versions.h"
+#include "wifi_net.h"
+#include "wifi_secrets.h"
+
+// If udp_log isn't exported by wifi_net.h in your tree, include the correct header here.
+// This include is optional and only used when present.
+#if __has_include("udp_log.h")
+#include "udp_log.h"
+#endif
+
+// Project headers
+#define private public
+#define protected public
+#include "ClientComm.h"
+#undef private
+#undef protected
+
+#include "protocol.h"
+
+extern HardwareSerial Serial2;
+
+// Logging fallbacks (only used if your project macros are not visible in tests)
+#ifndef RAW
+#define RAW(...) do { Serial.printf(__VA_ARGS__); } while(0)
+#endif
+#ifndef CLIENT_INFO
+#define CLIENT_INFO(...) do { Serial.printf(__VA_ARGS__); Serial.printf("\n"); } while(0)
+#endif
+
+// Unity hooks
+void setUp() {}
+void tearDown() {}
+
+// ----------------------------------------------------------------------------
+// UDP start (reuse production path)
+// ----------------------------------------------------------------------------
+static void udp_logging_begin_like_client_()
+{
+#if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
+    const bool ok = udp_log::begin("CLIENT-TEST");
+    if (ok) {
+        udp_log::send_cstr("[UDP] selftest packet 1 (CLIENT-TEST)\n");
+        delay(20);
+        udp_log::send_cstr("[UDP] selftest packet 2 (CLIENT-TEST)\n");
+        delay(20);
+        udp_log::send_cstr("[UDP] selftest packet 3 (CLIENT-TEST)\n");
+    } else {
+        RAW("[CLIENT-TEST] udp_log::begin() FAILED (WIFI_LOGGING_ENABLE=1)\n");
+    }
+#else
+    RAW("[CLIENT-TEST] WIFI_LOGGING_ENABLE not enabled; UDP init skipped\n");
+#endif
+}
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+static ClientComm makeClientComm_()
+{
+    ClientComm cc(Serial2, /*rx=*/16, /*tx=*/17);
+    cc.begin(115200);
+    return cc;
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+static void test_parse_error_enters_safe_and_latches()
+{
+    ClientComm cc = makeClientComm_();
+
+    cc._outputsMask = 0x00A5;
+    cc._newOutputsMask = false;
+
+    cc.handleIncomingLine(String("H;THIS;IS;NOT;VALID"));
+
+    TEST_ASSERT_TRUE_MESSAGE(cc.isSafetyLatched(), "Expected safety latch after parse error");
+    TEST_ASSERT_EQUAL_UINT16_MESSAGE(0x0000, cc._outputsMask, "Outputs must be forced OFF in safe state");
+    TEST_ASSERT_NOT_NULL_MESSAGE(cc.lastSafetyReasonStr(), "Safety reason string must be available");
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("ParseError", cc.lastSafetyReasonStr(), "Reason must be ParseError");
+
+#if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
+    udp_log::send_cstr("[T14][TEST] parse_error -> SAFE OK\n");
+#endif
+}
+
+static void test_unexpected_frame_enters_safe()
+{
+    ClientComm cc = makeClientComm_();
+
+    // Feed a CLIENT->HOST frame into the client RX path (unexpected).
+    const String line = ProtocolCodec::buildClientPong(); // e.g. "C;PONG"
+    cc._outputsMask = 0x0001;
+
+    cc.handleIncomingLine(line);
+
+    TEST_ASSERT_TRUE_MESSAGE(cc.isSafetyLatched(), "Expected safety latch after unexpected frame");
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("UnexpectedFrame", cc.lastSafetyReasonStr(), "Reason must be UnexpectedFrame");
+    TEST_ASSERT_EQUAL_UINT16_MESSAGE(0x0000, cc._outputsMask, "Outputs must be forced OFF");
+
+#if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
+    udp_log::send_cstr("[T14][TEST] unexpected_frame -> SAFE OK\n");
+#endif
+}
+
+static void test_host_rst_enters_safe()
+{
+    ClientComm cc = makeClientComm_();
+
+    cc._outputsMask = 0x000F;
+    cc.handleIncomingLine(ProtocolCodec::buildHostRst());
+
+    TEST_ASSERT_TRUE_MESSAGE(cc.isSafetyLatched(), "Expected safety latch after HostRst");
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("HostRst", cc.lastSafetyReasonStr(), "Reason must be HostRst");
+    TEST_ASSERT_EQUAL_UINT16_MESSAGE(0x0000, cc._outputsMask, "Outputs must be forced OFF");
+
+#if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
+    udp_log::send_cstr("[T14][TEST] host_rst -> SAFE OK\n");
+#endif
+}
+
+static void test_latch_not_cleared_by_ping_or_getstatus()
+{
+    ClientComm cc = makeClientComm_();
+
+    // Force safe first.
+    cc._outputsMask = 0x1234;
+    cc.handleIncomingLine(String("H;BAD")); // parse error -> safe latch
+
+    TEST_ASSERT_TRUE(cc.isSafetyLatched());
+    TEST_ASSERT_EQUAL_STRING("ParseError", cc.lastSafetyReasonStr());
+
+    // PING must NOT clear latch.
+    cc.handleIncomingLine(ProtocolCodec::buildHostPing());
+    TEST_ASSERT_TRUE_MESSAGE(cc.isSafetyLatched(), "PING must not clear safety latch");
+
+    // GET STATUS must NOT clear latch.
+    cc.handleIncomingLine(ProtocolCodec::buildHostGetStatus());
+    TEST_ASSERT_TRUE_MESSAGE(cc.isSafetyLatched(), "GET STATUS must not clear safety latch");
+
+#if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
+    udp_log::send_cstr("[T14][TEST] ping/getstatus do not clear latch OK\n");
+#endif
+}
+
+static void test_latch_cleared_only_by_set_upd_tog()
+{
+    ClientComm cc = makeClientComm_();
+
+    // Enter safe state first.
+    cc._outputsMask = 0x1111;
+    cc.handleIncomingLine(String("H;BAD;FRAME")); // parse error
+
+    TEST_ASSERT_TRUE(cc.isSafetyLatched());
+    TEST_ASSERT_EQUAL_UINT16(0x0000, cc._outputsMask);
+
+    // SET must clear latch and apply mask (door bit may be masked out by implementation).
+    const uint16_t desired = 0x0001;
+    cc.handleIncomingLine(ProtocolCodec::buildHostSet(desired));
+
+    TEST_ASSERT_FALSE_MESSAGE(cc.isSafetyLatched(), "SET must clear safety latch");
+    TEST_ASSERT_EQUAL_UINT16_MESSAGE(desired, cc._outputsMask, "SET must apply outputs mask");
+
+    // Re-enter safe state (unexpected frame).
+    cc.handleIncomingLine(ProtocolCodec::buildClientPong());
+    TEST_ASSERT_TRUE(cc.isSafetyLatched());
+    TEST_ASSERT_EQUAL_UINT16(0x0000, cc._outputsMask);
+
+    // UPD must clear latch and update mask.
+    cc.handleIncomingLine(ProtocolCodec::buildHostUpd(/*set=*/0x0002, /*clr=*/0x0000));
+    TEST_ASSERT_FALSE_MESSAGE(cc.isSafetyLatched(), "UPD must clear safety latch");
+    TEST_ASSERT_EQUAL_UINT16_MESSAGE(0x0002, cc._outputsMask, "UPD must update outputs mask");
+
+    // Re-enter safe state (HostRst).
+    cc.handleIncomingLine(ProtocolCodec::buildHostRst());
+    TEST_ASSERT_TRUE(cc.isSafetyLatched());
+    TEST_ASSERT_EQUAL_UINT16(0x0000, cc._outputsMask);
+
+    // TOG must clear latch and toggle mask.
+    cc.handleIncomingLine(ProtocolCodec::buildHostTog(/*tog=*/0x0002));
+    TEST_ASSERT_FALSE_MESSAGE(cc.isSafetyLatched(), "TOG must clear safety latch");
+    TEST_ASSERT_EQUAL_UINT16_MESSAGE(0x0002, cc._outputsMask, "TOG must toggle outputs mask");
+
+#if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
+    udp_log::send_cstr("[T14][TEST] latch cleared only by SET/UPD/TOG OK\n");
+#endif
+}
+
+// ----------------------------------------------------------------------------
+// Arduino runner
+// ----------------------------------------------------------------------------
+void setup()
+{
+    delay(200);
+
+    // Bring up WiFi/UDP logging using the SAME path as FSD_Client.cpp
+    udp_logging_begin_like_client_();
+
+    UNITY_BEGIN();
+    RUN_TEST(test_parse_error_enters_safe_and_latches);
+    RUN_TEST(test_unexpected_frame_enters_safe);
+    RUN_TEST(test_host_rst_enters_safe);
+    RUN_TEST(test_latch_not_cleared_by_ping_or_getstatus);
+    RUN_TEST(test_latch_cleared_only_by_set_upd_tog);
+    UNITY_END();
+}
+
+void loop() {}
