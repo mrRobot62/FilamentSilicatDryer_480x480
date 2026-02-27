@@ -8,7 +8,7 @@
 //
 // If disabled, all functions become no-ops and compile out.
 
-namespace udp_log {
+namespace udp {
 
 // runtime enable state (read-only API)
 bool is_enabled();
@@ -41,4 +41,4 @@ inline bool send_cstr(const char *s) {
 // optional diagnostics (safe to call even if disabled)
 void diag_print();
 
-} // namespace udp_log
+} // namespace udp

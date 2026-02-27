@@ -15,7 +15,7 @@
 
 // --- UDP logging (shared) ----------------------------------------------------
 #if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
-#include "fsd_udp.h"
+#include "udp/fsd_udp.h"
 #endif
 
 #include "wifi_net.h"

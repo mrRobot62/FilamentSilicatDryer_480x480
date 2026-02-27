@@ -1,4 +1,4 @@
-#include "fsd_udp.h"
+#include "udp/fsd_udp.h"
 
 #if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
 
@@ -16,7 +16,7 @@
 #define WIFI_LOGGING_UDP_PORT 10514
 #endif
 
-namespace udp_log {
+namespace udp {
 
 static bool g_enabled = true;
 static bool g_wifi_ok = false;
@@ -149,7 +149,7 @@ void diag_print() {
                   (unsigned)g_target_port);
 }
 
-} // namespace udp_log
+} // namespace udp
 
 #else // WIFI_LOGGING_ENABLE off
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
-#include "udp_config.h"
+#include "udp/udp_config.h"
 
 // Load config from Preferences/NVS.
 // Returns true if valid config was found.

@@ -47,11 +47,11 @@
 
 #include "FSD_Client.h"
 #include "log_client.h"
-#include "t13/ntc/ntc_convert.h"
-#include "t13/ntc/ntc_divider_config_chamber.h"
-#include "t13/ntc/ntc_divider_config_hotspot.h"
-#include "t13/ntc/ntc_table_10k_ioveo_036HS05201.h"
-#include "t13/sensors/ads1115_config.h"
+#include "ntc/ntc_convert.h"
+#include "ntc/ntc_divider_config_chamber.h"
+#include "ntc/ntc_divider_config_hotspot.h"
+#include "ntc/ntc_table_10k_ioveo_036HS05201.h"
+#include "sensors/ads1115_config.h"
 // #include "pins_client.h"
 #include "versions.h"
 #include "wifi_net.h"
@@ -59,7 +59,7 @@
 #include <Arduino.h>
 
 #if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
-#include "fsd_udp.h"
+#include "udp/fsd_udp.h"
 #endif
 
 // T13 Dual-NTC ADS channel mapping
@@ -454,17 +454,17 @@ static void fillStatusCallback(ProtocolStatus &st) {
     // Hotspot: table/model currently not available for the internal 100k NTC.
     // Option B (bring-up): transmit INVALID and do not block heater on host side
     // (host still has chamber fail-safe + overshoot protections).
-    st.tempHotspot_dC = t13::TEMP_INVALID_DC;
+    st.tempHotspot_dC = ntc::TEMP_INVALID_DC;
 
     // Chamber: valid conversion using iOVEO 10k NTC table + 10k pull-up divider.
-    st.tempChamber_dC = t13::calc_temp_from_ads_raw_dC(
+    st.tempChamber_dC = ntc::calc_temp_from_ads_raw_dC(
         rawCh,
-        t13::kNtc10k_Chamber_Table,
-        t13::kNtc10k_Chamber_TableCount,
-        t13::kNtcTableMode,
-        t13::chamber::NTC_VREF_MV,
-        t13::chamber::NTC_R_FIXED_OHM,
-        t13::chamber::NTC_TO_GND);
+        ntc::kNtc10k_Chamber_Table,
+        ntc::kNtc10k_Chamber_TableCount,
+        ntc::kNtcTableMode,
+        ntc::chamber::NTC_VREF_MV,
+        ntc::chamber::NTC_R_FIXED_OHM,
+        ntc::chamber::NTC_TO_GND);
 }
 
 // Apply outputs when mask changes
@@ -807,13 +807,13 @@ void setup() {
     delay(2000);
 
 #if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
-    const bool ok = udp_log::begin("CLIENT");
+    const bool ok = udp::begin("CLIENT");
     if (ok) {
-        udp_log::send_cstr("[UDP] selftest packet 1 (CLIENT)\n");
+        udp::send_cstr("[UDP] selftest packet 1 (CLIENT)\n");
         delay(50);
-        udp_log::send_cstr("[UDP] selftest packet 2 (CLIENT)\n");
+        udp::send_cstr("[UDP] selftest packet 2 (CLIENT)\n");
         delay(50);
-        udp_log::send_cstr("[UDP] selftest packet 3 (CLIENT)\n");
+        udp::send_cstr("[UDP] selftest packet 3 (CLIENT)\n");
     }
 
     else {

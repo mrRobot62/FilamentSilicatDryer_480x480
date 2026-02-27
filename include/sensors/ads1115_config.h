@@ -1,6 +1,6 @@
 #pragma once
 #include <stdint.h>
-namespace t13 {
+namespace ntc {
 static constexpr uint8_t ADS_CH_HOTSPOT = 0;
 static constexpr uint8_t ADS_CH_CHAMBER = 1;
 static constexpr float ADS_LSB_MV = 0.1875f;

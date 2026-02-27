@@ -3,7 +3,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-#include "fsd_udp.h" // your UDP helper header
+#include "udp/fsd_udp.h" // your UDP helper header
 
 #ifdef INFO
 #undef INFO
@@ -33,7 +33,7 @@
 inline void logWriteUdpIfEnabled(const char *s, size_t n) {
 #if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
     if (s && n) {
-        udp_log::send_bytes(reinterpret_cast<const uint8_t *>(s), n);
+        udp::send_bytes(reinterpret_cast<const uint8_t *>(s), n);
     }
 #else
     (void)s;

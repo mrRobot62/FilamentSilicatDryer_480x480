@@ -83,7 +83,7 @@ static MAX6675 g_thermocouple(MAX6675_SCK_PIN, MAX6675_CS_PIN, MAX6675_SO_PIN);
 //
 // Voltage devider:     build in on pcb R1k
 //
-#include "ntc.h"
+#include "ntc/ntc.h"
 #include <Adafruit_ADS1X15.h>
 static constexpr uint8_t I2C_SDA = 22;
 static constexpr uint8_t I2C_SCL = 23;
