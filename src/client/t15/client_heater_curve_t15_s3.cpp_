@@ -10,15 +10,9 @@
 #include "ntc/ntc_convert.h"
 #include "ntc/ntc_table_10k_ioveo_036HS05201.h"
 
-#include "t15/heater_controller.h"
+#include "T15/heater_controller.h"
 
 #include "Adafruit_ADS1X15.h"
-
-// --------------------------------------------------------------------
-// ONLY TEST 
-// RUNNING ON ESP32-WROOM
-// NO HOST, NO ESP32-S
-// --------------------------------------------------------------------
 
 // --------------------------------------------------------------------
 // T15: client_heater_curve
@@ -296,18 +290,18 @@ static void safetyTrip(uint8_t reason, const char *msg) {
 // -----------------------------
 // Heater controller integration
 // -----------------------------
-static hcc::HeaterControllerConfig g_cfg;
+static t15::HeaterControllerConfig g_cfg;
 
 // placement-new storage for controller (avoid needing assignment operators)
-static uint8_t g_ctrlStorage[sizeof(hcc::HeaterController)];
-static hcc::HeaterController *g_ctrl = nullptr;
+static uint8_t g_ctrlStorage[sizeof(t15::HeaterController)];
+static t15::HeaterController *g_ctrl = nullptr;
 
 static void initController() {
     g_cfg.target_dC = (int16_t)(SIM_TARGET_TEMP * 10);
     g_cfg.maxOvershoot_dC = (int16_t)(SIM_TARGET_MAX_OVERSHOT * 10);
     g_cfg.minUndershoot_dC = (int16_t)(SIM_TARGET_MIN_UNDERSHOT * 10);
 
-    g_ctrl = new (g_ctrlStorage) hcc::HeaterController(g_cfg);
+    g_ctrl = new (g_ctrlStorage) t15::HeaterController(g_cfg);
     g_ctrl->reset(millis());
 
     INFO("[CTRL] target=%dC band=[-%d,+%d]C\n",
@@ -318,7 +312,7 @@ static void initController() {
 
 static inline int16_t c_to_dC_or_invalid(float c) {
     if (isnan(c)) {
-        return hcc::TEMP_INVALID_DC;
+        return t15::TEMP_INVALID_DC;
     }
     const float dc = c * 10.0f;
     return (int16_t)((dc >= 0.0f) ? (dc + 0.5f) : (dc - 0.5f));
@@ -364,25 +358,25 @@ void loop() {
         const bool doorClosed = !doorOpen;
 
         if (doorOpen) {
-            safetyTrip(hcc::ReasonBits::DOOR_OPEN, "Door OPEN");
+            safetyTrip(t15::ReasonBits::DOOR_OPEN, "Door OPEN");
         }
 
         // Prepare controller input
-        hcc::HeaterControllerInput in;
+        t15::HeaterControllerInput in;
         in.nowMs = now;
         in.doorClosed = doorClosed;
         in.chamber_dC = c_to_dC_or_invalid(g_tempChamberC);
         in.hotspot_dC = c_to_dC_or_invalid(g_tempHotspotC);
 
-        if (in.chamber_dC == hcc::TEMP_INVALID_DC) {
-            safetyTrip(hcc::ReasonBits::INVALID_SENSOR, "Chamber INVALID");
+        if (in.chamber_dC == t15::TEMP_INVALID_DC) {
+            safetyTrip(t15::ReasonBits::INVALID_SENSOR, "Chamber INVALID");
         }
 
         // If latched, force heater off
         if (g_safetyLatched) {
             heaterPwmStop();
         } else {
-            const hcc::HeaterControllerOutput out = g_ctrl->update(in);
+            const t15::HeaterControllerOutput out = g_ctrl->update(in);
 
             // Hard gate: if door open at any time -> OFF
             if (!doorClosed) {

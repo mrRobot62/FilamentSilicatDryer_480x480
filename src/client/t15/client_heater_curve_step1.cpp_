@@ -1,0 +1,208 @@
+#include <Arduino.h>
+#include <Wire.h>
+
+#include "log_core.h"
+#include "udp/fsd_udp.h"
+
+#include "pins_client.h"
+
+#include "ntc/ntc.h"
+#include "ntc/ntc_convert.h"
+#include "ntc/ntc_table_10k_ioveo_036HS05201.h"
+
+#include "Adafruit_ADS1X15.h"
+
+// --------------------------------------------------------------------
+// T15: client_heater_curve (NTC + Door baseline) - FIXED conversion for 5V domain
+//
+// Facts (per user):
+// - ADS1115 is powered from 5V
+// - NTC dividers are powered from 5V
+// - NTC wiring: NTC -> GND (ntc_to_gnd = true)
+// - ADS ports: A0 = NTC_hotspot (100k), A1 = NTC_chamber (10k)
+// - Door: DOOR_OPEN = 5V(HIGH), DOOR_CLOSED = GND(LOW)
+//
+// Logging:
+// - Use INFO/WARN/ERROR/DBG from log_core.h
+// - UDP init via udp::begin("CLIENT")
+//
+// This step focuses on correct temperature conversion and visibility:
+// - logs raw, mV, computed Ohm, and °C for both channels
+// --------------------------------------------------------------------
+
+// I2C pins/address for the lab endpoint (keep identical behavior to the working setup)
+static constexpr uint8_t I2C_SDA = 22;
+static constexpr uint8_t I2C_SCL = 23;
+static constexpr uint8_t I2C_ADR = 0x48;
+
+// NTC divider domain
+static constexpr int32_t VREF_MV = 5000;
+
+// Dual NTC setup (T13)
+static constexpr int32_t RFIXED_HOT_OHM = 100000; // 100k fixed resistor for hotspot divider
+static constexpr int32_t RFIXED_CHA_OHM = 10000;  // 10k fixed resistor for chamber divider
+static constexpr bool NTC_TO_GND = true;          // NTC -> GND
+
+static Adafruit_ADS1115 ads;
+static bool ntc_available = false;
+
+static int16_t rawHotspot = 0;
+static int16_t rawChamber = 0;
+
+static int32_t hot_mV = 0;
+static int32_t cha_mV = 0;
+
+static int32_t hot_ohm = 0;
+static int32_t cha_ohm = 0;
+
+static int16_t hot_dC = ntc::TEMP_INVALID_DC;
+static int16_t cha_dC = ntc::TEMP_INVALID_DC;
+
+static float tempHotspotC = NAN;
+static float tempChamberC = NAN;
+
+static uint32_t lastSampleMs = 0;
+static uint32_t lastLogMs = 0;
+
+static constexpr uint32_t SAMPLE_INTERVAL_MS = 250;
+static constexpr uint32_t LOG_INTERVAL_MS = 1000;
+
+static void i2cScan() {
+    INFO("[I2C] scan...\n");
+    uint8_t count = 0;
+
+    for (uint8_t addr = 1; addr < 127; addr++) {
+        Wire.beginTransmission(addr);
+        const uint8_t err = Wire.endTransmission();
+
+        if (err == 0) {
+            INFO("[I2C] found 0x%02X\n", addr);
+            count++;
+        }
+
+        delay(2);
+    }
+
+    if (count == 0) {
+        WARN("[I2C] no devices found\n");
+    }
+}
+
+static void initDoor() {
+    // Door wiring: DOOR_OPEN = HIGH(5V), DOOR_CLOSED = LOW(GND)
+    pinMode(OVEN_DOOR_SENSOR, INPUT_PULLUP);
+
+    const bool door_open = (digitalRead(OVEN_DOOR_SENSOR) != 0);
+
+    INFO("[IO] DOOR init done: GPIO=%d INPUT_PULLUP level=%d (%s)\n",
+         OVEN_DOOR_SENSOR,
+         door_open ? 1 : 0,
+         door_open ? "OPEN" : "CLOSED");
+}
+
+static void initI2CAndADS() {
+    Wire.begin(I2C_SDA, I2C_SCL);
+    Wire.setClock(100000);
+
+    INFO("[I2C] init: SDA=%u SCL=%u clock=100kHz\n", (unsigned)I2C_SDA, (unsigned)I2C_SCL);
+
+    i2cScan();
+
+    if (!ads.begin(I2C_ADR, &Wire)) {
+        ERROR("[I2C] ADS1115 not found at 0x%02X. Check wiring/address\n", (unsigned)I2C_ADR);
+        ERROR("[I2C] Tip: ADS1115 addresses are usually 0x48,0x49,0x4A,0x4B.\n");
+
+        ntc_available = false;
+
+        while (true) {
+            delay(1000);
+        }
+    } else {
+        ntc_available = true;
+        ads.setGain(GAIN_TWOTHIRDS);
+
+        INFO("[I2C] ADS1115 found, Gain=%d (6.144V)\n", (int)GAIN_TWOTHIRDS);
+    }
+}
+
+static void readNTCTemperatures() {
+    if (!ntc_available) {
+        ERROR("NO NTC sensor available");
+        return;
+    }
+
+    rawHotspot = ads.readADC_SingleEnded(0); // A0 = Hotspot (100k)
+    rawChamber = ads.readADC_SingleEnded(1); // A1 = Chamber (10k)
+
+    // Convert raw to mV using project-defined ADS LSB (sensors/ads1115_config.h)
+    hot_mV = ntc::ads_raw_to_mV(rawHotspot);
+    cha_mV = ntc::ads_raw_to_mV(rawChamber);
+
+    // Convert voltage to resistance for visibility
+    hot_ohm = ntc::voltage_to_resistance_ohm(hot_mV, VREF_MV, RFIXED_HOT_OHM, NTC_TO_GND);
+    cha_ohm = ntc::voltage_to_resistance_ohm(cha_mV, VREF_MV, RFIXED_CHA_OHM, NTC_TO_GND);
+
+    // Convert to temperature using correct tables and known electrical domain parameters
+    hot_dC = ntc::calc_temp_from_ads_raw_dC(
+        rawHotspot,
+        ntc::kNtc100k_Hotspot_Table,
+        ntc::kNtc100k_Hotspot_TableCount,
+        ntc::NtcTableMode::Resistance_Ohm,
+        VREF_MV,
+        RFIXED_HOT_OHM,
+        NTC_TO_GND);
+
+    cha_dC = ntc::calc_temp_from_ads_raw_dC(
+        rawChamber,
+        ntc::kNtc10k_Chamber_Table,
+        ntc::kNtc10k_Chamber_TableCount,
+        ntc::NtcTableMode::Resistance_Ohm,
+        VREF_MV,
+        RFIXED_CHA_OHM,
+        NTC_TO_GND);
+
+    tempHotspotC = (hot_dC == ntc::TEMP_INVALID_DC) ? NAN : (hot_dC / 10.0f);
+    tempChamberC = (cha_dC == ntc::TEMP_INVALID_DC) ? NAN : (cha_dC / 10.0f);
+}
+
+void setup() {
+    Serial.begin(115200);
+    delay(1000);
+
+    if (!udp::begin("CLIENT")) {
+        Serial.println("[T15] UDP init FAILED");
+    }
+
+    INFO("[T15] HeaterCurve Test Client Boot (NTC conversion FIX for 5V)\n");
+
+    initDoor();
+    initI2CAndADS();
+
+    INFO("[T15] Setup complete\n");
+}
+
+void loop() {
+    const uint32_t now = millis();
+
+    if (ntc_available && (now - lastSampleMs >= SAMPLE_INTERVAL_MS)) {
+        lastSampleMs = now;
+        readNTCTemperatures();
+    }
+
+    if (now - lastLogMs >= LOG_INTERVAL_MS) {
+        lastLogMs = now;
+
+        const bool door_open = (digitalRead(OVEN_DOOR_SENSOR) != 0);
+
+        INFO("[T15] Door=%s rawHot=%d rawCh=%d hot_mV=%ld cha_mV=%ld hot_Ohm=%ld cha_Ohm=%ld Thot=%.2fC Tch=%.2fC\n",
+             door_open ? "OPEN" : "CLOSED",
+             (int)rawHotspot,
+             (int)rawChamber,
+             (long)hot_mV,
+             (long)cha_mV,
+             (long)hot_ohm,
+             (long)cha_ohm,
+             tempHotspotC,
+             tempChamberC);
+    }
+}
