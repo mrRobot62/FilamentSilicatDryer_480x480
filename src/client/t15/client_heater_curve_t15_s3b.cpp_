@@ -1,0 +1,539 @@
+#include <Arduino.h>
+#include <Wire.h>
+
+#include "log_core.h"
+#include "udp/fsd_udp.h"
+
+#include "pins_client.h"
+
+#include "ntc/ntc.h"
+#include "ntc/ntc_convert.h"
+#include "ntc/ntc_table_10k_ioveo_036HS05201.h"
+
+#include "T15/t15_log_tags.h"
+
+#include "Adafruit_ADS1X15.h"
+
+// --------------------------------------------------------------------
+// T15 Step 3B
+// T15-2.3 Overshoot map using chamber-only measurements.
+//
+// Purpose:
+// - run a sequence of OFF-points automatically
+// - for each OFF-point, measure:
+//   * chamber temp at heater OFF
+//   * chamber peak after OFF
+//   * overshoot
+//   * time to peak
+//
+// Current technical status:
+// - TChamber is valid and uses the manufacturer table
+// - THotspot is currently NOT available
+// - Hotspot remains structurally present, but invalid
+// --------------------------------------------------------------------
+
+// -----------------------------
+// Build-time tuning knobs
+// -----------------------------
+#ifndef T15_TEST_DUTY_PERCENT
+#define T15_TEST_DUTY_PERCENT 100
+#endif
+
+#ifndef T15_TEST_RESET_TEMP_C
+#define T15_TEST_RESET_TEMP_C 28
+#endif
+
+// -----------------------------
+// I2C / ADS
+// -----------------------------
+static constexpr uint8_t I2C_SDA = 22;
+static constexpr uint8_t I2C_SCL = 23;
+static constexpr uint8_t I2C_ADR = 0x48;
+
+// Divider domain
+static constexpr int32_t VREF_MV = 5000;
+static constexpr int32_t RFIXED_CHA_OHM = 10000;
+static constexpr bool    NTC_TO_GND = true;
+
+// Heater behavior
+static constexpr uint32_t HEATER_PWM_FREQ_HZ = 4000;
+static constexpr uint8_t  HEATER_PWM_RES_BITS = 10;
+static constexpr int      HEATER_SAFE_LEVEL = LOW;
+
+// Sampling / logging
+static constexpr uint32_t SAMPLE_INTERVAL_MS = 250;
+static constexpr uint32_t LOG_INTERVAL_MS    = 1000;
+
+// T15-2.3 OFF-point map
+static constexpr int kOffPointsC[] = {35, 37, 39, 41};
+static constexpr size_t kOffPointCount = sizeof(kOffPointsC) / sizeof(kOffPointsC[0]);
+
+enum class Test23State : uint8_t
+{
+    WAIT_FOR_COOL = 0,
+    HEATING_TO_OFFPOINT,
+    RUNOUT_AFTER_OFF,
+    PEAK_REACHED,
+    COMPLETE
+};
+
+static Adafruit_ADS1115 ads;
+static bool g_adsOk = false;
+
+// Hotspot kept structurally present, but currently invalid/unavailable
+static int16_t g_rawHotspot = 0;
+static int32_t g_hot_mV = 0;
+static int32_t g_hot_ohm = -1;
+static bool    g_hotValid = false;
+static int16_t g_hot_dC = ntc::TEMP_INVALID_DC;
+static float   g_tempHotspotC = NAN;
+
+// Chamber measurement
+static int16_t g_rawChamber = 0;
+static int32_t g_cha_mV = 0;
+static int32_t g_cha_ohm = 0;
+static int16_t g_cha_dC = ntc::TEMP_INVALID_DC;
+static float   g_tempChamberC = NAN;
+
+static uint32_t g_lastSampleMs = 0;
+static uint32_t g_lastLogMs = 0;
+
+// Test state
+static bool g_heaterPwmRunning = false;
+static Test23State g_test23State = Test23State::WAIT_FOR_COOL;
+static size_t g_currentOffIndex = 0;
+
+static uint32_t g_heaterOffMs = 0;
+static int16_t g_chamberAtOff_dC = ntc::TEMP_INVALID_DC;
+static int16_t g_peakChamber_dC = ntc::TEMP_INVALID_DC;
+static uint32_t g_peakAtMs = 0;
+static uint8_t g_coolingConfirmCount = 0;
+
+// --------------------------------------------------------------------
+// Helper
+// --------------------------------------------------------------------
+static bool isDoorOpen()
+{
+    return (digitalRead(OVEN_DOOR_SENSOR) != 0);
+}
+
+static void i2cScan()
+{
+    T15_INFO(t15_log::BASE, "[I2C] scan...\n");
+    uint8_t count = 0;
+
+    for (uint8_t addr = 1; addr < 127; addr++)
+    {
+        Wire.beginTransmission(addr);
+        const uint8_t err = Wire.endTransmission();
+
+        if (err == 0)
+        {
+            T15_INFO(t15_log::BASE, "[I2C] found 0x%02X\n", addr);
+            count++;
+        }
+
+        delay(2);
+    }
+
+    if (count == 0)
+        T15_WARN(t15_log::BASE, "[I2C] no devices found\n");
+}
+
+static void initDoor()
+{
+    pinMode(OVEN_DOOR_SENSOR, INPUT_PULLUP);
+
+    const bool door_open = isDoorOpen();
+    T15_INFO(t15_log::BASE,
+             "[IO] DOOR init done: GPIO=%d INPUT_PULLUP level=%d (%s)\n",
+             OVEN_DOOR_SENSOR,
+             door_open ? 1 : 0,
+             door_open ? "OPEN" : "CLOSED");
+}
+
+static void initI2CAndADS()
+{
+    Wire.begin(I2C_SDA, I2C_SCL);
+    Wire.setClock(100000);
+
+    T15_INFO(t15_log::BASE,
+             "[I2C] init: SDA=%u SCL=%u clock=100kHz\n",
+             (unsigned)I2C_SDA,
+             (unsigned)I2C_SCL);
+
+    i2cScan();
+
+    if (!ads.begin(I2C_ADR, &Wire))
+    {
+        T15_ERROR(t15_log::BASE,
+                  "[I2C] ADS1115 not found at 0x%02X. Check wiring/address\n",
+                  (unsigned)I2C_ADR);
+        T15_ERROR(t15_log::BASE,
+                  "[I2C] Tip: ADS1115 addresses are usually 0x48,0x49,0x4A,0x4B.\n");
+
+        g_adsOk = false;
+        while (true) { delay(1000); }
+    }
+    else
+    {
+        g_adsOk = true;
+        ads.setGain(GAIN_TWOTHIRDS);
+
+        T15_INFO(t15_log::BASE,
+                 "[I2C] ADS1115 found, Gain=%d (6.144V)\n",
+                 (int)GAIN_TWOTHIRDS);
+    }
+}
+
+// --------------------------------------------------------------------
+// Heater PWM
+// --------------------------------------------------------------------
+static inline uint32_t heaterDutyFromPercent(uint8_t pct)
+{
+    const uint32_t maxDuty = (1u << HEATER_PWM_RES_BITS) - 1u;
+    return (maxDuty * (uint32_t)pct) / 100u;
+}
+
+static void heaterPwmStop()
+{
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    if (g_heaterPwmRunning)
+    {
+        ledcWrite((uint8_t)OVEN_HEATER, 0);
+        ledcDetach((uint8_t)OVEN_HEATER);
+        g_heaterPwmRunning = false;
+        T15_INFO(t15_log::TEST_2_3, "Heater PWM detached (stopped)\n");
+    }
+#else
+    static constexpr uint8_t HEATER_PWM_CHANNEL = 0;
+    if (g_heaterPwmRunning)
+    {
+        ledcWrite(HEATER_PWM_CHANNEL, 0);
+        ledcDetachPin(OVEN_HEATER);
+        g_heaterPwmRunning = false;
+        T15_INFO(t15_log::TEST_2_3, "Heater PWM detached (stopped)\n");
+    }
+#endif
+
+    pinMode(OVEN_HEATER, OUTPUT);
+    digitalWrite(OVEN_HEATER, HEATER_SAFE_LEVEL);
+}
+
+static bool heaterPwmStart(uint8_t dutyPercent)
+{
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    pinMode(OVEN_HEATER, OUTPUT);
+    digitalWrite(OVEN_HEATER, HEATER_SAFE_LEVEL);
+
+    (void)ledcDetach((uint8_t)OVEN_HEATER);
+    g_heaterPwmRunning = false;
+
+    const bool ok = ledcAttach((uint8_t)OVEN_HEATER,
+                               (uint32_t)HEATER_PWM_FREQ_HZ,
+                               (uint8_t)HEATER_PWM_RES_BITS);
+
+    if (!ok)
+    {
+        T15_ERROR(t15_log::TEST_2_3,
+                  "Heater ledcAttach FAILED (GPIO=%d, Freq=%luHz, Res=%dbit)\n",
+                  OVEN_HEATER,
+                  (unsigned long)HEATER_PWM_FREQ_HZ,
+                  (int)HEATER_PWM_RES_BITS);
+        pinMode(OVEN_HEATER, OUTPUT);
+        digitalWrite(OVEN_HEATER, HEATER_SAFE_LEVEL);
+        g_heaterPwmRunning = false;
+        return false;
+    }
+
+    g_heaterPwmRunning = true;
+
+    const uint32_t duty = heaterDutyFromPercent(dutyPercent);
+    ledcWrite((uint8_t)OVEN_HEATER, 0);
+    delay(2);
+    ledcWrite((uint8_t)OVEN_HEATER, duty);
+    delay(2);
+    ledcWrite((uint8_t)OVEN_HEATER, duty);
+
+    T15_INFO(t15_log::TEST_2_3,
+             "Heater PWM attached. GPIO=%d Freq=%luHz Duty=%u%%\n",
+             OVEN_HEATER,
+             (unsigned long)HEATER_PWM_FREQ_HZ,
+             (unsigned)dutyPercent);
+    return true;
+#else
+    static constexpr uint8_t HEATER_PWM_CHANNEL = 0;
+
+    ledcSetup(HEATER_PWM_CHANNEL, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
+    ledcAttachPin(OVEN_HEATER, HEATER_PWM_CHANNEL);
+    g_heaterPwmRunning = true;
+
+    const uint32_t duty = heaterDutyFromPercent(dutyPercent);
+    ledcWrite(HEATER_PWM_CHANNEL, 0);
+    delay(2);
+    ledcWrite(HEATER_PWM_CHANNEL, duty);
+    delay(2);
+    ledcWrite(HEATER_PWM_CHANNEL, duty);
+
+    T15_INFO(t15_log::TEST_2_3,
+             "Heater PWM attached. GPIO=%d CH=%u Freq=%luHz Duty=%u%%\n",
+             OVEN_HEATER,
+             (unsigned)HEATER_PWM_CHANNEL,
+             (unsigned long)HEATER_PWM_FREQ_HZ,
+             (unsigned)dutyPercent);
+    return true;
+#endif
+}
+
+// --------------------------------------------------------------------
+// Measurement
+// --------------------------------------------------------------------
+static void sampleHotspotUnavailable()
+{
+    g_rawHotspot = ads.readADC_SingleEnded(0); // diagnostic only
+    g_hot_mV = ntc::ads_raw_to_mV(g_rawHotspot);
+    g_hot_ohm = -1;
+    g_hotValid = false;
+    g_hot_dC = ntc::TEMP_INVALID_DC;
+    g_tempHotspotC = NAN;
+}
+
+static void sampleChamberTemperature()
+{
+    if (!g_adsOk)
+        return;
+
+    sampleHotspotUnavailable();
+
+    g_rawChamber = ads.readADC_SingleEnded(1); // A1 = Chamber
+    g_cha_mV = ntc::ads_raw_to_mV(g_rawChamber);
+    g_cha_ohm = ntc::voltage_to_resistance_ohm(g_cha_mV, VREF_MV, RFIXED_CHA_OHM, NTC_TO_GND);
+
+    g_cha_dC = ntc::calc_temp_from_ads_raw_dC(
+        g_rawChamber,
+        ntc::kNtc10k_Chamber_Table,
+        ntc::kNtc10k_Chamber_TableCount,
+        ntc::NtcTableMode::Resistance_Ohm,
+        VREF_MV,
+        RFIXED_CHA_OHM,
+        NTC_TO_GND);
+
+    g_tempChamberC = (g_cha_dC == ntc::TEMP_INVALID_DC) ? NAN : (g_cha_dC / 10.0f);
+}
+
+// --------------------------------------------------------------------
+// T15-2.3 Overshoot map
+// --------------------------------------------------------------------
+static void resetCurrentRun()
+{
+    g_heaterOffMs = 0;
+    g_chamberAtOff_dC = ntc::TEMP_INVALID_DC;
+    g_peakChamber_dC = ntc::TEMP_INVALID_DC;
+    g_peakAtMs = 0;
+    g_coolingConfirmCount = 0;
+}
+
+static void updateTest23(const uint32_t now)
+{
+    const bool door_open = isDoorOpen();
+
+    if (door_open)
+    {
+        heaterPwmStop();
+
+        if (g_test23State != Test23State::WAIT_FOR_COOL)
+        {
+            g_test23State = Test23State::WAIT_FOR_COOL;
+            resetCurrentRun();
+            T15_WARN(t15_log::TEST_2_3, "Door OPEN -> test paused / heater forced OFF\n");
+        }
+        return;
+    }
+
+    if (isnan(g_tempChamberC))
+        return;
+
+    if (g_currentOffIndex >= kOffPointCount)
+    {
+        heaterPwmStop();
+        g_test23State = Test23State::COMPLETE;
+        return;
+    }
+
+    const int currentOffPointC = kOffPointsC[g_currentOffIndex];
+
+    switch (g_test23State)
+    {
+        case Test23State::WAIT_FOR_COOL:
+        {
+            if (g_tempChamberC <= (float)T15_TEST_RESET_TEMP_C)
+            {
+                resetCurrentRun();
+                g_test23State = Test23State::HEATING_TO_OFFPOINT;
+                heaterPwmStart(T15_TEST_DUTY_PERCENT);
+
+                T15_INFO(t15_log::TEST_2_3,
+                         "Run %u/%u START: OFF-point=%dC reset_temp=%dC duty=%u%%\n",
+                         (unsigned)(g_currentOffIndex + 1),
+                         (unsigned)kOffPointCount,
+                         currentOffPointC,
+                         (int)T15_TEST_RESET_TEMP_C,
+                         (unsigned)T15_TEST_DUTY_PERCENT);
+            }
+            break;
+        }
+
+        case Test23State::HEATING_TO_OFFPOINT:
+        {
+            if (g_tempChamberC >= (float)currentOffPointC)
+            {
+                heaterPwmStop();
+                g_heaterOffMs = now;
+                g_chamberAtOff_dC = g_cha_dC;
+                g_peakChamber_dC = g_cha_dC;
+                g_peakAtMs = now;
+                g_coolingConfirmCount = 0;
+                g_test23State = Test23State::RUNOUT_AFTER_OFF;
+
+                T15_INFO(t15_log::TEST_2_3,
+                         "Run %u OFF at Tch=%.2fC target_off=%dC rawCh=%d mV=%ld Ohm=%ld\n",
+                         (unsigned)(g_currentOffIndex + 1),
+                         g_tempChamberC,
+                         currentOffPointC,
+                         (int)g_rawChamber,
+                         (long)g_cha_mV,
+                         (long)g_cha_ohm);
+            }
+            break;
+        }
+
+        case Test23State::RUNOUT_AFTER_OFF:
+        {
+            if (g_cha_dC > g_peakChamber_dC)
+            {
+                g_peakChamber_dC = g_cha_dC;
+                g_peakAtMs = now;
+                g_coolingConfirmCount = 0;
+            }
+            else if (g_cha_dC < g_peakChamber_dC)
+            {
+                if (g_coolingConfirmCount < 255)
+                    g_coolingConfirmCount++;
+            }
+
+            if (g_coolingConfirmCount >= 8)
+            {
+                const float offC = (g_chamberAtOff_dC == ntc::TEMP_INVALID_DC) ? NAN : (g_chamberAtOff_dC / 10.0f);
+                const float peakC = (g_peakChamber_dC == ntc::TEMP_INVALID_DC) ? NAN : (g_peakChamber_dC / 10.0f);
+                const float overshootC = (isnan(offC) || isnan(peakC)) ? NAN : (peakC - offC);
+                const uint32_t timeToPeakMs = (g_peakAtMs >= g_heaterOffMs) ? (g_peakAtMs - g_heaterOffMs) : 0;
+
+                T15_INFO(t15_log::TEST_2_3,
+                         "Run %u RESULT: off=%dC Tch_off=%.2fC Tch_peak=%.2fC overshoot=%.2fC time_to_peak=%lums (~%lus)\n",
+                         (unsigned)(g_currentOffIndex + 1),
+                         currentOffPointC,
+                         offC,
+                         peakC,
+                         overshootC,
+                         (unsigned long)timeToPeakMs,
+                         (unsigned long)(timeToPeakMs / 1000UL));
+
+                g_test23State = Test23State::PEAK_REACHED;
+            }
+
+            break;
+        }
+
+        case Test23State::PEAK_REACHED:
+        {
+            g_currentOffIndex++;
+            resetCurrentRun();
+
+            if (g_currentOffIndex < kOffPointCount)
+            {
+                g_test23State = Test23State::WAIT_FOR_COOL;
+                T15_INFO(t15_log::TEST_2_3,
+                         "Preparing next run. Waiting for chamber <= %dC\n",
+                         (int)T15_TEST_RESET_TEMP_C);
+            }
+            else
+            {
+                g_test23State = Test23State::COMPLETE;
+                T15_INFO(t15_log::TEST_2_3, "All T15-2.3 runs complete\n");
+            }
+            break;
+        }
+
+        case Test23State::COMPLETE:
+            heaterPwmStop();
+            break;
+    }
+}
+
+void setup()
+{
+    Serial.begin(115200);
+    delay(1000);
+
+    if (!udp::begin("CLIENT"))
+        Serial.println("[T15] UDP init FAILED");
+
+    T15_INFO(t15_log::BASE,
+             "Boot Step 3B: T15-2.3 overshoot map, chamber manufacturer table active, hotspot invalid\n");
+
+    initDoor();
+    initI2CAndADS();
+
+    heaterPwmStop();
+
+    T15_INFO(t15_log::BASE,
+             "Setup complete. Close door and let chamber cool <= %dC to start T15-2.3\n",
+             (int)T15_TEST_RESET_TEMP_C);
+}
+
+void loop()
+{
+    const uint32_t now = millis();
+
+    if (now - g_lastSampleMs >= SAMPLE_INTERVAL_MS)
+    {
+        g_lastSampleMs = now;
+        sampleChamberTemperature();
+        updateTest23(now);
+    }
+
+    if (now - g_lastLogMs >= LOG_INTERVAL_MS)
+    {
+        g_lastLogMs = now;
+
+        const bool door_open = isDoorOpen();
+        const char* stateStr = "WAIT_FOR_COOL";
+        switch (g_test23State)
+        {
+            case Test23State::WAIT_FOR_COOL: stateStr = "WAIT_FOR_COOL"; break;
+            case Test23State::HEATING_TO_OFFPOINT: stateStr = "HEATING"; break;
+            case Test23State::RUNOUT_AFTER_OFF: stateStr = "RUNOUT"; break;
+            case Test23State::PEAK_REACHED: stateStr = "PEAK_REACHED"; break;
+            case Test23State::COMPLETE: stateStr = "COMPLETE"; break;
+        }
+
+        const int currentOffPointC = (g_currentOffIndex < kOffPointCount) ? kOffPointsC[g_currentOffIndex] : -1;
+
+        T15_INFO(t15_log::TEST_2_3,
+                 "Door=%s state=%s run=%u/%u off_point=%dC rawHot=%d hot_mV=%ld hot_valid=%d Thot=%s rawCh=%d cha_mV=%ld cha_Ohm=%ld Tch=%.2fC heater=%s\n",
+                 door_open ? "OPEN" : "CLOSED",
+                 stateStr,
+                 (unsigned)((g_currentOffIndex < kOffPointCount) ? (g_currentOffIndex + 1) : kOffPointCount),
+                 (unsigned)kOffPointCount,
+                 currentOffPointC,
+                 (int)g_rawHotspot,
+                 (long)g_hot_mV,
+                 g_hotValid ? 1 : 0,
+                 g_hotValid ? "valid" : "nanC",
+                 (int)g_rawChamber,
+                 (long)g_cha_mV,
+                 (long)g_cha_ohm,
+                 g_tempChamberC,
+                 g_heaterPwmRunning ? "ON" : "OFF");
+    }
+}
