@@ -598,6 +598,7 @@
                 "WIFI_LOGGING_ENABLE=1",
                 "WIFI_LOGGING_UDP_IP=\"192.168.0.249\"",
                 "WIFI_LOGGING_UDP_PORT=10514",
+                "CSV_OUT=1",
                 "LV_CONF_INCLUDE_SIMPLE",
                 "SIM_TARGET_TEMP=40",
                 "SIM_TARGET_MAX_OVERSHOT=5",

@@ -3,21 +3,17 @@
 #include "log_core.h"
 #include "udp/fsd_udp.h"
 
-#include "T15/t15_log_tags.h"
-#include "sensors/sensor_ntc.h"
+#include "T15/csv_log.h"
 #include "T15/heater_io.h"
+#include "T15/t15_log_tags.h"
+#include "log_csv.h"
+#include "sensors/sensor_ntc.h"
 
 // --------------------------------------------------------------------
-// T15 Step 3C
-// T15-2.3 Overshoot map using modularized sensor/heater files.
-//
-// Purpose:
-// - keep test harness in this file
-// - move reusable sensor access into sensor_ntc.*
-// - move reusable heater actuation into heater_io.*
+// T15 Step 2.4
+// T15-2.3 Overshoot map + structured CSV logging
 // --------------------------------------------------------------------
 
-// Build-time tuning knobs
 #ifndef T15_TEST_DUTY_PERCENT
 #define T15_TEST_DUTY_PERCENT 100
 #endif
@@ -32,8 +28,7 @@ static constexpr uint32_t LOG_INTERVAL_MS = 1000;
 static constexpr int kOffPointsC[] = {35, 37, 39, 41};
 static constexpr size_t kOffPointCount = sizeof(kOffPointsC) / sizeof(kOffPointsC[0]);
 
-enum class Test23State : uint8_t
-{
+enum class Test23State : uint8_t {
     WAIT_FOR_COOL = 0,
     HEATING_TO_OFFPOINT,
     RUNOUT_AFTER_OFF,
@@ -53,8 +48,36 @@ static int16_t g_peakChamber_dC = -32768;
 static uint32_t g_peakAtMs = 0;
 static uint8_t g_coolingConfirmCount = 0;
 
-static void resetCurrentRun()
-{
+static const char *state_to_str() {
+    switch (g_test23State) {
+    case Test23State::WAIT_FOR_COOL:
+        return "WAIT_FOR_COOL";
+    case Test23State::HEATING_TO_OFFPOINT:
+        return "HEATING";
+    case Test23State::RUNOUT_AFTER_OFF:
+        return "RUNOUT";
+    case Test23State::PEAK_REACHED:
+        return "PEAK_REACHED";
+    case Test23State::COMPLETE:
+        return "COMPLETE";
+    }
+    return "UNKNOWN";
+}
+
+static const int state_to_int() {
+    switch (g_test23State) {
+    case Test23State::WAIT_FOR_COOL:
+    case Test23State::HEATING_TO_OFFPOINT:
+    case Test23State::RUNOUT_AFTER_OFF:
+    case Test23State::PEAK_REACHED:
+    case Test23State::COMPLETE:
+        return static_cast<uint8_t>(g_test23State);
+        break;
+    }
+    return -1;
+}
+
+static void resetCurrentRun() {
     g_heaterOffMs = 0;
     g_chamberAtOff_dC = -32768;
     g_peakChamber_dC = -32768;
@@ -62,29 +85,44 @@ static void resetCurrentRun()
     g_coolingConfirmCount = 0;
 }
 
-static void updateTest23(const uint32_t now)
-{
-    const bool door_open = t15_sensor::is_door_open();
-    const auto& s = t15_sensor::get_sample();
+static void csv_mark(const char *marker, uint32_t nowMs, float tchC, float thotC) {
+    const uint8_t runIndex1 = (g_currentOffIndex < kOffPointCount)
+                                  ? (uint8_t)(g_currentOffIndex + 1)
+                                  : (uint8_t)kOffPointCount;
+    const int offPointC = (g_currentOffIndex < kOffPointCount) ? kOffPointsC[g_currentOffIndex] : -1;
 
-    if (door_open)
-    {
+    t15_csv::emit_marker("T15-2.3",
+                         nowMs,
+                         marker,
+                         runIndex1,
+                         offPointC,
+                         tchC,
+                         thotC,
+                         t15_heater::is_running(),
+                         t15_sensor::is_door_open());
+}
+
+static void updateTest23(const uint32_t now) {
+    const bool door_open = t15_sensor::is_door_open();
+    const auto &s = t15_sensor::get_sample();
+
+    if (door_open) {
         t15_heater::pwm_stop();
 
-        if (g_test23State != Test23State::WAIT_FOR_COOL)
-        {
+        if (g_test23State != Test23State::WAIT_FOR_COOL) {
             g_test23State = Test23State::WAIT_FOR_COOL;
             resetCurrentRun();
             T15_WARN(t15_log::TEST_2_3, "Door OPEN -> test paused / heater forced OFF\n");
+            csv_mark("DOOR_OPEN_ABORT", now, s.tempChamberC, s.tempHotspotC);
         }
         return;
     }
 
-    if (isnan(s.tempChamberC))
+    if (isnan(s.tempChamberC)) {
         return;
+    }
 
-    if (g_currentOffIndex >= kOffPointCount)
-    {
+    if (g_currentOffIndex >= kOffPointCount) {
         t15_heater::pwm_stop();
         g_test23State = Test23State::COMPLETE;
         return;
@@ -92,179 +130,190 @@ static void updateTest23(const uint32_t now)
 
     const int currentOffPointC = kOffPointsC[g_currentOffIndex];
 
-    switch (g_test23State)
-    {
-        case Test23State::WAIT_FOR_COOL:
-        {
-            if (s.tempChamberC <= (float)T15_TEST_RESET_TEMP_C)
-            {
-                resetCurrentRun();
-                g_test23State = Test23State::HEATING_TO_OFFPOINT;
-                t15_heater::pwm_start(T15_TEST_DUTY_PERCENT);
-
-                T15_INFO(t15_log::TEST_2_3,
-                         "Run %u/%u START: OFF-point=%dC reset_temp=%dC duty=%u%%\n",
-                         (unsigned)(g_currentOffIndex + 1),
-                         (unsigned)kOffPointCount,
-                         currentOffPointC,
-                         (int)T15_TEST_RESET_TEMP_C,
-                         (unsigned)T15_TEST_DUTY_PERCENT);
-            }
-            break;
-        }
-
-        case Test23State::HEATING_TO_OFFPOINT:
-        {
-            if (s.tempChamberC >= (float)currentOffPointC)
-            {
-                t15_heater::pwm_stop();
-                g_heaterOffMs = now;
-                g_chamberAtOff_dC = s.cha_dC;
-                g_peakChamber_dC = s.cha_dC;
-                g_peakAtMs = now;
-                g_coolingConfirmCount = 0;
-                g_test23State = Test23State::RUNOUT_AFTER_OFF;
-
-                T15_INFO(t15_log::TEST_2_3,
-                         "Run %u OFF at Tch=%.2fC target_off=%dC rawCh=%d mV=%ld Ohm=%ld\n",
-                         (unsigned)(g_currentOffIndex + 1),
-                         s.tempChamberC,
-                         currentOffPointC,
-                         (int)s.rawChamber,
-                         (long)s.cha_mV,
-                         (long)s.cha_ohm);
-            }
-            break;
-        }
-
-        case Test23State::RUNOUT_AFTER_OFF:
-        {
-            if (s.cha_dC > g_peakChamber_dC)
-            {
-                g_peakChamber_dC = s.cha_dC;
-                g_peakAtMs = now;
-                g_coolingConfirmCount = 0;
-            }
-            else if (s.cha_dC < g_peakChamber_dC)
-            {
-                if (g_coolingConfirmCount < 255)
-                    g_coolingConfirmCount++;
-            }
-
-            if (g_coolingConfirmCount >= 8)
-            {
-                const float offC = (g_chamberAtOff_dC == -32768) ? NAN : (g_chamberAtOff_dC / 10.0f);
-                const float peakC = (g_peakChamber_dC == -32768) ? NAN : (g_peakChamber_dC / 10.0f);
-                const float overshootC = (isnan(offC) || isnan(peakC)) ? NAN : (peakC - offC);
-                const uint32_t timeToPeakMs = (g_peakAtMs >= g_heaterOffMs) ? (g_peakAtMs - g_heaterOffMs) : 0;
-
-                T15_INFO(t15_log::TEST_2_3,
-                         "Run %u RESULT: off=%dC Tch_off=%.2fC Tch_peak=%.2fC overshoot=%.2fC time_to_peak=%lums (~%lus)\n",
-                         (unsigned)(g_currentOffIndex + 1),
-                         currentOffPointC,
-                         offC,
-                         peakC,
-                         overshootC,
-                         (unsigned long)timeToPeakMs,
-                         (unsigned long)(timeToPeakMs / 1000UL));
-
-                g_test23State = Test23State::PEAK_REACHED;
-            }
-
-            break;
-        }
-
-        case Test23State::PEAK_REACHED:
-        {
-            g_currentOffIndex++;
+    switch (g_test23State) {
+    case Test23State::WAIT_FOR_COOL: {
+        if (s.tempChamberC <= (float)T15_TEST_RESET_TEMP_C) {
             resetCurrentRun();
+            g_test23State = Test23State::HEATING_TO_OFFPOINT;
+            t15_heater::pwm_start(T15_TEST_DUTY_PERCENT);
 
-            if (g_currentOffIndex < kOffPointCount)
-            {
-                g_test23State = Test23State::WAIT_FOR_COOL;
-                T15_INFO(t15_log::TEST_2_3,
-                         "Preparing next run. Waiting for chamber <= %dC\n",
-                         (int)T15_TEST_RESET_TEMP_C);
+            T15_INFO(t15_log::TEST_2_3,
+                     "Run %u/%u START: OFF-point=%dC reset_temp=%dC duty=%u%%\n",
+                     (unsigned)(g_currentOffIndex + 1),
+                     (unsigned)kOffPointCount,
+                     currentOffPointC,
+                     (int)T15_TEST_RESET_TEMP_C,
+                     (unsigned)T15_TEST_DUTY_PERCENT);
+            csv_mark("RUN_START", now, s.tempChamberC, s.tempHotspotC);
+        }
+        break;
+    }
+
+    case Test23State::HEATING_TO_OFFPOINT: {
+        if (s.tempChamberC >= (float)currentOffPointC) {
+            t15_heater::pwm_stop();
+            g_heaterOffMs = now;
+            g_chamberAtOff_dC = s.cha_dC;
+            g_peakChamber_dC = s.cha_dC;
+            g_peakAtMs = now;
+            g_coolingConfirmCount = 0;
+            g_test23State = Test23State::RUNOUT_AFTER_OFF;
+
+            T15_INFO(t15_log::TEST_2_3,
+                     "Run %u OFF at Tch=%.2fC target_off=%dC rawCh=%d mV=%ld Ohm=%ld\n",
+                     (unsigned)(g_currentOffIndex + 1),
+                     s.tempChamberC,
+                     currentOffPointC,
+                     (int)s.rawChamber,
+                     (long)s.cha_mV,
+                     (long)s.cha_ohm);
+            csv_mark("RUN_OFF", now, s.tempChamberC, s.tempHotspotC);
+        }
+        break;
+    }
+
+    case Test23State::RUNOUT_AFTER_OFF: {
+        if (s.cha_dC > g_peakChamber_dC) {
+            g_peakChamber_dC = s.cha_dC;
+            g_peakAtMs = now;
+            g_coolingConfirmCount = 0;
+        } else if (s.cha_dC < g_peakChamber_dC) {
+            if (g_coolingConfirmCount < 255) {
+                g_coolingConfirmCount++;
             }
-            else
-            {
-                g_test23State = Test23State::COMPLETE;
-                T15_INFO(t15_log::TEST_2_3, "All T15-2.3 runs complete\n");
-            }
-            break;
         }
 
-        case Test23State::COMPLETE:
-            t15_heater::pwm_stop();
-            break;
+        if (g_coolingConfirmCount >= 8) {
+            const float offC = (g_chamberAtOff_dC == -32768) ? NAN : (g_chamberAtOff_dC / 10.0f);
+            const float peakC = (g_peakChamber_dC == -32768) ? NAN : (g_peakChamber_dC / 10.0f);
+            const float overshootC = (isnan(offC) || isnan(peakC)) ? NAN : (peakC - offC);
+            const uint32_t timeToPeakMs = (g_peakAtMs >= g_heaterOffMs) ? (g_peakAtMs - g_heaterOffMs) : 0;
+
+            T15_INFO(t15_log::TEST_2_3,
+                     "Run %u RESULT: off=%dC Tch_off=%.2fC Tch_peak=%.2fC overshoot=%.2fC time_to_peak=%lums (~%lus)\n",
+                     (unsigned)(g_currentOffIndex + 1),
+                     currentOffPointC,
+                     offC,
+                     peakC,
+                     overshootC,
+                     (unsigned long)timeToPeakMs,
+                     (unsigned long)(timeToPeakMs / 1000UL));
+            csv_mark("RUN_RESULT", now, peakC, s.tempHotspotC);
+
+            g_test23State = Test23State::PEAK_REACHED;
+        }
+
+        break;
+    }
+
+    case Test23State::PEAK_REACHED: {
+        g_currentOffIndex++;
+        resetCurrentRun();
+
+        if (g_currentOffIndex < kOffPointCount) {
+            g_test23State = Test23State::WAIT_FOR_COOL;
+            T15_INFO(t15_log::TEST_2_3,
+                     "Preparing next run. Waiting for chamber <= %dC\n",
+                     (int)T15_TEST_RESET_TEMP_C);
+            csv_mark("RUN_PREPARE_NEXT", now, s.tempChamberC, s.tempHotspotC);
+        } else {
+            g_test23State = Test23State::COMPLETE;
+            T15_INFO(t15_log::TEST_2_3, "All T15-2.3 runs complete\n");
+            csv_mark("RUNS_COMPLETE", now, s.tempChamberC, s.tempHotspotC);
+        }
+        break;
+    }
+
+    case Test23State::COMPLETE:
+        t15_heater::pwm_stop();
+        break;
     }
 }
 
-void setup()
-{
+void setup() {
     Serial.begin(115200);
     delay(1000);
 
-    if (!udp::begin("CLIENT"))
+    if (!udp::begin("CLIENT")) {
         Serial.println("[T15] UDP init FAILED");
+    }
 
     T15_INFO(t15_log::BASE,
-             "Boot Step 3C: T15-2.3 overshoot map with modularized sensor/heater files\n");
+             "Boot Step 2.4: T15-2.3 overshoot map with structured CSV logging\n");
 
     t15_sensor::init_door();
     t15_sensor::init_i2c_and_ads();
     t15_heater::pwm_stop();
+
+    t15_csv::emit_header_once();
 
     T15_INFO(t15_log::BASE,
              "Setup complete. Close door and let chamber cool <= %dC to start T15-2.3\n",
              (int)T15_TEST_RESET_TEMP_C);
 }
 
-void loop()
-{
+void loop() {
     const uint32_t now = millis();
 
-    if (now - g_lastSampleMs >= SAMPLE_INTERVAL_MS)
-    {
+    if (now - g_lastSampleMs >= SAMPLE_INTERVAL_MS) {
         g_lastSampleMs = now;
         t15_sensor::sample_chamber_temperature();
         updateTest23(now);
     }
 
-    if (now - g_lastLogMs >= LOG_INTERVAL_MS)
-    {
+    if (now - g_lastLogMs >= LOG_INTERVAL_MS) {
         g_lastLogMs = now;
 
         const bool door_open = t15_sensor::is_door_open();
-        const auto& s = t15_sensor::get_sample();
+        const auto &s = t15_sensor::get_sample();
 
-        const char* stateStr = "WAIT_FOR_COOL";
-        switch (g_test23State)
-        {
-            case Test23State::WAIT_FOR_COOL: stateStr = "WAIT_FOR_COOL"; break;
-            case Test23State::HEATING_TO_OFFPOINT: stateStr = "HEATING"; break;
-            case Test23State::RUNOUT_AFTER_OFF: stateStr = "RUNOUT"; break;
-            case Test23State::PEAK_REACHED: stateStr = "PEAK_REACHED"; break;
-            case Test23State::COMPLETE: stateStr = "COMPLETE"; break;
-        }
-
+        const uint8_t runIndex1 = (g_currentOffIndex < kOffPointCount)
+                                      ? (uint8_t)(g_currentOffIndex + 1)
+                                      : (uint8_t)kOffPointCount;
         const int currentOffPointC = (g_currentOffIndex < kOffPointCount) ? kOffPointsC[g_currentOffIndex] : -1;
 
+        // rawHot;hotMilliVolts;tempHot_dC;rawChamber;chamberMilliVolts;tempChamber_dC;heater_on;door_open;state
+        // "%ld;%ld;%ld;%ld;%ld;%ld;%d;%d;%d"
+        CSV_LOG_TEMP(
+            // HotNTC
+            (long)s.rawHotspot,
+            (long)s.hot_mV,
+            (long)(s.tempHotspotC * 10),
+            // ChamberNTC
+            (long)s.rawChamber,
+            (long)s.cha_mV,
+            (long)(s.tempChamberC * 10),
+            // statistic
+            state_to_int(),
+            t15_heater::is_running() ? 1 : 0,
+            door_open ? 1 : 0);
+
         T15_INFO(t15_log::TEST_2_3,
-                 "Door=%s state=%s run=%u/%u off_point=%dC rawHot=%d hot_mV=%ld hot_valid=%d Thot=%s rawCh=%d cha_mV=%ld cha_Ohm=%ld Tch=%.2fC heater=%s\n",
-                 door_open ? "OPEN" : "CLOSED",
-                 stateStr,
-                 (unsigned)((g_currentOffIndex < kOffPointCount) ? (g_currentOffIndex + 1) : kOffPointCount),
+                 "Door=%s state=%s run=%u/%u off_point=%dC rawHot=%d hot_mV=%ld hot_valid=%d Thot= %.2fC (%s) rawCh=%d cha_mV=%ld cha_Ohm=%ld Tch=%.2fC heater=%s\n",
+                 door_open ? "OPEN" : "CLOSE",
+                 state_to_str(),
+                 (unsigned)runIndex1,
                  (unsigned)kOffPointCount,
                  currentOffPointC,
                  (int)s.rawHotspot,
                  (long)s.hot_mV,
                  s.hotValid ? 1 : 0,
+                 s.tempHotspotC,
                  s.hotValid ? "valid" : "nanC",
                  (int)s.rawChamber,
                  (long)s.cha_mV,
                  (long)s.cha_ohm,
                  s.tempChamberC,
                  t15_heater::is_running() ? "ON" : "OFF");
+
+        t15_csv::emit_state("T15-2.3",
+                            now,
+                            state_to_str(),
+                            runIndex1,
+                            (uint8_t)kOffPointCount,
+                            currentOffPointC,
+                            s,
+                            t15_heater::is_running(),
+                            door_open);
     }
 }
