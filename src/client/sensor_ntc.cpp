@@ -3,12 +3,14 @@
 #include <Arduino.h>
 #include <Wire.h>
 
-#include "Adafruit_ADS1X15.h"
 #include "log_client.h"
+#include "pins_client.h"
+
 #include "ntc/ntc.h"
 #include "ntc/ntc_convert.h"
 #include "ntc/ntc_table_10k_ioveo_036HS05201.h"
-#include "pins_client.h"
+
+#include <Adafruit_ADS1X15.h>
 
 namespace sensor_ntc {
 
@@ -23,32 +25,36 @@ static constexpr bool NTC_TO_GND = true;
 
 static constexpr int32_t HOT_MV_MIN_VALID = 50;
 static constexpr int32_t HOT_MV_MAX_VALID = (VREF_MV - 50);
-static constexpr int32_t CHA_MV_MIN_VALID = 50;
-static constexpr int32_t CHA_MV_MAX_VALID = (VREF_MV - 50);
 
 static Adafruit_ADS1115 g_ads;
 static Sample g_sample;
 static Sample g_sample_next;
 
 static void i2c_scan() {
-    CLIENT_INFO("[I2C] scan...\n");
-    uint8_t count = 0;
+    CLIENT_INFO("---------------------------\n");
+    CLIENT_INFO("I2C scan started...\n");
+    CLIENT_INFO("---------------------------\n");
 
-    for (uint8_t addr = 1; addr < 127; ++addr) {
+    uint8_t count = 0;
+    for (uint8_t addr = 1; addr < 127; addr++) {
         Wire.beginTransmission(addr);
         const uint8_t err = Wire.endTransmission();
 
         if (err == 0) {
-            CLIENT_INFO("[I2C] found 0x%02X\n", addr);
-            ++count;
+            count++;
         }
-
         delay(2);
     }
 
     if (count == 0) {
-        CLIENT_WARN("[I2C] no devices found\n");
+        CLIENT_WARN("   No I2C devices found!\n");
+    } else {
+        CLIENT_INFO("   Total devices found: %u\n", (unsigned)count);
     }
+
+    CLIENT_INFO("---------------------------\n");
+    CLIENT_INFO("I2C scan done\n");
+    CLIENT_INFO("---------------------------\n");
 }
 
 bool is_door_open() {
@@ -69,10 +75,6 @@ void init_i2c_and_ads() {
     Wire.begin(I2C_SDA, I2C_SCL);
     Wire.setClock(100000);
 
-    CLIENT_INFO("[I2C] init: SDA=%u SCL=%u clock=100kHz\n",
-                (unsigned)I2C_SDA,
-                (unsigned)I2C_SCL);
-
     i2c_scan();
 
     if (!g_ads.begin(I2C_ADR, &Wire)) {
@@ -86,20 +88,21 @@ void init_i2c_and_ads() {
         while (true) {
             delay(1000);
         }
+    } else {
+        g_sample.adsOk = true;
+        g_sample_next.adsOk = true;
+        g_ads.setGain(GAIN_TWOTHIRDS);
+
+        CLIENT_INFO("[I2C] ADS1115 found, Gain=%d (6.144V)\n",
+                    (int)GAIN_TWOTHIRDS);
     }
-
-    g_sample.adsOk = true;
-    g_sample_next.adsOk = true;
-    g_ads.setGain(GAIN_TWOTHIRDS);
-
-    CLIENT_INFO("[I2C] ADS1115 found, Gain=%d (6.144V)\n", (int)GAIN_TWOTHIRDS);
 }
 
 static void sample_hotspot_temperature() {
-    g_sample_next.rawHotspot = g_ads.readADC_SingleEnded(0); // A0 = Hotspot
+    g_sample_next.rawHotspot = g_ads.readADC_SingleEnded(0);
     g_sample_next.hot_mV = ntc::ads_raw_to_mV(g_sample_next.rawHotspot);
 
-    const bool railInvalid =
+    const bool rail_invalid =
         (g_sample_next.hot_mV <= HOT_MV_MIN_VALID) ||
         (g_sample_next.hot_mV >= HOT_MV_MAX_VALID);
 
@@ -118,11 +121,11 @@ static void sample_hotspot_temperature() {
         RFIXED_HOT_OHM,
         NTC_TO_GND);
 
-    const bool convInvalid =
+    const bool conv_invalid =
         (g_sample_next.hot_ohm < 0) ||
         (g_sample_next.hot_dC == ntc::TEMP_INVALID_DC);
 
-    g_sample_next.hotValid = !(railInvalid || convInvalid);
+    g_sample_next.hotValid = !(rail_invalid || conv_invalid);
     g_sample_next.tempHotspotC =
         g_sample_next.hotValid ? (g_sample_next.hot_dC / 10.0f) : NAN;
 }
@@ -136,13 +139,8 @@ void sample_temperatures() {
 
     sample_hotspot_temperature();
 
-    g_sample_next.rawChamber = g_ads.readADC_SingleEnded(1); // A1 = Chamber
+    g_sample_next.rawChamber = g_ads.readADC_SingleEnded(1);
     g_sample_next.cha_mV = ntc::ads_raw_to_mV(g_sample_next.rawChamber);
-
-    const bool chaRailInvalid =
-        (g_sample_next.cha_mV <= CHA_MV_MIN_VALID) ||
-        (g_sample_next.cha_mV >= CHA_MV_MAX_VALID);
-
     g_sample_next.cha_ohm = ntc::voltage_to_resistance_ohm(
         g_sample_next.cha_mV,
         VREF_MV,
@@ -158,13 +156,10 @@ void sample_temperatures() {
         RFIXED_CHA_OHM,
         NTC_TO_GND);
 
-    const bool chaConvInvalid =
-        (g_sample_next.cha_ohm < 0) ||
-        (g_sample_next.cha_dC == ntc::TEMP_INVALID_DC);
-
-    g_sample_next.chaValid = !(chaRailInvalid || chaConvInvalid);
     g_sample_next.tempChamberC =
-        g_sample_next.chaValid ? (g_sample_next.cha_dC / 10.0f) : NAN;
+        (g_sample_next.cha_dC == ntc::TEMP_INVALID_DC)
+            ? NAN
+            : (g_sample_next.cha_dC / 10.0f);
 
     g_sample_next.adsOk = g_sample.adsOk;
     g_sample = g_sample_next;

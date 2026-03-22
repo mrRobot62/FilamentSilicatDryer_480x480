@@ -421,28 +421,26 @@ void i2cScan() {
 // Fill STATUS via callback (raw units only; no assumptions about conversion)
 // T10.1.28 Door bugfix
 static void fillStatusCallback(ProtocolStatus &st) {
-    sensor_ntc::sample_temperatures();
-    const sensor_ntc::Sample &sample = sensor_ntc::get_sample();
-
-    // Report last applied outputs (after safety + PWM truth)
     st.outputsMask = g_effectiveMask;
 
-    // Door telemetry bit. OPEN=HIGH, CLOSED=LOW.
-    const bool door_open = isDoorOpen();
+    const bool door_open = sensor_ntc::is_door_open();
     if (door_open) {
         st.outputsMask |= (1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
     } else {
         st.outputsMask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
     }
 
-    // Dual-NTC telemetry from client sensor module.
+    sensor_ntc::sample_temperatures();
+    const sensor_ntc::Sample &sample = sensor_ntc::get_sample();
+
     st.adcRaw[0] = sample.rawHotspot;
     st.adcRaw[1] = sample.rawChamber;
     st.adcRaw[2] = 0;
     st.adcRaw[3] = 0;
 
     st.tempHotspot_dC = sample.hotValid ? sample.hot_dC : ntc::TEMP_INVALID_DC;
-    st.tempChamber_dC = sample.chaValid ? sample.cha_dC : ntc::TEMP_INVALID_DC;
+    st.tempChamber_dC =
+        (sample.cha_dC == ntc::TEMP_INVALID_DC) ? ntc::TEMP_INVALID_DC : sample.cha_dC;
 }
 
 // Apply outputs when mask changes
@@ -822,22 +820,25 @@ void setup() {
 
 // ADS1x15
 #if ENABLE_INTERNAL_NTC
-    // I2C bus setup. Use a conservative clock when level shifters are involved.
-    Wire.begin(I2C_SDA, I2C_SCL);
-    Wire.setClock(100000); // safe default for level shifter setups
-    i2cScan();
-    if (!ads.begin(I2C_ADR, &Wire)) {
-        CLIENT_ERR("[I2C] ADS1115 not found at 0x%s. Check wiring/address\n", String(I2C_ADR, HEX));
-        CLIENT_ERR("[I2C] Tip: ADS1115 addresses are usually 0x48,0x49,0x4A,0x4B.\n");
-        while (true) { delay(1000); }
-        ntc_available = false;
-    } else {
-        ntc_available = true;
-        ads.setGain(GAIN_TWOTHIRDS);
-        // ads.startADCReading(ADS1X15_REG_CONFIG_MUX_DIFF_0_1, /*continuous=*/false);
+    // // I2C bus setup. Use a conservative clock when level shifters are involved.
+    // Wire.begin(I2C_SDA, I2C_SCL);
+    // Wire.setClock(100000); // safe default for level shifter setups
+    // i2cScan();
+    // if (!ads.begin(I2C_ADR, &Wire)) {
+    //     CLIENT_ERR("[I2C] ADS1115 not found at 0x%s. Check wiring/address\n", String(I2C_ADR, HEX));
+    //     CLIENT_ERR("[I2C] Tip: ADS1115 addresses are usually 0x48,0x49,0x4A,0x4B.\n");
+    //     while (true) { delay(1000); }
+    //     ntc_available = false;
+    // } else {
+    //     ntc_available = true;
+    //     ads.setGain(GAIN_TWOTHIRDS);
+    //     // ads.startADCReading(ADS1X15_REG_CONFIG_MUX_DIFF_0_1, /*continuous=*/false);
 
-        CLIENT_INFO("[I2C] ADS1115 found, Gain=%d (6.144V)\n", GAIN_TWOTHIRDS);
-    }
+    //     CLIENT_INFO("[I2C] ADS1115 found, Gain=%d (6.144V)\n", GAIN_TWOTHIRDS);
+    // }
+
+    sensor_ntc::init_i2c_and_ads();
+
 #endif
 
     // Initialize ClientComm UART (routes RX2/TX2 inside ClientComm as required)
@@ -853,7 +854,11 @@ void setup() {
     outputsChangedCallback(0x0000);
 
     // Door init log (after pin configuration)
-    const bool door_open = (digitalRead(OVEN_DOOR_SENSOR) != 0);
+    // const bool door_open = (digitalRead(OVEN_DOOR_SENSOR) != 0);
+
+    sensor_ntc::init_door();
+    const bool door_open = sensor_ntc::is_door_open();
+    
     CLIENT_INFO("[IO] DOOR init done: GPIO=%d INPUT_PULLUP level=%d (%s)\n",
                 OVEN_DOOR_SENSOR,
                 door_open ? 1 : 0,

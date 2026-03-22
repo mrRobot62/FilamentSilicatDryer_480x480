@@ -17,7 +17,6 @@ struct Sample {
     int16_t rawChamber = 0;
     int32_t cha_mV = 0;
     int32_t cha_ohm = 0;
-    bool chaValid = false;
     int16_t cha_dC = -32768;
     float tempChamberC = 0.0f / 0.0f; // NAN
 };
@@ -27,6 +26,6 @@ void init_i2c_and_ads();
 bool is_door_open();
 
 void sample_temperatures();
-const Sample& get_sample();
+const Sample &get_sample();
 
 } // namespace sensor_ntc
