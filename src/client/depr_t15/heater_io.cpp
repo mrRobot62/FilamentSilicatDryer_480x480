@@ -1,30 +1,26 @@
-#include "T15/heater_io.h"
+#include "depr_T15/heater_io.h"
 
 #include <Arduino.h>
 
+#include "depr_T15/t15_log_tags.h"
 #include "log_core.h"
 #include "pins_client.h"
-#include "T15/t15_log_tags.h"
 
-namespace t15_heater
-{
+namespace t15_heater {
 static constexpr uint32_t HEATER_PWM_FREQ_HZ = 4000;
 static constexpr uint8_t HEATER_PWM_RES_BITS = 10;
 static constexpr int HEATER_SAFE_LEVEL = LOW;
 
 static bool g_heaterPwmRunning = false;
 
-static inline uint32_t heaterDutyFromPercent(uint8_t pct)
-{
+static inline uint32_t heaterDutyFromPercent(uint8_t pct) {
     const uint32_t maxDuty = (1u << HEATER_PWM_RES_BITS) - 1u;
     return (maxDuty * (uint32_t)pct) / 100u;
 }
 
-void pwm_stop()
-{
+void pwm_stop() {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
-    if (g_heaterPwmRunning)
-    {
+    if (g_heaterPwmRunning) {
         ledcWrite((uint8_t)OVEN_HEATER, 0);
         ledcDetach((uint8_t)OVEN_HEATER);
         g_heaterPwmRunning = false;
@@ -32,8 +28,7 @@ void pwm_stop()
     }
 #else
     static constexpr uint8_t HEATER_PWM_CHANNEL = 0;
-    if (g_heaterPwmRunning)
-    {
+    if (g_heaterPwmRunning) {
         ledcWrite(HEATER_PWM_CHANNEL, 0);
         ledcDetachPin(OVEN_HEATER);
         g_heaterPwmRunning = false;
@@ -45,8 +40,7 @@ void pwm_stop()
     digitalWrite(OVEN_HEATER, HEATER_SAFE_LEVEL);
 }
 
-bool pwm_start(uint8_t dutyPercent)
-{
+bool pwm_start(uint8_t dutyPercent) {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
     pinMode(OVEN_HEATER, OUTPUT);
     digitalWrite(OVEN_HEATER, HEATER_SAFE_LEVEL);
@@ -58,8 +52,7 @@ bool pwm_start(uint8_t dutyPercent)
                                (uint32_t)HEATER_PWM_FREQ_HZ,
                                (uint8_t)HEATER_PWM_RES_BITS);
 
-    if (!ok)
-    {
+    if (!ok) {
         T15_ERROR(t15_log::TEST_2_3,
                   "Heater ledcAttach FAILED (GPIO=%d, Freq=%luHz, Res=%dbit)\n",
                   OVEN_HEATER,
@@ -110,8 +103,7 @@ bool pwm_start(uint8_t dutyPercent)
 #endif
 }
 
-bool is_running()
-{
+bool is_running() {
     return g_heaterPwmRunning;
 }
 

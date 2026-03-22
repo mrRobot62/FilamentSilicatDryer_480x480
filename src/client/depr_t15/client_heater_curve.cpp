@@ -5,8 +5,8 @@
 #include "udp/fsd_udp.h"
 
 #include "csv_log.h"
-#include "T15/heater_io.h"
-#include "T15/t15_log_tags.h"
+#include "depr_T15/heater_io.h"
+#include "depr_T15/t15_log_tags.h"
 #include "sensors/sensor_ntc.h"
 
 // --- Debug Instrumentation (T15 Step 2.4.2) ---

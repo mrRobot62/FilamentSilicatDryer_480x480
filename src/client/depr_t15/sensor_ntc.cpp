@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 
-#include "T15/t15_log_tags.h"
+#include "depr_T15/t15_log_tags.h"
 #include "log_core.h"
 #include "pins_client.h"
 
