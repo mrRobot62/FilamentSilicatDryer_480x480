@@ -1,13 +1,12 @@
 #include <Arduino.h>
 
 #include "log_core.h"
-#include "log_csv.h"
 #include "udp/fsd_udp.h"
 
 #include "T15/csv_log.h"
-#include "T15/heater_io.h"
 #include "T15/t15_log_tags.h"
 #include "sensors/sensor_ntc.h"
+#include "T15/heater_io.h"
 
 // --- Debug Instrumentation (T15 Step 2.4.2) ---
 // Eindeutiger Event-Zähler, damit Zustandswechsel und wichtige Ereignisse
@@ -21,7 +20,7 @@ static uint32_t g_evt_counter = 0;
 // --------------------------------------------------------------------
 
 #ifndef T15_TEST_DUTY_PERCENT
-#define T15_TEST_DUTY_PERCENT 50
+#define T15_TEST_DUTY_PERCENT 100
 #endif
 
 #ifndef T15_TEST_RESET_TEMP_C
@@ -279,9 +278,8 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
 
-    if (!udp::begin("CLIENT")) {
+    if (!udp::begin("CLIENT"))
         Serial.println("[T15] UDP init FAILED");
-    }
 
     T15_INFO(t15_log::BASE,
              "Boot Step 2.4: T15-2.3 overshoot map with structured CSV logging\n");
@@ -296,24 +294,6 @@ void setup() {
     T15_INFO(t15_log::BASE,
              "Setup complete. Close door and let chamber cool <= %dC to start T15-2.3\n",
              (int)T15_TEST_RESET_TEMP_C);
-
-
-    uint32_t start = millis();
-    int counter = 10;
-    uint32_t lastTick = start;
-    while (millis() - start < 10000)
-    {
-        uint32_t now = millis();
-
-        if (now - lastTick >= 1000)
-        {
-            lastTick += 1000;
-
-            INFO("(%2d) waiting for start ... \n", counter);
-            counter--;
-        }
-    }
-    INFO("START Test....\n");
 }
 
 void loop() {
@@ -368,6 +348,7 @@ void loop() {
                  (long)s.cha_ohm,
                  s.tempChamberC,
                  t15_heater::is_running() ? "ON" : "OFF");
+
         t15_csv::emit_state("T15-2.3",
                             now,
                             state_to_str(),
