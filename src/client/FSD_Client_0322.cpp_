@@ -46,7 +46,6 @@
 //
 
 #include "FSD_Client.h"
-#include "client/sensor_ntc.h"
 #include "log_client.h"
 #include "ntc/ntc_convert.h"
 #include "ntc/ntc_divider_config_chamber.h"
@@ -187,11 +186,13 @@ static inline uint16_t applyDoorSafetyGating(uint16_t mask, bool doorOpen) {
  * @return false Door is CLOSED
  */
 static bool isDoorOpen() {
-    const bool now = sensor_ntc::is_door_open();
+    const int v = digitalRead(OVEN_DOOR_SENSOR);
 
     static bool last = false;
+    bool now = DOOR_OPEN_IS_HIGH ? (v == HIGH) : (v == LOW);
+
     if (now != last) {
-        CLIENT_INFO("[DOOR] state=%s\n", now ? "OPEN" : "CLOSED");
+        CLIENT_INFO("[DOOR] state=%s (level=%d)\n", now ? "OPEN" : "CLOSED", v);
         last = now;
     }
     return now;
@@ -421,9 +422,6 @@ void i2cScan() {
 // Fill STATUS via callback (raw units only; no assumptions about conversion)
 // T10.1.28 Door bugfix
 static void fillStatusCallback(ProtocolStatus &st) {
-    sensor_ntc::sample_temperatures();
-    const sensor_ntc::Sample &sample = sensor_ntc::get_sample();
-
     // Report last applied outputs (after safety + PWM truth)
     st.outputsMask = g_effectiveMask;
 
@@ -435,14 +433,38 @@ static void fillStatusCallback(ProtocolStatus &st) {
         st.outputsMask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR);
     }
 
-    // Dual-NTC telemetry from client sensor module.
-    st.adcRaw[0] = sample.rawHotspot;
-    st.adcRaw[1] = sample.rawChamber;
+    // ---------------------------------------------------------------------
+    // T13 Dual-NTC (ADS1115):
+    // - CH0: Hotspot (safety)  -> 100k NTC + 100k pull-up (table currently unknown)
+    // - CH1: Chamber (control) -> 10k NTC + 10k pull-up (iOVEO table available)
+    //
+    // adcRaw[] is transmitted as RAW ADS1115 counts (signed int16), unscaled.
+    // tempHotspot_dC / tempChamber_dC are transmitted as °C×10 (int16).
+    // ---------------------------------------------------------------------
+
+    // Read RAW ADS1115 counts (signed)
+    const int16_t rawHot = (int16_t)ads.readADC_SingleEnded(ADS_NTC_PORT_HOTSPOT);
+    const int16_t rawCh = (int16_t)ads.readADC_SingleEnded(ADS_NTC_PORT_CHAMBER);
+
+    st.adcRaw[0] = rawHot;
+    st.adcRaw[1] = rawCh;
     st.adcRaw[2] = 0;
     st.adcRaw[3] = 0;
 
-    st.tempHotspot_dC = sample.hotValid ? sample.hot_dC : ntc::TEMP_INVALID_DC;
-    st.tempChamber_dC = sample.chaValid ? sample.cha_dC : ntc::TEMP_INVALID_DC;
+    // Hotspot: table/model currently not available for the internal 100k NTC.
+    // Option B (bring-up): transmit INVALID and do not block heater on host side
+    // (host still has chamber fail-safe + overshoot protections).
+    st.tempHotspot_dC = ntc::TEMP_INVALID_DC;
+
+    // Chamber: valid conversion using iOVEO 10k NTC table + 10k pull-up divider.
+    st.tempChamber_dC = ntc::calc_temp_from_ads_raw_dC(
+        rawCh,
+        ntc::kNtc10k_Chamber_Table,
+        ntc::kNtc10k_Chamber_TableCount,
+        ntc::kNtcTableMode,
+        ntc::chamber::NTC_VREF_MV,
+        ntc::chamber::NTC_R_FIXED_OHM,
+        ntc::chamber::NTC_TO_GND);
 }
 
 // Apply outputs when mask changes
