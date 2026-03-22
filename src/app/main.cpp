@@ -68,7 +68,7 @@ void setup() {
 
 #if defined(WIFI_LOGGING_ENABLE) && (WIFI_LOGGING_ENABLE == 1)
     // Start WiFi + UDP logger (uses WIFI_SSID/WIFI_PASS from wifi_secrets.h internally)
-    const bool ok = udp_log::begin("HOST");
+    const bool ok = udp::begin("HOST");
     Serial.println("[UDP] WIFI_LOGGING_ENABLE is ENABLED");
 
     // simple selftest packets (helps to verify UDP path immediately)

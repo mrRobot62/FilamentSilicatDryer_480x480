@@ -1,32 +1,28 @@
-#include "T15/csv_log.h"
+#include "csv_log.h"
 
 #include <Arduino.h>
 
 #include "log_core.h"
 
-namespace t15_csv
-{
-void emit_header_once()
-{
+namespace t15_csv {
+void emit_header_once() {
 #ifdef LOG_CSV
     INFO("%lu;CSV_HEADER;test;state;run;run_count;off_point_c;door_open;heater_on;rawHot;hot_mV;hot_valid;ThotC;rawCh;cha_mV;cha_Ohm;TchC\n",
          (unsigned long)millis());
 #endif
 }
 
-void emit_state(const char* testTag,
+void emit_state(const char *testTag,
                 uint32_t nowMs,
-                const char* state,
+                const char *state,
                 uint8_t runIndex1,
                 uint8_t runCount,
                 int offPointC,
-                const t15_sensor::ChamberSample& sample,
+                const t15_sensor::ChamberSample &sample,
                 bool heaterOn,
-                bool doorOpen)
-{
+                bool doorOpen) {
 #ifdef LOG_CSV
-    if (sample.hotValid)
-    {
+    if (sample.hotValid) {
         INFO("%lu;CSV;%s;%s;%u;%u;%d;%u;%u;%d;%ld;%u;%.2f;%d;%ld;%ld;%.2f\n",
              (unsigned long)nowMs,
              testTag,
@@ -44,9 +40,7 @@ void emit_state(const char* testTag,
              (long)sample.cha_mV,
              (long)sample.cha_ohm,
              sample.tempChamberC);
-    }
-    else
-    {
+    } else {
         INFO("%lu;CSV;%s;%s;%u;%u;%d;%u;%u;%d;%ld;%u;nan;%d;%ld;%ld;%.2f\n",
              (unsigned long)nowMs,
              testTag,
@@ -77,19 +71,17 @@ void emit_state(const char* testTag,
 #endif
 }
 
-void emit_marker(const char* testTag,
+void emit_marker(const char *testTag,
                  uint32_t nowMs,
-                 const char* marker,
+                 const char *marker,
                  uint8_t runIndex1,
                  int offPointC,
                  float tchC,
                  float thotC,
                  bool heaterOn,
-                 bool doorOpen)
-{
+                 bool doorOpen) {
 #ifdef LOG_CSV
-    if (isnan(thotC))
-    {
+    if (isnan(thotC)) {
         INFO("%lu;CSV_MARK;%s;%s;%u;%d;%.2f;nan;%u;%u\n",
              (unsigned long)nowMs,
              testTag,
@@ -99,9 +91,7 @@ void emit_marker(const char* testTag,
              tchC,
              heaterOn ? 1u : 0u,
              doorOpen ? 1u : 0u);
-    }
-    else
-    {
+    } else {
         INFO("%lu;CSV_MARK;%s;%s;%u;%d;%.2f;%.2f;%u;%u\n",
              (unsigned long)nowMs,
              testTag,
