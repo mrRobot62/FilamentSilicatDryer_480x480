@@ -46,6 +46,7 @@
 //
 
 #include "FSD_Client.h"
+#include "client/heater_io.h"
 #include "client/sensor_ntc.h"
 #include "log_client.h"
 #include "ntc/ntc_convert.h"
@@ -278,7 +279,7 @@ static void applyOutputs(uint16_t requestedMask) {
     // Reflect the *actual* PWM state back into the mask:
     // This guarantees that STATUS reports what is really happening on hardware,
     // not just what was logically requested.
-    if (g_heaterPwmRunning) {
+    if (heater_io::is_running()) {
         g_effectiveMask |= (1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
     } else {
         g_effectiveMask &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
@@ -638,101 +639,105 @@ static void printStartupInfo() {
     Serial.println();
 }
 
-static uint32_t heaterDutyFromPercent(int percent) {
-    // Convert duty percent [0..100] into PWM duty register value.
-    const uint32_t maxDuty = (1u << HEATER_PWM_RES_BITS) - 1u;
-    if (percent <= 0) {
-        return 0;
-    }
-    if (percent >= 100) {
-        return maxDuty;
-    }
-    // Round to nearest
-    return (maxDuty * (uint32_t)percent + 50u) / 100u;
-}
+// static uint32_t heaterDutyFromPercent(int percent) {
+//     // Convert duty percent [0..100] into PWM duty register value.
+//     const uint32_t maxDuty = (1u << HEATER_PWM_RES_BITS) - 1u;
+//     if (percent <= 0) {
+//         return 0;
+//     }
+//     if (percent >= 100) {
+//         return maxDuty;
+//     }
+//     // Round to nearest
+//     return (maxDuty * (uint32_t)percent + 50u) / 100u;
+// }
 
 static void heaterPwmEnable(bool enable) {
-    // Robust, deterministic PWM start/stop.
-    // - Drive known safe level before attach
-    // - Detach unconditionally (clears sticky routing)
-    // - Attach fresh and "kick" duty to ensure stable start
-    const uint32_t duty = heaterDutyFromPercent(HEATER_PWM_DUTY_PERCENT);
-
-#if ESP_ARDUINO_VERSION_MAJOR >= 3
-    if (enable) {
-        // 1) Known safe GPIO state first
-        pinMode(HEATER_PWM_GPIO, OUTPUT);
-        digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
-
-        // 2) Hard reset of LEDC routing (unconditional)
-        (void)ledcDetach((uint8_t)HEATER_PWM_GPIO);
-        g_heaterPwmRunning = false;
-
-        // 3) Fresh attach
-        const bool ok = ledcAttach((uint8_t)HEATER_PWM_GPIO,
-                                   (uint32_t)HEATER_PWM_FREQ_HZ,
-                                   (uint8_t)HEATER_PWM_RES_BITS);
-
-        if (!ok) {
-            CLIENT_ERR("[HEATER] ledcAttach FAILED (GPIO=%d, Freq=%dHz, Res=%dbit)\n",
-                       HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
-
-            // Fail-safe: keep safe output level
-            pinMode(HEATER_PWM_GPIO, OUTPUT);
-            digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
-            g_heaterPwmRunning = false;
-            return;
-        }
-
-        g_heaterPwmRunning = true;
-
-        CLIENT_INFO("[HEATER] PWM attached. GPIO=%d, Freq=%dHz, Duty=%lu\n",
-                    HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, (unsigned long)duty);
-
-        // 4) Kick sequence (milliseconds are intentionally robust)
-        ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
-        delay(2);
-        ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
-        delay(2);
-        ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
-
-    } else {
-        if (g_heaterPwmRunning) {
-            ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
-            ledcDetach((uint8_t)HEATER_PWM_GPIO);
-            g_heaterPwmRunning = false;
-            CLIENT_INFO("[HEATER] PWM detached (stopped)\n");
-        }
-
-        pinMode(HEATER_PWM_GPIO, OUTPUT);
-        digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
-    }
-#else
-    // Core 2.x: channel-based API
-    if (enable) {
-        if (!g_heaterPwmRunning) {
-            ledcSetup(HEATER_PWM_CHANNEL, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
-            ledcAttachPin(HEATER_PWM_GPIO, HEATER_PWM_CHANNEL);
-            g_heaterPwmRunning = true;
-
-            // Optional deterministic kick for 2.x as well
-            ledcWrite(HEATER_PWM_CHANNEL, 0);
-            delay(2);
-        }
-        ledcWrite(HEATER_PWM_CHANNEL, duty);
-        delay(2);
-        ledcWrite(HEATER_PWM_CHANNEL, duty);
-    } else {
-        if (g_heaterPwmRunning) {
-            ledcWrite(HEATER_PWM_CHANNEL, 0);
-            ledcDetachPin(HEATER_PWM_GPIO);
-            g_heaterPwmRunning = false;
-        }
-        pinMode(HEATER_PWM_GPIO, OUTPUT);
-        digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
-    }
-#endif
+    (void)heater_io::set_enabled(enable, heater_io::kDefaultDutyPercent);
 }
+
+// static void heaterPwmEnable(bool enable) {
+//     // Robust, deterministic PWM start/stop.
+//     // - Drive known safe level before attach
+//     // - Detach unconditionally (clears sticky routing)
+//     // - Attach fresh and "kick" duty to ensure stable start
+//     const uint32_t duty = heaterDutyFromPercent(HEATER_PWM_DUTY_PERCENT);
+
+// #if ESP_ARDUINO_VERSION_MAJOR >= 3
+//     if (enable) {
+//         // 1) Known safe GPIO state first
+//         pinMode(HEATER_PWM_GPIO, OUTPUT);
+//         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
+
+//         // 2) Hard reset of LEDC routing (unconditional)
+//         (void)ledcDetach((uint8_t)HEATER_PWM_GPIO);
+//         g_heaterPwmRunning = false;
+
+//         // 3) Fresh attach
+//         const bool ok = ledcAttach((uint8_t)HEATER_PWM_GPIO,
+//                                    (uint32_t)HEATER_PWM_FREQ_HZ,
+//                                    (uint8_t)HEATER_PWM_RES_BITS);
+
+//         if (!ok) {
+//             CLIENT_ERR("[HEATER] ledcAttach FAILED (GPIO=%d, Freq=%dHz, Res=%dbit)\n",
+//                        HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
+
+//             // Fail-safe: keep safe output level
+//             pinMode(HEATER_PWM_GPIO, OUTPUT);
+//             digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
+//             g_heaterPwmRunning = false;
+//             return;
+//         }
+
+//         g_heaterPwmRunning = true;
+
+//         CLIENT_INFO("[HEATER] PWM attached. GPIO=%d, Freq=%dHz, Duty=%lu\n",
+//                     HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, (unsigned long)duty);
+
+//         // 4) Kick sequence (milliseconds are intentionally robust)
+//         ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
+//         delay(2);
+//         ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
+//         delay(2);
+//         ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
+
+//     } else {
+//         if (g_heaterPwmRunning) {
+//             ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
+//             ledcDetach((uint8_t)HEATER_PWM_GPIO);
+//             g_heaterPwmRunning = false;
+//             CLIENT_INFO("[HEATER] PWM detached (stopped)\n");
+//         }
+
+//         pinMode(HEATER_PWM_GPIO, OUTPUT);
+//         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
+//     }
+// #else
+//     // Core 2.x: channel-based API
+//     if (enable) {
+//         if (!g_heaterPwmRunning) {
+//             ledcSetup(HEATER_PWM_CHANNEL, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
+//             ledcAttachPin(HEATER_PWM_GPIO, HEATER_PWM_CHANNEL);
+//             g_heaterPwmRunning = true;
+
+//             // Optional deterministic kick for 2.x as well
+//             ledcWrite(HEATER_PWM_CHANNEL, 0);
+//             delay(2);
+//         }
+//         ledcWrite(HEATER_PWM_CHANNEL, duty);
+//         delay(2);
+//         ledcWrite(HEATER_PWM_CHANNEL, duty);
+//     } else {
+//         if (g_heaterPwmRunning) {
+//             ledcWrite(HEATER_PWM_CHANNEL, 0);
+//             ledcDetachPin(HEATER_PWM_GPIO);
+//             g_heaterPwmRunning = false;
+//         }
+//         pinMode(HEATER_PWM_GPIO, OUTPUT);
+//         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
+//     }
+// #endif
+// }
 
 //----------------------------------------------------------------------------
 // WiFi & UDP
@@ -815,6 +820,8 @@ void setup() {
         }
     }
 
+    heater_io::init_off();
+
     // ESP32 internal ADC pin (input-only), configured as INPUT for completeness.
     pinMode(PIN_ADC0, INPUT);
 
@@ -857,12 +864,6 @@ void setup() {
     // const bool door_open = (digitalRead(OVEN_DOOR_SENSOR) != 0);
 
     sensor_ntc::init_door();
-    const bool door_open = sensor_ntc::is_door_open();
-    
-    CLIENT_INFO("[IO] DOOR init done: GPIO=%d INPUT_PULLUP level=%d (%s)\n",
-                OVEN_DOOR_SENSOR,
-                door_open ? 1 : 0,
-                door_open ? "OPEN" : "CLOSED");
 }
 
 //----------------------------------------------------------------------------
@@ -898,7 +899,7 @@ void loop() {
 
         if (m == 0x0000) {
             // Absolute safe state
-            if (g_heaterPwmRunning) {
+            if (heater_io::is_running()) {
                 CLIENT_ERR("[SAFETY] HOST LOST -> HARD HEATER OFF\n");
                 heaterPwmEnable(false);
             }
@@ -924,7 +925,7 @@ void loop() {
             uint16_t before = g_effectiveMask;
 
             // Ensure "before" reflects PWM truth for meaningful logging
-            if (g_heaterPwmRunning) {
+            if (heater_io::is_running()) {
                 before |= (1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
             } else {
                 before &= ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_HEATER);
@@ -934,7 +935,7 @@ void loop() {
             const uint16_t after = applyDoorSafetyGating(before, true);
 
             const bool motorPinHigh = (digitalRead(OUT_PINS[MOTOR_BIT_INDEX]) == HIGH);
-            const bool needKill = g_heaterPwmRunning || motorPinHigh;
+            const bool needKill = heater_io::is_running() || motorPinHigh;
 
             if (after != before) {
                 char b0[9], b1[9];
