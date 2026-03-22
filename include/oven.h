@@ -110,12 +110,19 @@ typedef struct
     uint32_t durationMinutes;
     uint32_t secondsRemaining;
 
-    // - tempCurrent: UI/control temperature (tempCoreC if valid, otherwise tempNtcC)
-    float tempCurrent;    // control/UI temperature (Chamber)
-    float tempTarget;     // UI target
-    float tempToleranceC; // hysteresis band (host-side)
+    // T16/T13 naming cleanup:
+    // - tempChamberC: authoritative control/UI temperature from client STATUS
+    // - tempHotspotC: authoritative safety temperature from client STATUS
+    // - tempCurrent / tempNtcC are kept as legacy aliases for existing UI code
+    float tempCurrent;     // legacy alias -> tempChamberC
+    float tempChamberC;    // control/UI temperature (Chamber)
+    float tempTarget;      // UI target
+    float tempToleranceC;  // hysteresis band (host-side)
     bool hostOvertempActive;
     bool safetyCutoffActive; // T13: true when any safety cutoff is active
+    float tempHotspotC;    // safety temperature (Hotspot)
+    bool tempChamberValid;
+    bool tempHotspotValid;
 
     int filamentId;
     char presetName[24];
@@ -125,7 +132,9 @@ typedef struct
     bool fan12v_on;
     bool fan230_on;
     bool fan230_slow_on;
-    bool heater_on;
+    bool heater_on;         // legacy UI alias -> request while RUNNING, else actual
+    bool heater_request_on; // host decision / command intent
+    bool heater_actual_on;  // client telemetry truth
     bool door_open;
     bool motor_on;
     bool lamp_on;
@@ -158,8 +167,8 @@ typedef struct
     // T11: Thermal Model (Host-side)
     // ------------------------------------------------------------------------
 
-    // - tempNtcC: raw sensor temperature (near heater) from STATUS
-    float tempNtcC; // Raw NTC temperature (STATUS-derived, near heater)
+    // Legacy alias kept for old code paths / screens.
+    float tempNtcC; // legacy alias -> tempHotspotC
 
     // - tempCoreC: estimated "core" temperature (filtered + bias)
     float tempCoreC;    // Estimated "core" temperature (filtered + bias)

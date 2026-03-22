@@ -49,7 +49,6 @@
 #include "client/heater_io.h"
 #include "client/sensor_ntc.h"
 #include "log_client.h"
-#include "log_csv.h"
 #include "ntc/ntc_convert.h"
 #include "ntc/ntc_divider_config_chamber.h"
 #include "ntc/ntc_divider_config_hotspot.h"
@@ -119,95 +118,6 @@ static void bitmask8_to_str_r(uint16_t mask, char out[9]) {
         out[i] = (mask & bit) ? '1' : '0';
     }
     out[8] = '\0';
-}
-
-enum class ClientDiagState : uint8_t {
-    DOOR_OPEN = 0,
-    HEATER_ON = 1,
-    OUTPUTS_ACTIVE = 2,
-    IDLE = 3,
-};
-
-static ClientDiagState get_diag_state() {
-    if (sensor_ntc::is_door_open()) {
-        return ClientDiagState::DOOR_OPEN;
-    }
-    if (heater_io::is_running()) {
-        return ClientDiagState::HEATER_ON;
-    }
-    if ((g_effectiveMask & 0x00FFu) != 0u) {
-        return ClientDiagState::OUTPUTS_ACTIVE;
-    }
-    return ClientDiagState::IDLE;
-}
-
-static const char *diag_state_to_str() {
-    switch (get_diag_state()) {
-    case ClientDiagState::DOOR_OPEN:
-        return "DOOR_OPEN";
-    case ClientDiagState::HEATER_ON:
-        return "HEATER_ON";
-    case ClientDiagState::OUTPUTS_ACTIVE:
-        return "OUTPUTS_ACTIVE";
-    case ClientDiagState::IDLE:
-        return "IDLE";
-    }
-    return "UNKNOWN";
-}
-
-static int diag_state_to_int() {
-    return static_cast<int>(get_diag_state());
-}
-
-static void emit_diagnostic_log_once_per_second() {
-    static uint32_t lastMs = 0;
-    const uint32_t now = millis();
-    if ((now - lastMs) < 1000u) {
-        return;
-    }
-    lastMs = now;
-
-    const sensor_ntc::Sample &s = sensor_ntc::get_sample();
-    const bool door_open = sensor_ntc::is_door_open();
-    const bool heater_on = heater_io::is_running();
-
-#if defined(CSV_OUT) && (CSV_OUT == 1)
-    // const long hot_dC = s.hotValid ? (long)s.hot_dC : -32768L;
-    static constexpr int16_t TEMP_INVALID_DC = -32768;
-    const long hot_dC = s.hotValid ? (long)s.hot_dC : TEMP_INVALID_DC;
-    const long cha_dC = (long)s.cha_dC;
-
-    CSV_LOG_TEMP(
-        // Hotspot NTC
-        (long)s.rawHotspot,
-        (long)s.hot_mV,
-        hot_dC,
-        // Chamber NTC
-        (long)s.rawChamber,
-        (long)s.cha_mV,
-        cha_dC,
-        // Diagnostic state
-        (long)diag_state_to_int(),
-        heater_on ? 1L : 0L,
-        door_open ? 1L : 0L);
-#endif
-
-    CLIENT_INFO(
-        "[DIAG] Door=%s state=%s mask=0x%04X rawHot=%d hot_mV=%ld hot_valid=%d "
-        "Thot=%.2fC (%s) rawCh=%d cha_mV=%ld cha_ohm=%ld Tch=%.2fC heater=%s\n",
-        door_open ? "OPEN" : "CLOSED",
-        diag_state_to_str(),
-        (unsigned)g_effectiveMask,
-        (int)s.rawHotspot,
-        (long)s.hot_mV,
-        s.hotValid ? 1 : 0,
-        s.tempHotspotC,
-        s.hotValid ? "valid" : "nanC",
-        (int)s.rawChamber,
-        (long)s.cha_mV,
-        (long)s.cha_ohm,
-        s.tempChamberC,
-        heater_on ? "ON" : "OFF");
 }
 
 // parse_hex4_at():
@@ -1046,8 +956,6 @@ void loop() {
             }
         }
     }
-
-    emit_diagnostic_log_once_per_second();
 }
 
 // EOF
