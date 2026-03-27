@@ -369,11 +369,17 @@ void oven_start(void) {
     runtimeState.post.secondsRemaining = 0;
     runtimeState.post.stepIndex = 0;
 
-    // Reset pulse scheduler on fresh start
+    // Start in a cold, deterministic heater state. The first ON decision must
+    // come from the normal control path after current telemetry is evaluated.
     thermal_pulse_reset(g_heaterGate);
+    g_heaterIntentOn = false;
+    g_heaterEffectiveOn = false;
+    runtimeState.heater_request_on = false;
+    runtimeState.heater_actual_on = false;
+    runtime_sync_heater_alias();
 
     uint16_t m = g_remoteOutputsMask;
-    m = mask_set(m, OVEN_CONNECTOR::HEATER, true);
+    m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
     m = mask_set(m, OVEN_CONNECTOR::FAN12V, true);
     m = mask_set(m, OVEN_CONNECTOR::FAN230V_SLOW, true);
     m = mask_set(m, OVEN_CONNECTOR::FAN230V, false);
