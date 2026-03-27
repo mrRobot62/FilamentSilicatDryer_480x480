@@ -18,7 +18,7 @@ struct TEMP {
     static constexpr const char *PREFIX = "TEMP";
     // [CSV_<PREFIX>];rawHot;hotMilliVolts;tempHot_dC;rawChamber;chamberMilliVolts;tempChamber_dC;heater_on;door_open;state
     static constexpr const char *FMT =
-        "CSV_%s;%ld;%ld;%ld;%ld;%ld;%ld;%d;%d;%d\n";
+        "[CSV_%s];%ld;%ld;%ld;%ld;%ld;%ld;%d;%d;%d\n";
 };
 
 // State output, door_open, heater, fan12V, fan230V, fan230V_slow, motor
@@ -33,17 +33,17 @@ struct CLIENT_STATE {
 struct HOST_PLOT {
     static constexpr const char *PREFIX = "HOST_PLOT";
 
-    // ts;CSV_HOST_PLOT;t_chamber_dC;t_hotspot_dC;t_target_dC;t_low_dC;t_high_dC;safety
+    // ts;[CSV_HOST_PLOT];t_chamber_dC;t_hotspot_dC;t_target_dC;t_low_dC;t_high_dC;safety
     static constexpr const char *FMT =
-        "CSV_%s;%ld;%ld;%ld;%ld;%ld;%d\n";
+        "[CSV_%s];%ld;%ld;%ld;%ld;%ld;%d\n";
 };
 
 struct HOST_LOGIC {
     static constexpr const char *PREFIX = "HOST_LOGIC";
 
-    // ts;CSV_HOST_LOGIC;mode;running;heater_req;heater_actual;door;safety;commAlive;linkSynced
+    // ts;[CSV_HOST_LOGIC];mode;running;heater_req;heater_actual;door;safety;commAlive;linkSynced
     static constexpr const char *FMT =
-        "CSV_%s;%u;%d;%d;%d;%d;%d;%d;%d\n";
+        "[CSV_%s];%u;%d;%d;%d;%d;%d;%d;%d\n";
 };
 
 } // namespace csv
