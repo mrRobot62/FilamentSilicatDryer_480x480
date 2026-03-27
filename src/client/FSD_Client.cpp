@@ -128,6 +128,17 @@ enum class ClientDiagState : uint8_t {
     IDLE = 3,
 };
 
+typedef struct {
+    bool fan12V;
+    bool fan230V;
+    bool fan230V_SLOW;
+    bool silica_motor;
+    bool heater;
+    bool lamp;
+    bool door;
+    uint8_t running_state; // ClientDiagState
+} CLIENT_COMPLETE_STATE;
+
 static ClientDiagState get_diag_state() {
     if (sensor_ntc::is_door_open()) {
         return ClientDiagState::DOOR_OPEN;
@@ -157,6 +168,60 @@ static const char *diag_state_to_str() {
 
 static int diag_state_to_int() {
     return static_cast<int>(get_diag_state());
+}
+
+// ---------------------------------------------------------------------------
+// @brief Return a integer value, which represents all current states of
+// GPIO's as integer (bitmask)
+//
+// ---------------------------------------------------------------------------
+static int diag_all_client_state() {
+    uint16_t mask = 0;
+    mask &= (get_diag_state() == ClientDiagState::DOOR_OPEN ? ~(1u << OUTPUT_BIT_MASK_8BIT::BIT_DOOR) : 0); // bit 5
+    return mask;
+}
+
+static CLIENT_COMPLETE_STATE build_client_state(bool door_open) {
+    CLIENT_COMPLETE_STATE s{};
+
+    const uint16_t m = g_effectiveMask;
+
+    s.fan12V = (m & (1 << 0)) != 0;
+    s.fan230V = (m & (1 << 1)) != 0;
+    s.fan230V_SLOW = (m & (1 << 2)) != 0;
+    s.silica_motor = (m & (1 << 3)) != 0;
+    s.heater = heater_io::is_running();
+    s.lamp = (m & (1 << 5)) != 0;
+    s.door = door_open;
+    s.running_state = (uint8_t)diag_state_to_int();
+
+    return s;
+}
+
+static void emit_csv_client_state_once_per_second() {
+    static uint32_t last = 0;
+    const uint32_t now = millis();
+
+    if ((now - last) < 1000) {
+        return;
+    }
+    last = now;
+
+    const bool door_open = sensor_ntc::is_door_open();
+    const CLIENT_COMPLETE_STATE s = build_client_state(door_open);
+
+#if defined(CSV_OUT) && (CSV_OUT == 1)
+    CSV_LOG_STATE(
+        s.fan12V ? 1 : 0,
+        s.fan230V ? 1 : 0,
+        s.fan230V_SLOW ? 1 : 0,
+        s.silica_motor ? 1 : 0,
+        s.heater ? 1 : 0,
+        s.lamp ? 1 : 0,
+        s.door ? 1 : 0,
+        s.running_state);
+
+#endif
 }
 
 static void emit_diagnostic_log_once_per_second() {
@@ -190,6 +255,7 @@ static void emit_diagnostic_log_once_per_second() {
         (long)diag_state_to_int(),
         heater_on ? 1L : 0L,
         door_open ? 1L : 0L);
+
 #endif
 
     CLIENT_INFO(
@@ -746,89 +812,6 @@ static void heaterPwmEnable(bool enable) {
     (void)heater_io::set_enabled(enable, heater_io::kDefaultDutyPercent);
 }
 
-// static void heaterPwmEnable(bool enable) {
-//     // Robust, deterministic PWM start/stop.
-//     // - Drive known safe level before attach
-//     // - Detach unconditionally (clears sticky routing)
-//     // - Attach fresh and "kick" duty to ensure stable start
-//     const uint32_t duty = heaterDutyFromPercent(HEATER_PWM_DUTY_PERCENT);
-
-// #if ESP_ARDUINO_VERSION_MAJOR >= 3
-//     if (enable) {
-//         // 1) Known safe GPIO state first
-//         pinMode(HEATER_PWM_GPIO, OUTPUT);
-//         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
-
-//         // 2) Hard reset of LEDC routing (unconditional)
-//         (void)ledcDetach((uint8_t)HEATER_PWM_GPIO);
-//         g_heaterPwmRunning = false;
-
-//         // 3) Fresh attach
-//         const bool ok = ledcAttach((uint8_t)HEATER_PWM_GPIO,
-//                                    (uint32_t)HEATER_PWM_FREQ_HZ,
-//                                    (uint8_t)HEATER_PWM_RES_BITS);
-
-//         if (!ok) {
-//             CLIENT_ERR("[HEATER] ledcAttach FAILED (GPIO=%d, Freq=%dHz, Res=%dbit)\n",
-//                        HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
-
-//             // Fail-safe: keep safe output level
-//             pinMode(HEATER_PWM_GPIO, OUTPUT);
-//             digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
-//             g_heaterPwmRunning = false;
-//             return;
-//         }
-
-//         g_heaterPwmRunning = true;
-
-//         CLIENT_INFO("[HEATER] PWM attached. GPIO=%d, Freq=%dHz, Duty=%lu\n",
-//                     HEATER_PWM_GPIO, HEATER_PWM_FREQ_HZ, (unsigned long)duty);
-
-//         // 4) Kick sequence (milliseconds are intentionally robust)
-//         ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
-//         delay(2);
-//         ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
-//         delay(2);
-//         ledcWrite((uint8_t)HEATER_PWM_GPIO, duty);
-
-//     } else {
-//         if (g_heaterPwmRunning) {
-//             ledcWrite((uint8_t)HEATER_PWM_GPIO, 0);
-//             ledcDetach((uint8_t)HEATER_PWM_GPIO);
-//             g_heaterPwmRunning = false;
-//             CLIENT_INFO("[HEATER] PWM detached (stopped)\n");
-//         }
-
-//         pinMode(HEATER_PWM_GPIO, OUTPUT);
-//         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
-//     }
-// #else
-//     // Core 2.x: channel-based API
-//     if (enable) {
-//         if (!g_heaterPwmRunning) {
-//             ledcSetup(HEATER_PWM_CHANNEL, HEATER_PWM_FREQ_HZ, HEATER_PWM_RES_BITS);
-//             ledcAttachPin(HEATER_PWM_GPIO, HEATER_PWM_CHANNEL);
-//             g_heaterPwmRunning = true;
-
-//             // Optional deterministic kick for 2.x as well
-//             ledcWrite(HEATER_PWM_CHANNEL, 0);
-//             delay(2);
-//         }
-//         ledcWrite(HEATER_PWM_CHANNEL, duty);
-//         delay(2);
-//         ledcWrite(HEATER_PWM_CHANNEL, duty);
-//     } else {
-//         if (g_heaterPwmRunning) {
-//             ledcWrite(HEATER_PWM_CHANNEL, 0);
-//             ledcDetachPin(HEATER_PWM_GPIO);
-//             g_heaterPwmRunning = false;
-//         }
-//         pinMode(HEATER_PWM_GPIO, OUTPUT);
-//         digitalWrite(HEATER_PWM_GPIO, HEATER_SAFE_LEVEL);
-//     }
-// #endif
-// }
-
 //----------------------------------------------------------------------------
 // WiFi & UDP
 //----------------------------------------------------------------------------
@@ -917,25 +900,7 @@ void setup() {
 
 // ADS1x15
 #if ENABLE_INTERNAL_NTC
-    // // I2C bus setup. Use a conservative clock when level shifters are involved.
-    // Wire.begin(I2C_SDA, I2C_SCL);
-    // Wire.setClock(100000); // safe default for level shifter setups
-    // i2cScan();
-    // if (!ads.begin(I2C_ADR, &Wire)) {
-    //     CLIENT_ERR("[I2C] ADS1115 not found at 0x%s. Check wiring/address\n", String(I2C_ADR, HEX));
-    //     CLIENT_ERR("[I2C] Tip: ADS1115 addresses are usually 0x48,0x49,0x4A,0x4B.\n");
-    //     while (true) { delay(1000); }
-    //     ntc_available = false;
-    // } else {
-    //     ntc_available = true;
-    //     ads.setGain(GAIN_TWOTHIRDS);
-    //     // ads.startADCReading(ADS1X15_REG_CONFIG_MUX_DIFF_0_1, /*continuous=*/false);
-
-    //     CLIENT_INFO("[I2C] ADS1115 found, Gain=%d (6.144V)\n", GAIN_TWOTHIRDS);
-    // }
-
     sensor_ntc::init_i2c_and_ads();
-
 #endif
 
     // Initialize ClientComm UART (routes RX2/TX2 inside ClientComm as required)
@@ -1048,6 +1013,7 @@ void loop() {
     }
 
     emit_diagnostic_log_once_per_second();
+    emit_csv_client_state_once_per_second();
 }
 
 // EOF

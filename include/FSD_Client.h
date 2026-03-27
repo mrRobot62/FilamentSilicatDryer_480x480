@@ -83,7 +83,7 @@ static MAX6675 g_thermocouple(MAX6675_SCK_PIN, MAX6675_CS_PIN, MAX6675_SO_PIN);
 //
 // Voltage devider:     build in on pcb R1k
 //
-#include "ntc.h"
+#include "ntc/ntc.h"
 #include <Adafruit_ADS1X15.h>
 static constexpr uint8_t I2C_SDA = 22;
 static constexpr uint8_t I2C_SCL = 23;
@@ -123,7 +123,6 @@ static bool g_heater_overtemp = false;
 // Silicagel drying up to 110°C is allowed.
 // Hard safety cut at 120°C (independent of HOST / presets).
 static constexpr float CLIENT_ABS_MAX_TEMP_C = 120.0f;
-
 
 #if !defined(ESP_ARDUINO_VERSION_MAJOR)
 // Fallback if the macro is not available

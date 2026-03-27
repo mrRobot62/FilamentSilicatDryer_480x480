@@ -22,11 +22,12 @@ struct TEMP {
 };
 
 // State output, door_open, heater, fan12V, fan230V, fan230V_slow, motor
-struct STATE {
-    static constexpr const char *PREFIX = "STATE";
-    // [CSV_<PREFIX>]; \n
+struct CLIENT_STATE {
+    static constexpr const char *PREFIX = "CLIENT_STATE";
+
+    // ts;CSV_CLIENT_STATE;f12;f230;f230s;motor;heater;lamp;door;state
     static constexpr const char *FMT =
-        "[CSV_%s];%d;%d;%d;%d;%d;%d\n";
+        "CSV_%s;%d;%d;%d;%d;%d;%d;%d;%u\n";
 };
 
 } // namespace csv
@@ -54,9 +55,9 @@ struct STATE {
 #endif
 
 #ifdef CSV_OUT
-#define CSV_LOG_STATE(...)                                          \
-    do {                                                           \
-        CSV_LOG(csv::TEMP::PREFIX, csv::STATE::FMT, ##__VA_ARGS__); \
+#define CSV_LOG_STATE(...)                                                         \
+    do {                                                                           \
+        CSV_LOG(csv::CLIENT_STATE::PREFIX, csv::CLIENT_STATE::FMT, ##__VA_ARGS__); \
     } while (0)
 #else
 #define CSV_LOG_TEMP(...) \

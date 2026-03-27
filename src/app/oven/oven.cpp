@@ -182,6 +182,11 @@ static void thermal_apply_ui_temp(OvenRuntimeState &rt) {
 // =============================================================================
 // Internal static state (host-side)
 // =============================================================================
+static constexpr uint32_t HEATER_MIN_ON_MS = 2000;
+static constexpr uint32_t HEATER_MIN_OFF_MS = 2000;
+
+static bool g_heaterEffectiveOn = false;
+static uint32_t g_heaterLastSwitchMs = 0;
 
 static OvenRuntimeState preWaitSnapshot = {};
 static bool hasPreWaitSnapshot = false;
@@ -227,14 +232,35 @@ static constexpr uint32_t kCommAliveTimeoutMs = 1500;
 static bool g_hostOvertempActive = false;
 
 // -------------------------------------------------------------------------
+// T16 HELPER
+// -------------------------------------------------------------------------
+static bool compute_heater_effective(bool requestOn) {
+    const uint32_t now = millis();
+    const uint32_t dt = now - g_heaterLastSwitchMs;
+
+    if (g_heaterEffectiveOn) {
+        if (!requestOn && dt >= HEATER_MIN_ON_MS) {
+            g_heaterEffectiveOn = false;
+            g_heaterLastSwitchMs = now;
+        }
+    } else {
+        if (requestOn && dt >= HEATER_MIN_OFF_MS) {
+            g_heaterEffectiveOn = true;
+            g_heaterLastSwitchMs = now;
+        }
+    }
+
+    return g_heaterEffectiveOn;
+}
+
+// -------------------------------------------------------------------------
 // T13 Safety / Relay timing
 // -------------------------------------------------------------------------
 static constexpr float HOTSPOT_MAX_C = 140.0f; // safety sensor cutoff (near heater)
 static constexpr float CHAMBER_MAX_C = 120.0f; // absolute fail-safe limit
 static constexpr float OVERSHOOT_CAP_C = 2.0f; // cap above target (filament protection)
 
-static constexpr uint32_t MIN_HEATER_ON_MS = 2000;  // relay-safe minimum ON time
-static constexpr uint32_t MIN_HEATER_OFF_MS = 3000; // relay-safe minimum OFF time
+// T16.Host.1.1 uses HEATER_MIN_ON_MS / HEATER_MIN_OFF_MS above.
 
 static OvenProfile currentProfile = {
     .durationMinutes = 60,
@@ -423,6 +449,8 @@ static void force_local_safe_stop_due_to_comm(const char *reason) {
     runtimeState.fan230_on = false;
     runtimeState.fan230_slow_on = false;
     runtimeState.motor_on = false;
+    g_heaterIntentOn = false;
+    g_heaterEffectiveOn = false;
     runtimeState.heater_request_on = false;
     runtimeState.heater_actual_on = false;
     runtime_sync_heater_alias();
@@ -501,6 +529,11 @@ void oven_stop(void) {
 
     // Reset pulse scheduler on stop
     thermal_pulse_reset(g_therm);
+    g_heaterIntentOn = false;
+    g_heaterEffectiveOn = false;
+    runtimeState.heater_request_on = false;
+    runtimeState.heater_actual_on = false;
+    runtime_sync_heater_alias();
 
     uint16_t m = g_remoteOutputsMask;
     m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
@@ -963,25 +996,17 @@ void oven_comm_poll(void) {
             }
         }
 
-        // Relay timing guard
-        static uint32_t s_lastHeaterSwitchMs = 0;
-        const uint32_t nowMs = millis();
-        const uint32_t since = (s_lastHeaterSwitchMs > 0) ? (nowMs - s_lastHeaterSwitchMs) : 0xFFFFFFFFu;
-
-        if (desiredHeater != g_heaterIntentOn) {
-            const uint32_t minHold = g_heaterIntentOn ? MIN_HEATER_ON_MS : MIN_HEATER_OFF_MS;
-            if (since >= minHold) {
-                s_lastHeaterSwitchMs = nowMs;
-                g_heaterIntentOn = desiredHeater;
-            }
-        }
-
+        // Request = control decision, Effective = relay-safe output after minimum ON/OFF timing
+        g_heaterIntentOn = desiredHeater;
         runtimeState.heater_request_on = g_heaterIntentOn;
+
+        const bool heaterEffective = compute_heater_effective(g_heaterIntentOn);
+        runtimeState.heater_actual_on = heaterEffective;
         runtime_sync_heater_alias();
 
-        // Apply heater intent to command mask (best-effort; remote truth is still telemetry)
+        // Apply relay-safe effective state to command mask (remote truth is still telemetry)
         uint16_t cmd = g_lastCommandMask;
-        cmd = mask_set(cmd, OVEN_CONNECTOR::HEATER, g_heaterIntentOn);
+        cmd = mask_set(cmd, OVEN_CONNECTOR::HEATER, heaterEffective);
 
         // Overtemp indicator mirrors safety for now (kept for existing UI/logic)
         g_hostOvertempActive = runtimeState.safetyCutoffActive;
@@ -991,7 +1016,10 @@ void oven_comm_poll(void) {
     } else {
         // Not RUNNING: clear latch, stop pulses
         g_hostOvertempActive = false;
+        g_heaterIntentOn = false;
         runtimeState.heater_request_on = false;
+        g_heaterEffectiveOn = false;
+        runtimeState.heater_actual_on = false;
         runtime_sync_heater_alias();
         thermal_pulse_reset(g_therm);
     }
