@@ -264,6 +264,14 @@ static inline void comm_send_mask(uint16_t newMask) {
     runtime_sync_heater_alias();
 }
 
+static inline void comm_send_mask_if_changed(uint16_t newMask) {
+    const uint16_t normalizedMask = preserve_inputs(newMask);
+    if (normalizedMask == g_lastCommandMask) {
+        return;
+    }
+    comm_send_mask(normalizedMask);
+}
+
 // =============================================================================
 // Telemetry -> runtime mapping
 // =============================================================================
@@ -870,7 +878,7 @@ void oven_comm_poll(void) {
         g_hostOvertempActive = runtimeState.safetyCutoffActive;
         runtimeState.hostOvertempActive = g_hostOvertempActive;
 
-        comm_send_mask(cmd);
+        comm_send_mask_if_changed(cmd);
     } else {
         // Not RUNNING: clear latch, stop pulses
         g_hostOvertempActive = false;
