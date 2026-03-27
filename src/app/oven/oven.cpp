@@ -265,6 +265,22 @@ static inline void comm_send_mask_if_changed(uint16_t newMask) {
     comm_send_mask(normalizedMask);
 }
 
+static bool host_heater_safety_cutoff_active(const OvenRuntimeState &state) {
+    if (state.door_open) {
+        return true;
+    }
+    if (state.tempHotspotC >= HOST_HOTSPOT_MAX_C) {
+        return true;
+    }
+    if (state.tempChamberC >= HOST_CHAMBER_MAX_C) {
+        return true;
+    }
+    if (state.tempChamberC >= (state.tempTarget + HOST_TARGET_OVERSHOOT_CAP_C)) {
+        return true;
+    }
+    return false;
+}
+
 // =============================================================================
 // Telemetry -> runtime mapping
 // =============================================================================
@@ -822,28 +838,10 @@ void oven_comm_poll(void) {
     // -------------------------------------------------------------------------
     if (runtimeState.mode == OvenMode::RUNNING) {
         const float chamberC = runtimeState.tempChamberC;
-        const float hotspotC = runtimeState.tempHotspotC;
         const float tgt = runtimeState.tempTarget;
         const float tol = runtimeState.tempToleranceC;
 
-        // Safety evaluation (non-latching; becomes true while any condition is violated)
-        bool safety = false;
-
-        if (hotspotC >= HOST_HOTSPOT_MAX_C) {
-            safety = true;
-        }
-        if (chamberC >= HOST_CHAMBER_MAX_C) {
-            safety = true;
-        }
-        if (chamberC >= (tgt + HOST_TARGET_OVERSHOOT_CAP_C)) {
-            safety = true;
-        }
-
-        // Door open: best-effort force heater OFF
-        if (runtimeState.door_open) {
-            safety = true;
-        }
-
+        const bool safety = host_heater_safety_cutoff_active(runtimeState);
         runtimeState.safetyCutoffActive = safety;
 
         // Hysteresis decision (desired heater intent)
