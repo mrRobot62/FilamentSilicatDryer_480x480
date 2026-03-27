@@ -206,7 +206,12 @@ static constexpr uint16_t kPresetCount =
 static constexpr uint16_t OVEN_DEFAULT_PRESET_INDEX = 5; // PLA
 
 static constexpr uint8_t UI_MIN_MINUTES = 1;
-static constexpr float HOST_TEMP_TOLERANCE_C = 1.5f;
+
+// Product defaults for the current host-side heater policy.
+static constexpr float HOST_HEATER_HYSTERESIS_C = 1.5f;
+static constexpr float HOST_TARGET_OVERSHOOT_CAP_C = 2.0f;
+static constexpr float HOST_CHAMBER_MAX_C = 120.0f;
+static constexpr float HOST_HOTSPOT_MAX_C = 140.0f;
 
 // ----------------------------------------------------------------------------
 // Public API

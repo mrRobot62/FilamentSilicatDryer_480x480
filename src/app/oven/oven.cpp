@@ -124,13 +124,6 @@ static bool compute_heater_effective(bool requestOn) {
     return g_heaterEffectiveOn;
 }
 
-// -------------------------------------------------------------------------
-// T13 Safety / Relay timing
-// -------------------------------------------------------------------------
-static constexpr float HOTSPOT_MAX_C = 140.0f; // safety sensor cutoff (near heater)
-static constexpr float CHAMBER_MAX_C = 120.0f; // absolute fail-safe limit
-static constexpr float OVERSHOOT_CAP_C = 2.0f; // cap above target (filament protection)
-
 // T16.Host.1.1 uses HEATER_MIN_ON_MS / HEATER_MIN_OFF_MS above.
 
 static OvenProfile currentProfile = {
@@ -151,7 +144,7 @@ static OvenRuntimeState runtimeState = {
     .tempCurrent = 25.0f,
     .tempChamberC = 25.0f,
     .tempTarget = 40.0f,
-    .tempToleranceC = 3.0f,
+    .tempToleranceC = HOST_HEATER_HYSTERESIS_C,
     .hostOvertempActive = false,
     .safetyCutoffActive = false,
     .tempHotspotC = 25.0f,
@@ -836,13 +829,13 @@ void oven_comm_poll(void) {
         // Safety evaluation (non-latching; becomes true while any condition is violated)
         bool safety = false;
 
-        if (hotspotC >= HOTSPOT_MAX_C) {
+        if (hotspotC >= HOST_HOTSPOT_MAX_C) {
             safety = true;
         }
-        if (chamberC >= CHAMBER_MAX_C) {
+        if (chamberC >= HOST_CHAMBER_MAX_C) {
             safety = true;
         }
-        if (chamberC >= (tgt + OVERSHOOT_CAP_C)) {
+        if (chamberC >= (tgt + HOST_TARGET_OVERSHOOT_CAP_C)) {
             safety = true;
         }
 
