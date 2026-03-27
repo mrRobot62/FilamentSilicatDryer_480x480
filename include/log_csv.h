@@ -30,6 +30,22 @@ struct CLIENT_STATE {
         "CSV_%s;%d;%d;%d;%d;%d;%d;%d;%u\n";
 };
 
+struct HOST_PLOT {
+    static constexpr const char *PREFIX = "HOST_PLOT";
+
+    // ts;CSV_HOST_PLOT;t_chamber_dC;t_hotspot_dC;t_target_dC;t_low_dC;t_high_dC;safety
+    static constexpr const char *FMT =
+        "CSV_%s;%ld;%ld;%ld;%ld;%ld;%d\n";
+};
+
+struct HOST_LOGIC {
+    static constexpr const char *PREFIX = "HOST_LOGIC";
+
+    // ts;CSV_HOST_LOGIC;mode;running;heater_req;heater_actual;door;safety;commAlive;linkSynced
+    static constexpr const char *FMT =
+        "CSV_%s;%u;%d;%d;%d;%d;%d;%d;%d\n";
+};
+
 } // namespace csv
 
 #ifdef CSV_OUT
@@ -60,7 +76,29 @@ struct CLIENT_STATE {
         CSV_LOG(csv::CLIENT_STATE::PREFIX, csv::CLIENT_STATE::FMT, ##__VA_ARGS__); \
     } while (0)
 #else
-#define CSV_LOG_TEMP(...) \
+#define CSV_LOG_STATE(...) \
     do {                  \
+    } while (0)
+#endif
+
+#ifdef CSV_OUT
+#define CSV_LOG_HOST_PLOT(...)                                              \
+    do {                                                                    \
+        CSV_LOG(csv::HOST_PLOT::PREFIX, csv::HOST_PLOT::FMT, ##__VA_ARGS__); \
+    } while (0)
+#else
+#define CSV_LOG_HOST_PLOT(...) \
+    do {                      \
+    } while (0)
+#endif
+
+#ifdef CSV_OUT
+#define CSV_LOG_HOST_LOGIC(...)                                                \
+    do {                                                                       \
+        CSV_LOG(csv::HOST_LOGIC::PREFIX, csv::HOST_LOGIC::FMT, ##__VA_ARGS__); \
+    } while (0)
+#else
+#define CSV_LOG_HOST_LOGIC(...) \
+    do {                       \
     } while (0)
 #endif

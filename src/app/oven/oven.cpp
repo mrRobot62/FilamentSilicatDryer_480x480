@@ -33,6 +33,7 @@
 // =============================================================================
 
 #include <Arduino.h>
+#include "log_csv.h"
 
 static constexpr int16_t TEMP_INVALID_DC = -32768;
 
@@ -279,6 +280,45 @@ static bool host_heater_safety_cutoff_active(const OvenRuntimeState &state) {
         return true;
     }
     return false;
+}
+
+static uint8_t oven_mode_to_u8(OvenMode mode) {
+    return static_cast<uint8_t>(mode);
+}
+
+static int32_t c_to_dC(float tempC) {
+    return static_cast<int32_t>(tempC * 10.0f);
+}
+
+static void emit_csv_host_runtime_once_per_second(const OvenRuntimeState &state) {
+    static uint32_t lastMs = 0;
+    const uint32_t now = millis();
+
+    if ((now - lastMs) < 1000u) {
+        return;
+    }
+    lastMs = now;
+
+    const float lowC = state.tempTarget - state.tempToleranceC;
+    const float highC = state.tempTarget + state.tempToleranceC;
+
+    CSV_LOG_HOST_PLOT(
+        (long)c_to_dC(state.tempChamberC),
+        (long)c_to_dC(state.tempHotspotC),
+        (long)c_to_dC(state.tempTarget),
+        (long)c_to_dC(lowC),
+        (long)c_to_dC(highC),
+        state.safetyCutoffActive ? 1 : 0);
+
+    CSV_LOG_HOST_LOGIC(
+        (unsigned)oven_mode_to_u8(state.mode),
+        state.running ? 1 : 0,
+        state.heater_request_on ? 1 : 0,
+        state.heater_actual_on ? 1 : 0,
+        state.door_open ? 1 : 0,
+        state.safetyCutoffActive ? 1 : 0,
+        state.commAlive ? 1 : 0,
+        state.linkSynced ? 1 : 0);
 }
 
 // =============================================================================
@@ -947,6 +987,8 @@ void oven_comm_poll(void) {
         OVEN_INFO("[oven_comm_poll] Link alive & synced\n");
     }
     prevAlive = runtimeState.commAlive;
+
+    emit_csv_host_runtime_once_per_second(runtimeState);
 }
 
 // =============================================================================
