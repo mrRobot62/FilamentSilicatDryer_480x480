@@ -1,55 +1,28 @@
 /**
  * =============================================================================
- * oven.cpp — Host-side oven logic (T11 thermal model rework)
+ * oven.cpp — Host-side oven logic
  * =============================================================================
  *
- * This file is intentionally heavily documented.
- * It is the single place where host policy and the T11 thermal model are applied.
+ * Product architecture:
+ * - Host (ESP32-S3): UI, runtime state, heater decision, countdown and policy
+ * - Client (ESP32-WROOM): authoritative IO, sensor acquisition and safety gating
+ * - UART protocol (HostComm): line-based ASCII frames with CRLF
  *
- * Architecture recap (T6+):
- * - Host (ESP32-S3): UI + policy + countdown + thermal model.
- * - Client (ESP32-WROOM): authoritative IO (outputs + sensors) and telemetry.
- * - UART protocol (HostComm): line-based ASCII frames with CRLF.
- *
- * "Single Source of Truth":
- * - UI renders ONLY from OvenRuntimeState.
- * - Actuator booleans in OvenRuntimeState are updated ONLY from client telemetry
- *   (C;STATUS). Host commands are intents; telemetry is truth.
- *
- * -----------------------------------------------------------------------------
- * T11 Thermal Model (Variant B: PT1 + bias)
- * -----------------------------------------------------------------------------
- * Sensor reality:
- * - The NTC is physically close to the heater and sees a hot spot.
- * - Directly controlling to that value leads to overshoot and jitter.
- *
- * We therefore model:
- *   T_ntc   : raw sensor temperature from STATUS (hot spot)
- *   bias    : delta between hot spot and chamber "core" temperature
- *   T_core  : estimated chamber core temperature (used for UI + control)
- *
- * Update strategy:
- * - New STATUS -> store latest T_ntc
- * - oven_tick() (1 Hz) -> update bias PT1 and core PT1 deterministically
- *
- * Equations (discrete PT1 at 1 Hz):
- *   x = x + alpha * (x_target - x)   with alpha = dt / (tau + dt), dt=1s
- *
- * bias_target:
- *   heater_intent_on  -> heatBiasC (+ optional slope vs. (T_ntc - target))
- *   heater_intent_off -> coolBiasC (typically ~0)
- *
- * core_target:
- *   core_target = T_ntc - bias
- *
- * Heater pulse shaping:
- * - heaterWanted is derived from (T_core vs target ± tolerance) + safety gates.
- * - pulse gating enforces a fixed ON window and OFF rest to avoid chattering.
+ * Single Source of Truth:
+ * - UI renders from OvenRuntimeState
+ * - Client telemetry is the source of truth for effective actuator states
+ * - Chamber temperature is the control temperature
+ * - Hotspot temperature is the safety temperature
  *
  * Safety:
- * - Door open => heater OFF (best effort).
- * - Overtemp lock (latched) => heater OFF until below (target - tol).
- * - Comm loss => SAFE STOP (SET 0x0000) best effort.
+ * - Door open => heater OFF (best effort)
+ * - Chamber overtemp => heater OFF
+ * - Hotspot overtemp => heater OFF
+ * - Comm loss => SAFE STOP (SET 0x0000) best effort
+ *
+ * Relay protection:
+ * - Host decides heater request ON/OFF
+ * - Minimum ON/OFF times are enforced before switching the effective heater state
  *
  * =============================================================================
  */
@@ -63,119 +36,17 @@
 
 static constexpr int16_t TEMP_INVALID_DC = -32768;
 
-// =============================================================================
-// T11: Thermal Model (internal, oven.cpp only)
-// =============================================================================
 namespace {
-struct ThermalModelState {
-    float ntcC = 25.0f;        // latest measured sensor near heater (STATUS source)
-    float coreC = 25.0f;       // estimated core temperature (filtered + bias)
-    bool coreValid = false;    // becomes true after first init/telemetry
-    uint32_t lastUpdateMs = 0; // for UI/diag
-
-    // Pulse scheduler (ms-based) for heater request gating (T11.4)
+struct HeaterGateState {
     uint32_t heatPhaseUntilMs = 0; // if now < heatPhaseUntilMs => allow heater ON
     uint32_t restUntilMs = 0;      // if now < restUntilMs => force heater OFF
 };
 
-static ThermalModelState g_therm;
+static HeaterGateState g_heaterGate;
 
-static void thermal_model_init(float initialNtcC, ThermalModelState &tms) {
-    tms.ntcC = initialNtcC;
-    tms.coreC = initialNtcC;
-    tms.coreValid = true;
-    tms.lastUpdateMs = millis();
+static void thermal_pulse_reset(HeaterGateState &tms) {
     tms.heatPhaseUntilMs = 0;
     tms.restUntilMs = 0;
-}
-
-static void thermal_model_on_new_ntc(float ntcC, ThermalModelState &tms) {
-    tms.ntcC = ntcC;
-    if (!tms.coreValid) {
-        thermal_model_init(ntcC, tms);
-    }
-}
-
-static void thermal_model_update_pt1_1hz(const ThermalModelConfig &cfg,
-                                         bool heaterIntentOn,
-                                         ThermalModelState &tms) {
-    if (!tms.coreValid) {
-        return;
-    }
-
-    const float dt = 1.0f; // oven_tick is 1 Hz
-    const float tau = (cfg.coreTauSeconds > 0.1f) ? cfg.coreTauSeconds : 0.1f;
-
-    // Numerically stable PT1: alpha = dt / (tau + dt)
-    const float alpha = dt / (tau + dt);
-
-    const float bias = heaterIntentOn ? cfg.heatBiasC : cfg.coolBiasC;
-    const float target = tms.ntcC + bias;
-
-    tms.coreC = tms.coreC + alpha * (target - tms.coreC);
-    tms.lastUpdateMs = millis();
-}
-
-static void thermal_model_copy_to_runtime(const ThermalModelState &tms, OvenRuntimeState &rt) {
-    rt.tempNtcC = tms.ntcC;
-    rt.tempCoreC = tms.coreC;
-    rt.tempCoreValid = tms.coreValid;
-    rt.lastThermalUpdateMs = tms.lastUpdateMs;
-}
-
-static void thermal_pulse_reset(ThermalModelState &tms) {
-    tms.heatPhaseUntilMs = 0;
-    tms.restUntilMs = 0;
-}
-
-static uint32_t clamp_u32_min(uint32_t v, uint32_t vmin) {
-    return (v < vmin) ? vmin : v;
-}
-
-static uint32_t add_ms_sat(uint32_t a, uint32_t b) {
-    const uint32_t r = a + b;
-    return (r < a) ? 0xFFFFFFFFu : r; // saturate on overflow
-}
-
-// Returns whether we are allowed to set HEATER ON right now (pulse gating),
-// given that "heaterWanted" is true.
-static bool thermal_pulse_allow_heater_now(const ThermalModelConfig &cfg,
-                                           uint32_t nowMs,
-                                           bool heaterWanted,
-                                           ThermalModelState &tms) {
-    if (!heaterWanted) {
-        thermal_pulse_reset(tms);
-        return false;
-    }
-
-    // Heating window active (must win over restUntilMs, which is set to heatEnd+restEnd)
-    if (tms.heatPhaseUntilMs != 0 && nowMs < tms.heatPhaseUntilMs) {
-        return true;
-    }
-
-    // Rest phase (starts only after heat window ended)
-    if (tms.restUntilMs != 0 && nowMs < tms.restUntilMs) {
-        return false;
-    }
-
-    // Start a new heating window now
-    const uint32_t heatWinMs = clamp_u32_min(cfg.heatWindowMs, 100u);
-    const uint32_t restMs = clamp_u32_min(cfg.restMs, 100u);
-
-    tms.heatPhaseUntilMs = add_ms_sat(nowMs, heatWinMs);
-    tms.restUntilMs = add_ms_sat(tms.heatPhaseUntilMs, restMs);
-    return true;
-}
-
-static void thermal_apply_ui_temp(OvenRuntimeState &rt) {
-    // UI uses tempCurrent everywhere.
-    // From T11.2 on: tempCurrent becomes "display/control temperature"
-    // Raw NTC remains in tempNtcC.
-    if (rt.tempCoreValid) {
-        rt.tempCurrent = rt.tempCoreC;
-    } else {
-        rt.tempCurrent = rt.tempNtcC;
-    }
 }
 } // namespace
 
@@ -316,11 +187,8 @@ static OvenRuntimeState runtimeState = {
 
     .post = {false, 0, 0},
 
-    // T11 legacy aliases
+    // Temporary legacy alias
     .tempNtcC = 25.0f,
-    .tempCoreC = 25.0f,
-    .tempCoreValid = false,
-    .lastThermalUpdateMs = 0,
 };
 
 static void runtime_sync_legacy_temperature_aliases() {
@@ -414,10 +282,6 @@ static void apply_remote_status_to_runtime(const ProtocolStatus &st) {
                                     : runtimeState.tempHotspotC;
     runtime_sync_legacy_temperature_aliases();
 
-    // Legacy T11 fields are kept in the struct for now but are no longer used.
-    runtimeState.tempCoreC = runtimeState.tempCurrent;
-    runtimeState.tempCoreValid = false;
-
     runtimeState.fan12v_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN12V);
     runtimeState.fan230_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN230V);
     runtimeState.fan230_slow_on = mask_has(st.outputsMask, OVEN_CONNECTOR::FAN230V_SLOW);
@@ -473,10 +337,6 @@ const FilamentPreset *oven_get_preset(uint16_t index) {
 }
 
 void oven_init(void) {
-    // T11: init thermal model from current runtime snapshot
-    thermal_model_init(runtimeState.tempCurrent, g_therm);
-    thermal_model_copy_to_runtime(g_therm, runtimeState);
-    thermal_apply_ui_temp(runtimeState);
     runtime_sync_legacy_temperature_aliases();
     runtime_sync_heater_alias();
     OVEN_INFO("[OVEN] Init OK\n");
@@ -502,7 +362,7 @@ void oven_start(void) {
     runtimeState.post.stepIndex = 0;
 
     // Reset pulse scheduler on fresh start
-    thermal_pulse_reset(g_therm);
+    thermal_pulse_reset(g_heaterGate);
 
     uint16_t m = g_remoteOutputsMask;
     m = mask_set(m, OVEN_CONNECTOR::HEATER, true);
@@ -528,7 +388,7 @@ void oven_stop(void) {
     runtimeState.post.stepIndex = 0;
 
     // Reset pulse scheduler on stop
-    thermal_pulse_reset(g_therm);
+    thermal_pulse_reset(g_heaterGate);
     g_heaterIntentOn = false;
     g_heaterEffectiveOn = false;
     runtimeState.heater_request_on = false;
@@ -602,7 +462,7 @@ void oven_get_runtime_state(OvenRuntimeState *out) {
 // =============================================================================
 // oven_tick(): 1 Hz timebase
 // - countdown
-// - deterministic T11 thermal model update
+// - countdown
 // - RUN -> POST -> STOP transitions
 // =============================================================================
 void oven_tick(void) {
@@ -614,8 +474,6 @@ void oven_tick(void) {
     }
     lastTick = now;
 
-    // T13: no thermal model update in oven_tick()
-
     // Countdown
     if (runtimeState.mode == OvenMode::RUNNING) {
         if (runtimeState.durationMinutes > 0) {
@@ -624,7 +482,7 @@ void oven_tick(void) {
             } else {
                 if (g_currentPostPlan.active && g_currentPostPlan.seconds > 0) {
                     runtimeState.mode = OvenMode::POST;
-                    thermal_pulse_reset(g_therm);
+                    thermal_pulse_reset(g_heaterGate);
                     runtimeState.running = false;
 
                     runtimeState.post.active = true;
@@ -755,7 +613,7 @@ void oven_pause_wait(void) {
     runtimeState.running = false;
 
     // Reset pulse scheduler while waiting (heater must be off anyway)
-    thermal_pulse_reset(g_therm);
+    thermal_pulse_reset(g_heaterGate);
 
     uint16_t m = g_remoteOutputsMask;
     m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
@@ -800,7 +658,7 @@ bool oven_resume_from_wait(void) {
     waiting = false;
 
     // Reset pulse scheduler on resume to avoid immediate long ON stretches
-    thermal_pulse_reset(g_therm);
+    thermal_pulse_reset(g_heaterGate);
 
     comm_send_mask(g_preWaitCommandMask);
 
@@ -889,7 +747,7 @@ void oven_comm_init(HardwareSerial &serial, uint32_t baudrate, uint8_t rx, uint8
 // - Link sync & alive tracking
 // - STATUS polling
 // - Applies telemetry to runtime state
-// - Applies heater policy (T11) while RUNNING
+// - Applies heater policy while RUNNING
 // =============================================================================
 
 void oven_comm_poll(void) {
@@ -948,9 +806,9 @@ void oven_comm_poll(void) {
     }
 
     // -------------------------------------------------------------------------
-    // T13: Heater control + safety (RUNNING only)
-    // - Control temperature: runtimeState.tempCurrent (Chamber)
-    // - Safety temperature:  runtimeState.tempNtcC (Hotspot)
+    // T16/T13: Heater control + safety (RUNNING only)
+    // - Control temperature: runtimeState.tempChamberC
+    // - Safety temperature:  runtimeState.tempHotspotC
     // - Simple hysteresis: ON below (tgt - tol), OFF above (tgt + tol)
     // - Safety cutoffs force heater OFF
     // - Relay-safe timing guard prevents rapid toggling
@@ -974,12 +832,12 @@ void oven_comm_poll(void) {
             safety = true;
         }
 
-        runtimeState.safetyCutoffActive = safety;
-
         // Door open: best-effort force heater OFF
         if (runtimeState.door_open) {
             safety = true;
         }
+
+        runtimeState.safetyCutoffActive = safety;
 
         // Hysteresis decision (desired heater intent)
         const float lo = tgt - tol;
@@ -1021,7 +879,7 @@ void oven_comm_poll(void) {
         g_heaterEffectiveOn = false;
         runtimeState.heater_actual_on = false;
         runtime_sync_heater_alias();
-        thermal_pulse_reset(g_therm);
+        thermal_pulse_reset(g_heaterGate);
     }
 
     // 7) ACK-based outputs update (fast UI feedback)

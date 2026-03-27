@@ -113,7 +113,7 @@ typedef struct
     // T16/T13 naming cleanup:
     // - tempChamberC: authoritative control/UI temperature from client STATUS
     // - tempHotspotC: authoritative safety temperature from client STATUS
-    // - tempCurrent / tempNtcC are kept as legacy aliases for existing UI code
+    // - tempCurrent / tempNtcC are temporary aliases for older UI paths
     float tempCurrent;     // legacy alias -> tempChamberC
     float tempChamberC;    // control/UI temperature (Chamber)
     float tempTarget;      // UI target
@@ -163,44 +163,10 @@ typedef struct
     // T7: POST runtime state
     PostRuntime post;
 
-    // ------------------------------------------------------------------------
-    // T11: Thermal Model (Host-side)
-    // ------------------------------------------------------------------------
-
-    // Legacy alias kept for old code paths / screens.
+    // Temporary legacy alias kept while older UI paths are migrated.
     float tempNtcC; // legacy alias -> tempHotspotC
 
-    // - tempCoreC: estimated "core" temperature (filtered + bias)
-    float tempCoreC;    // Estimated "core" temperature (filtered + bias)
-    bool tempCoreValid; // True once model initialized
-
-    uint32_t lastThermalUpdateMs; // millis() of last model update
-
 } OvenRuntimeState;
-
-// ----------------------------------------------------------------------------
-// T11: Thermal Model Configuration
-// ----------------------------------------------------------------------------
-struct ThermalModelConfig {
-    float coreTauSeconds;  // PT1 time constant (seconds)
-    float heatBiasC;       // Bias added while heater intent is active
-    float coolBiasC;       // Bias added while heater intent is inactive
-    uint32_t heatWindowMs; // Heating window duration (pulse ON window)
-    uint32_t restMs;       // Rest duration after heating window (forced OFF)
-};
-
-// Default configuration for T11 (tuneable constants)
-// Notes:
-// - coreTauSeconds: larger => slower/steadier core estimate
-// - heatBiasC/coolBiasC: compensate sensor placement vs. true core temperature
-// - heatWindowMs/restMs: pulse gating for heater requests (ms-based)
-inline constexpr ThermalModelConfig kThermalConfig{
-    .coreTauSeconds = 60.0f, // core inertia (~60s time constant)
-    .heatBiasC = 3.0f,       // core tends to run hotter while heating
-    .coolBiasC = -0.75f,     // slight undershoot while cooling
-    .heatWindowMs = 2000,    // 2s heating pulse window
-    .restMs = 1500           // 1.5s rest period
-};
 
 // ----------------------------------------------------------------------------
 // Preset list (immutable factory presets)
