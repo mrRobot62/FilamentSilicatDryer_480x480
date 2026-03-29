@@ -59,6 +59,18 @@ enum class PostFanMode : uint8_t {
     SLOW      // FAN230V_SLOW
 };
 
+enum class HeaterMaterialClass : uint8_t {
+    FILAMENT = 0,
+    SILICA
+};
+
+enum class HeaterControlStage : uint8_t {
+    IDLE = 0,
+    BULK_HEAT,
+    APPROACH,
+    HOLD
+};
+
 // ----------------------------------------------------------------------------
 // T7: POST configuration (preset-time plan) and runtime state
 // ----------------------------------------------------------------------------
@@ -88,11 +100,23 @@ typedef struct
     float dryTempC;
     uint16_t durationMin;
     bool rotaryOn;
+    HeaterMaterialClass materialClass;
 
     // T7: POST behavior (cooling etc.) – preset-time plan
     PostConfig post;
 
 } FilamentPreset;
+
+typedef struct
+{
+    HeaterMaterialClass materialClass;
+    float hysteresisC;
+    float approachBandC;
+    float holdBandC;
+    float targetOvershootCapC;
+    float chamberMaxC;
+    float hotspotMaxC;
+} HeaterPolicy;
 
 typedef struct
 {
@@ -123,6 +147,8 @@ typedef struct
     float tempHotspotC;    // safety temperature (Hotspot)
     bool tempChamberValid;
     bool tempHotspotValid;
+    HeaterMaterialClass materialClass;
+    HeaterControlStage heaterStage;
 
     int filamentId;
     char presetName[24];
@@ -172,33 +198,33 @@ typedef struct
 // Preset list (immutable factory presets)
 // ----------------------------------------------------------------------------
 static constexpr FilamentPreset kPresets[] = {
-    {"CUSTOM", 0.0f, 0, false, {false, 0, PostFanMode::SLOW}},
-    {"SILICA", 105.0f, 90, true, {true, 60, PostFanMode::FAST}},
-    {"ABS", 80.0f, 300, false, {true, 300, PostFanMode::FAST}},
-    {"ASA", 82.5f, 300, false, {true, 300, PostFanMode::FAST}},
-    {"PETG", 62.5f, 360, false, {true, 300, PostFanMode::SLOW}},
-    {"PLA", 47.5f, 300, false, {true, 300, PostFanMode::SLOW}}, // 5
-    {"TPU", 45.0f, 300, false, {true, 300, PostFanMode::FAST}},
-    {"Spec-ASA-CF", 85.0f, 540, false, {true, 300, PostFanMode::FAST}},
-    {"Spec-BVOH", 52.5f, 420, false, {true, 300, PostFanMode::FAST}},
-    {"Spec-HIPS", 65.0f, 300, false, {true, 300, PostFanMode::FAST}},
-    {"Spec-PA(CF,PET,PH*)", 85.0f, 540, false, {true, 300, PostFanMode::FAST}}, // 10
-    {"Spec-PC(CF/FR)", 85.0f, 540, false, {true, 300, PostFanMode::FAST}},
-    {"Spec-PC-ABS", 82.5f, 540, false, {true, 300, PostFanMode::FAST}},
-    {"Spec-PET-CF", 75.0f, 480, false, {true, 300, PostFanMode::SLOW}},
-    {"Spec-PETG-CF", 70.0f, 480, false, {true, 300, PostFanMode::SLOW}},
-    {"Spec-PETG-HF", 65.0f, 360, false, {true, 300, PostFanMode::SLOW}}, // 15
-    {"Spec-PLA-CF", 55.0f, 360, false, {true, 300, PostFanMode::SLOW}},
-    {"Spec-PLA-HT", 55.0f, 360, false, {true, 300, PostFanMode::SLOW}},
-    {"Spec-PLA-WoodMetal", 45.0f, 300, false, {true, 300, PostFanMode::SLOW}},
-    {"Spec-POM", 70.0f, 300, false, {true, 300, PostFanMode::FAST}},
-    {"Spec-PP", 55.0f, 300, false, {true, 300, PostFanMode::FAST}}, // 20
-    {"Spec-PP-GF", 65.0f, 480, false, {true, 300, PostFanMode::FAST}},
-    {"Spec-PPS(+CF)", 85.0f, 540, false, {true, 300, PostFanMode::FAST}},
-    {"Spec-PVA", 50.0f, 480, false, {true, 300, PostFanMode::FAST}},
-    {"Spec-PVDF-PPSU", 85.0f, 540, false, {true, 300, PostFanMode::FAST}},
-    {"Spec-TPU 82A", 42.5f, 300, false, {true, 300, PostFanMode::FAST}}, // 25
-    {"Spec-WOOD-Composite", 45.0f, 300, false, {true, 300, PostFanMode::FAST}},
+    {"CUSTOM", 0.0f, 0, false, HeaterMaterialClass::FILAMENT, {false, 0, PostFanMode::SLOW}},
+    {"SILICA", 105.0f, 90, true, HeaterMaterialClass::SILICA, {true, 60, PostFanMode::FAST}},
+    {"ABS", 80.0f, 300, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
+    {"ASA", 82.5f, 300, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
+    {"PETG", 62.5f, 360, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::SLOW}},
+    {"PLA", 47.5f, 300, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::SLOW}}, // 5
+    {"TPU", 45.0f, 300, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
+    {"Spec-ASA-CF", 85.0f, 540, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
+    {"Spec-BVOH", 52.5f, 420, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
+    {"Spec-HIPS", 65.0f, 300, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
+    {"Spec-PA(CF,PET,PH*)", 85.0f, 540, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}}, // 10
+    {"Spec-PC(CF/FR)", 85.0f, 540, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
+    {"Spec-PC-ABS", 82.5f, 540, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
+    {"Spec-PET-CF", 75.0f, 480, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::SLOW}},
+    {"Spec-PETG-CF", 70.0f, 480, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::SLOW}},
+    {"Spec-PETG-HF", 65.0f, 360, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::SLOW}}, // 15
+    {"Spec-PLA-CF", 55.0f, 360, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::SLOW}},
+    {"Spec-PLA-HT", 55.0f, 360, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::SLOW}},
+    {"Spec-PLA-WoodMetal", 45.0f, 300, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::SLOW}},
+    {"Spec-POM", 70.0f, 300, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
+    {"Spec-PP", 55.0f, 300, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}}, // 20
+    {"Spec-PP-GF", 65.0f, 480, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
+    {"Spec-PPS(+CF)", 85.0f, 540, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
+    {"Spec-PVA", 50.0f, 480, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
+    {"Spec-PVDF-PPSU", 85.0f, 540, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
+    {"Spec-TPU 82A", 42.5f, 300, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}}, // 25
+    {"Spec-WOOD-Composite", 45.0f, 300, false, HeaterMaterialClass::FILAMENT, {true, 300, PostFanMode::FAST}},
 };
 
 static constexpr uint16_t kPresetCount =
@@ -212,6 +238,8 @@ static constexpr float HOST_HEATER_HYSTERESIS_C = 1.5f;
 static constexpr float HOST_TARGET_OVERSHOOT_CAP_C = 2.0f;
 static constexpr float HOST_CHAMBER_MAX_C = 120.0f;
 static constexpr float HOST_HOTSPOT_MAX_C = 140.0f;
+static constexpr float HOST_SILICA_HEATER_HYSTERESIS_C = 2.5f;
+static constexpr float HOST_SILICA_TARGET_OVERSHOOT_CAP_C = 4.0f;
 
 // ----------------------------------------------------------------------------
 // Public API

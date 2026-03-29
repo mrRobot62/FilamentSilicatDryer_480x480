@@ -103,6 +103,26 @@ static constexpr uint32_t kCommAliveTimeoutMs = 1500;
 
 static bool g_hostOvertempActive = false;
 
+static constexpr HeaterPolicy kFilamentHeaterPolicy = {
+    HeaterMaterialClass::FILAMENT,
+    HOST_HEATER_HYSTERESIS_C,
+    7.5f,
+    1.5f,
+    HOST_TARGET_OVERSHOOT_CAP_C,
+    HOST_CHAMBER_MAX_C,
+    HOST_HOTSPOT_MAX_C,
+};
+
+static constexpr HeaterPolicy kSilicaHeaterPolicy = {
+    HeaterMaterialClass::SILICA,
+    HOST_SILICA_HEATER_HYSTERESIS_C,
+    10.0f,
+    2.5f,
+    HOST_SILICA_TARGET_OVERSHOOT_CAP_C,
+    HOST_CHAMBER_MAX_C,
+    HOST_HOTSPOT_MAX_C,
+};
+
 // -------------------------------------------------------------------------
 // T16 HELPER
 // -------------------------------------------------------------------------
@@ -151,6 +171,8 @@ static OvenRuntimeState runtimeState = {
     .tempHotspotC = 25.0f,
     .tempChamberValid = false,
     .tempHotspotValid = false,
+    .materialClass = HeaterMaterialClass::FILAMENT,
+    .heaterStage = HeaterControlStage::IDLE,
 
     .filamentId = 0,
 
@@ -194,6 +216,22 @@ static void runtime_sync_heater_alias() {
     runtimeState.heater_on =
         (runtimeState.mode == OvenMode::RUNNING) ? runtimeState.heater_request_on
                                                  : runtimeState.heater_actual_on;
+}
+
+static HeaterMaterialClass material_class_from_preset_index(int presetIndex) {
+    if (presetIndex < 0 || presetIndex >= static_cast<int>(kPresetCount)) {
+        return HeaterMaterialClass::FILAMENT;
+    }
+    return kPresets[presetIndex].materialClass;
+}
+
+static const HeaterPolicy &heater_policy_for_material_class(HeaterMaterialClass materialClass) {
+    return (materialClass == HeaterMaterialClass::SILICA) ? kSilicaHeaterPolicy
+                                                          : kFilamentHeaterPolicy;
+}
+
+static const HeaterPolicy &active_heater_policy() {
+    return heater_policy_for_material_class(runtimeState.materialClass);
 }
 
 // =============================================================================
@@ -267,16 +305,17 @@ static inline void comm_send_mask_if_changed(uint16_t newMask) {
 }
 
 static bool host_heater_safety_cutoff_active(const OvenRuntimeState &state) {
+    const HeaterPolicy &policy = heater_policy_for_material_class(state.materialClass);
     if (state.door_open) {
         return true;
     }
-    if (state.tempHotspotC >= HOST_HOTSPOT_MAX_C) {
+    if (state.tempHotspotC >= policy.hotspotMaxC) {
         return true;
     }
-    if (state.tempChamberC >= HOST_CHAMBER_MAX_C) {
+    if (state.tempChamberC >= policy.chamberMaxC) {
         return true;
     }
-    if (state.tempChamberC >= (state.tempTarget + HOST_TARGET_OVERSHOOT_CAP_C)) {
+    if (state.tempChamberC >= (state.tempTarget + policy.targetOvershootCapC)) {
         return true;
     }
     return false;
@@ -394,6 +433,8 @@ const FilamentPreset *oven_get_preset(uint16_t index) {
 }
 
 void oven_init(void) {
+    runtimeState.materialClass = material_class_from_preset_index(currentProfile.filamentId);
+    runtimeState.tempToleranceC = active_heater_policy().hysteresisC;
     runtime_sync_legacy_temperature_aliases();
     runtime_sync_heater_alias();
     OVEN_INFO("[OVEN] Init OK\n");
@@ -413,6 +454,9 @@ void oven_start(void) {
     runtimeState.durationMinutes = currentProfile.durationMinutes;
     runtimeState.secondsRemaining = currentProfile.durationMinutes * 60;
     runtimeState.tempTarget = currentProfile.targetTemperature;
+    runtimeState.materialClass = material_class_from_preset_index(currentProfile.filamentId);
+    runtimeState.tempToleranceC = active_heater_policy().hysteresisC;
+    runtimeState.heaterStage = HeaterControlStage::BULK_HEAT;
 
     runtimeState.post.active = false;
     runtimeState.post.secondsRemaining = 0;
@@ -444,6 +488,7 @@ void oven_stop(void) {
 
     runtimeState.mode = OvenMode::STOPPED;
     runtimeState.running = false;
+    runtimeState.heaterStage = HeaterControlStage::IDLE;
     waiting = false;
 
     runtimeState.post.active = false;
@@ -501,6 +546,8 @@ void oven_select_preset(uint16_t index) {
     runtimeState.secondsRemaining = p.durationMin * 60;
     runtimeState.tempTarget = p.dryTempC;
     runtimeState.filamentId = index;
+    runtimeState.materialClass = p.materialClass;
+    runtimeState.tempToleranceC = heater_policy_for_material_class(p.materialClass).hysteresisC;
     runtimeState.rotaryOn = p.rotaryOn;
 
     g_currentPostPlan = p.post;
@@ -707,6 +754,9 @@ bool oven_resume_from_wait(void) {
         runtimeState.durationMinutes = preWaitSnapshot.durationMinutes;
         runtimeState.tempTarget = preWaitSnapshot.tempTarget;
         runtimeState.filamentId = preWaitSnapshot.filamentId;
+        runtimeState.materialClass = preWaitSnapshot.materialClass;
+        runtimeState.tempToleranceC = preWaitSnapshot.tempToleranceC;
+        runtimeState.heaterStage = preWaitSnapshot.heaterStage;
         runtimeState.rotaryOn = preWaitSnapshot.rotaryOn;
 
         std::strncpy(runtimeState.presetName, preWaitSnapshot.presetName,
@@ -718,6 +768,7 @@ bool oven_resume_from_wait(void) {
 
     runtimeState.mode = OvenMode::RUNNING;
     runtimeState.running = true;
+    runtimeState.heaterStage = HeaterControlStage::BULK_HEAT;
     waiting = false;
 
     // Reset pulse scheduler on resume to avoid immediate long ON stretches
