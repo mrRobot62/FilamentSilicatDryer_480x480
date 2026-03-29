@@ -234,6 +234,60 @@ static const HeaterPolicy &active_heater_policy() {
     return heater_policy_for_material_class(runtimeState.materialClass);
 }
 
+static HeaterControlStage determine_heater_stage(float chamberC,
+                                                 float targetC,
+                                                 const HeaterPolicy &policy) {
+    const float deltaToTargetC = targetC - chamberC;
+    if (deltaToTargetC > policy.approachBandC) {
+        return HeaterControlStage::BULK_HEAT;
+    }
+    if (deltaToTargetC > policy.holdBandC) {
+        return HeaterControlStage::APPROACH;
+    }
+    return HeaterControlStage::HOLD;
+}
+
+static float heater_stage_band_c(HeaterControlStage stage, const HeaterPolicy &policy) {
+    switch (stage) {
+    case HeaterControlStage::BULK_HEAT:
+        return policy.approachBandC;
+    case HeaterControlStage::APPROACH:
+        return policy.holdBandC;
+    case HeaterControlStage::HOLD:
+        return policy.hysteresisC;
+    case HeaterControlStage::IDLE:
+    default:
+        return policy.hysteresisC;
+    }
+}
+
+static bool determine_heater_intent_for_stage(HeaterControlStage stage,
+                                              bool currentIntentOn,
+                                              float chamberC,
+                                              float targetC,
+                                              const HeaterPolicy &policy) {
+    switch (stage) {
+    case HeaterControlStage::BULK_HEAT:
+        return true;
+
+    case HeaterControlStage::APPROACH:
+        if (currentIntentOn) {
+            return chamberC < (targetC - policy.holdBandC);
+        }
+        return chamberC < (targetC - policy.approachBandC);
+
+    case HeaterControlStage::HOLD:
+        if (currentIntentOn) {
+            return chamberC < targetC;
+        }
+        return chamberC < (targetC - policy.hysteresisC);
+
+    case HeaterControlStage::IDLE:
+    default:
+        return false;
+    }
+}
+
 // =============================================================================
 // HostComm integration (UART protocol, T6)
 // =============================================================================
@@ -930,24 +984,18 @@ void oven_comm_poll(void) {
     if (runtimeState.mode == OvenMode::RUNNING) {
         const float chamberC = runtimeState.tempChamberC;
         const float tgt = runtimeState.tempTarget;
-        const float tol = runtimeState.tempToleranceC;
+        const HeaterPolicy &policy = active_heater_policy();
 
         const bool safety = host_heater_safety_cutoff_active(runtimeState);
         runtimeState.safetyCutoffActive = safety;
-
-        // Hysteresis decision (desired heater intent)
-        const float lo = tgt - tol;
-        const float hi = tgt + tol;
+        const HeaterControlStage stage = determine_heater_stage(chamberC, tgt, policy);
+        runtimeState.heaterStage = stage;
+        runtimeState.tempToleranceC = heater_stage_band_c(stage, policy);
 
         bool desiredHeater = false;
         if (!safety) {
-            if (g_heaterIntentOn) {
-                // currently ON -> turn OFF when above hi
-                desiredHeater = (chamberC <= hi);
-            } else {
-                // currently OFF -> turn ON when below lo
-                desiredHeater = (chamberC < lo);
-            }
+            desiredHeater =
+                determine_heater_intent_for_stage(stage, g_heaterIntentOn, chamberC, tgt, policy);
         }
 
         // Request = control decision, Effective = relay-safe output after minimum ON/OFF timing
@@ -971,6 +1019,7 @@ void oven_comm_poll(void) {
         // Not RUNNING: clear latch, stop pulses
         g_hostOvertempActive = false;
         g_heaterIntentOn = false;
+        runtimeState.heaterStage = HeaterControlStage::IDLE;
         runtimeState.heater_request_on = false;
         g_heaterEffectiveOn = false;
         runtimeState.heater_actual_on = false;
