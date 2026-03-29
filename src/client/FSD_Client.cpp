@@ -211,7 +211,7 @@ static void emit_csv_client_state_once_per_second() {
     const CLIENT_COMPLETE_STATE s = build_client_state(door_open);
 
 #if defined(CSV_OUT) && (CSV_OUT == 1)
-    CSV_LOG_STATE(
+    CSV_LOG_CLIENT_LOGIC(
         s.fan12V ? 1 : 0,
         s.fan230V ? 1 : 0,
         s.fan230V_SLOW ? 1 : 0,
@@ -242,7 +242,7 @@ static void emit_diagnostic_log_once_per_second() {
     const long hot_dC = s.hotValid ? (long)s.hot_dC : TEMP_INVALID_DC;
     const long cha_dC = (long)s.cha_dC;
 
-    CSV_LOG_TEMP(
+    CSV_LOG_CLIENT_TEMP(
         // Hotspot NTC
         (long)s.rawHotspot,
         (long)s.hot_mV,

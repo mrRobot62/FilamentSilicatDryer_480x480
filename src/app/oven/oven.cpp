@@ -403,7 +403,7 @@ static void emit_csv_host_runtime_once_per_second(const OvenRuntimeState &state)
     const float lowC = state.tempTarget - state.tempToleranceC;
     const float highC = state.tempTarget + state.tempToleranceC;
 
-    CSV_LOG_HOST_PLOT(
+    CSV_LOG_HOST_TEMP(
         (long)c_to_dC(state.tempChamberC),
         (long)c_to_dC(state.tempHotspotC),
         (long)c_to_dC(state.tempTarget),

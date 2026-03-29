@@ -44,7 +44,7 @@ flowchart LR
     D --> E["Stage Decision"]
     E --> F["Relay Guard 2s/2s"]
     F --> G["SET outputsMask"]
-    C --> H["CSV_HOST_PLOT / CSV_HOST_LOGIC"]
+    C --> H["CSV_HOST_TEMP / CSV_HOST_LOGIC"]
 ```
 
 ## Aktuelle Heizlogik

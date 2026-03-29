@@ -14,26 +14,26 @@
 
 namespace csv {
 // Temperature output, millivolts, ohms, tempearture for hotSpot & Chamber, some state values
-struct TEMP {
-    static constexpr const char *PREFIX = "TEMP";
+struct CLIENT_TEMP {
+    static constexpr const char *PREFIX = "CLIENT_TEMP";
     // [CSV_<PREFIX>];rawHot;hotMilliVolts;tempHot_dC;rawChamber;chamberMilliVolts;tempChamber_dC;heater_on;door_open;state
     static constexpr const char *FMT =
         "[CSV_%s];%ld;%ld;%ld;%ld;%ld;%ld;%d;%d;%d\n";
 };
 
 // State output, door_open, heater, fan12V, fan230V, fan230V_slow, motor
-struct CLIENT_STATE {
-    static constexpr const char *PREFIX = "CLIENT_STATE";
+struct CLIENT_LOGIC {
+    static constexpr const char *PREFIX = "CLIENT_LOGIC";
 
-    // ts;[CSV_CLIENT_STATE];f12;f230;f230s;motor;heater;lamp;door;state
+    // ts;[CSV_CLIENT_LOGIC];f12;f230;f230s;motor;heater;lamp;door;state
     static constexpr const char *FMT =
         "[CSV_%s];%d;%d;%d;%d;%d;%d;%d;%u\n";
 };
 
-struct HOST_PLOT {
-    static constexpr const char *PREFIX = "HOST_PLOT";
+struct HOST_TEMP {
+    static constexpr const char *PREFIX = "HOST_TEMP";
 
-    // ts;[CSV_HOST_PLOT];t_chamber_dC;t_hotspot_dC;t_target_dC;t_low_dC;t_high_dC;safety
+    // ts;[CSV_HOST_TEMP];t_chamber_dC;t_hotspot_dC;t_target_dC;t_low_dC;t_high_dC;safety
     static constexpr const char *FMT =
         "[CSV_%s];%ld;%ld;%ld;%ld;%ld;%d\n";
 };
@@ -60,34 +60,34 @@ struct HOST_LOGIC {
 #endif
 
 #ifdef CSV_OUT
-#define CSV_LOG_TEMP(...)                                          \
+#define CSV_LOG_CLIENT_TEMP(...)                                          \
     do {                                                           \
-        CSV_LOG(csv::TEMP::PREFIX, csv::TEMP::FMT, ##__VA_ARGS__); \
+        CSV_LOG(csv::CLIENT_TEMP::PREFIX, csv::CLIENT_TEMP::FMT, ##__VA_ARGS__); \
     } while (0)
 #else
-#define CSV_LOG_TEMP(...) \
+#define CSV_LOG_CLIENT_TEMP(...) \
     do {                  \
     } while (0)
 #endif
 
 #ifdef CSV_OUT
-#define CSV_LOG_STATE(...)                                                         \
+#define CSV_LOG_CLIENT_LOGIC(...)                                                         \
     do {                                                                           \
-        CSV_LOG(csv::CLIENT_STATE::PREFIX, csv::CLIENT_STATE::FMT, ##__VA_ARGS__); \
+        CSV_LOG(csv::CLIENT_LOGIC::PREFIX, csv::CLIENT_LOGIC::FMT, ##__VA_ARGS__); \
     } while (0)
 #else
-#define CSV_LOG_STATE(...) \
+#define CSV_LOG_CLIENT_LOGIC(...) \
     do {                   \
     } while (0)
 #endif
 
 #ifdef CSV_OUT
-#define CSV_LOG_HOST_PLOT(...)                                               \
+#define CSV_LOG_HOST_TEMP(...)                                               \
     do {                                                                     \
-        CSV_LOG(csv::HOST_PLOT::PREFIX, csv::HOST_PLOT::FMT, ##__VA_ARGS__); \
+        CSV_LOG(csv::HOST_TEMP::PREFIX, csv::HOST_TEMP::FMT, ##__VA_ARGS__); \
     } while (0)
 #else
-#define CSV_LOG_HOST_PLOT(...) \
+#define CSV_LOG_HOST_TEMP(...) \
     do {                       \
     } while (0)
 #endif
@@ -102,3 +102,8 @@ struct HOST_LOGIC {
     do {                        \
     } while (0)
 #endif
+
+// Compatibility aliases for older call sites.
+#define CSV_LOG_TEMP(...) CSV_LOG_CLIENT_TEMP(__VA_ARGS__)
+#define CSV_LOG_STATE(...) CSV_LOG_CLIENT_LOGIC(__VA_ARGS__)
+#define CSV_LOG_HOST_PLOT(...) CSV_LOG_HOST_TEMP(__VA_ARGS__)

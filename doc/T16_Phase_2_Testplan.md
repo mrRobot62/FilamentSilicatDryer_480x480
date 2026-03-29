@@ -70,7 +70,7 @@ Die neue Host-Heizstrategie soll unter realen Bedingungen beobachtet und gegen d
 
 ## Relevante Logfelder
 
-### HOST_PLOT
+### HOST_TEMP
 
 - chamber
 - hotspot

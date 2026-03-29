@@ -35,7 +35,7 @@ Es werden zwei Logklassen vorgesehen:
 ### Host PLOT
 
 CSV-Prefix:
-- `CSV_HOST_PLOT`
+- `CSV_HOST_TEMP`
 
 Aktuelle Felder:
 - `tempChamber_dC`
@@ -77,7 +77,7 @@ Zweck:
 flowchart TD
     A["Client Sensorik + IO"] --> B["STATUS an Host"]
     B --> C["Host RuntimeState"]
-    C --> D["CSV_HOST_PLOT"]
+    C --> D["CSV_HOST_TEMP"]
     C --> E["CSV_HOST_LOGIC"]
     D --> F["UDP / Serial Log Stream"]
     E --> F
@@ -98,7 +98,7 @@ Format- und Grundverhalten frueh absichern, noch bevor echte Hardwarelaeufe ausg
 ### Sinnvolle Testbausteine
 
 - CSV-Format-Tests
-  - `CSV_HOST_PLOT` hat konstante Feldanzahl
+  - `CSV_HOST_TEMP` hat konstante Feldanzahl
   - `CSV_HOST_LOGIC` hat konstante Feldanzahl
   - Prefixe sind stabil
 
@@ -133,7 +133,7 @@ Vor Hardware-Heiztests sicherstellen, dass Logstroeme plausibel aussehen.
 
 1. Firmware mit aktiviertem UDP-/CSV-Logging starten
 2. `udp-viewer` mit laufendem Stream verbinden
-3. pruefen, ob `CSV_HOST_PLOT` empfangen wird
+3. pruefen, ob `CSV_HOST_TEMP` empfangen wird
 4. pruefen, ob `CSV_HOST_LOGIC` empfangen wird
 5. Door oeffnen/schliessen und auf Zustandswechsel achten
 6. Start/Stop/Wait ausloesen und auf `mode`-Wechsel achten
