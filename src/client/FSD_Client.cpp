@@ -186,12 +186,12 @@ static CLIENT_COMPLETE_STATE build_client_state(bool door_open) {
 
     const uint16_t m = g_effectiveMask;
 
-    s.fan12V = (m & (1 << 0)) != 0;
-    s.fan230V = (m & (1 << 1)) != 0;
-    s.fan230V_SLOW = (m & (1 << 2)) != 0;
-    s.silica_motor = (m & (1 << 3)) != 0;
+    s.fan12V = (m & (1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN12V)) != 0;
+    s.fan230V = (m & (1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN230V)) != 0;
+    s.fan230V_SLOW = (m & (1u << OUTPUT_BIT_MASK_8BIT::BIT_FAN230V_SLOW)) != 0;
+    s.silica_motor = (m & (1u << OUTPUT_BIT_MASK_8BIT::BIT_SILICA_MOTOR)) != 0;
     s.heater = heater_io::is_running();
-    s.lamp = (m & (1 << 5)) != 0;
+    s.lamp = (m & (1u << OUTPUT_BIT_MASK_8BIT::BIT_LAMP)) != 0;
     s.door = door_open;
     s.running_state = (uint8_t)diag_state_to_int();
 
