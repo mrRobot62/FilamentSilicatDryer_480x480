@@ -41,9 +41,9 @@ struct HOST_PLOT {
 struct HOST_LOGIC {
     static constexpr const char *PREFIX = "HOST_LOGIC";
 
-    // ts;[CSV_HOST_LOGIC];mode;running;heater_req;heater_actual;door;safety;commAlive;linkSynced
+    // ts;[CSV_HOST_LOGIC];mode;running;heater_req;heater_actual;door;safety;commAlive;linkSynced;materialClass;heaterStage
     static constexpr const char *FMT =
-        "[CSV_%s];%u;%d;%d;%d;%d;%d;%d;%d\n";
+        "[CSV_%s];%u;%d;%d;%d;%d;%d;%d;%d;%u;%u\n";
 };
 
 } // namespace csv
