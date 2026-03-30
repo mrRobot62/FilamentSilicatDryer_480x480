@@ -106,8 +106,8 @@ static bool g_hostOvertempActive = false;
 static constexpr HeaterPolicy kFilamentHeaterPolicy = {
     HeaterMaterialClass::FILAMENT,
     HOST_HEATER_HYSTERESIS_C,
-    7.5f,
-    1.5f,
+    10.0f,
+    4.0f,
     HOST_TARGET_OVERSHOOT_CAP_C,
     HOST_CHAMBER_MAX_C,
     HOST_HOTSPOT_MAX_C,
@@ -286,6 +286,28 @@ static bool determine_heater_intent_for_stage(HeaterControlStage stage,
     default:
         return false;
     }
+}
+
+static bool filament_should_force_heater_off(HeaterControlStage stage,
+                                             float chamberC,
+                                             float hotspotC,
+                                             float targetC) {
+    if (stage == HeaterControlStage::BULK_HEAT) {
+        return false;
+    }
+
+    const float hotspotLeadC = max(0.0f, hotspotC - chamberC);
+    const float predictedChamberC = chamberC + (hotspotLeadC * 1.5f);
+
+    if (predictedChamberC >= (targetC - 0.5f)) {
+        return true;
+    }
+
+    if (stage == HeaterControlStage::HOLD && hotspotC >= targetC) {
+        return true;
+    }
+
+    return false;
 }
 
 // =============================================================================
@@ -672,7 +694,10 @@ void oven_tick(void) {
                     m = mask_set(m, OVEN_CONNECTOR::FAN12V, true);
                     m = mask_set(m, OVEN_CONNECTOR::LAMP, true);
 
-                    if (g_currentPostPlan.fanMode == PostFanMode::SLOW) {
+                    const bool useFastCooldownFan =
+                        (runtimeState.materialClass == HeaterMaterialClass::FILAMENT);
+
+                    if (!useFastCooldownFan && g_currentPostPlan.fanMode == PostFanMode::SLOW) {
                         m = mask_set(m, OVEN_CONNECTOR::FAN230V_SLOW, true);
                         m = mask_set(m, OVEN_CONNECTOR::FAN230V, false);
                     } else {
@@ -1006,6 +1031,11 @@ void oven_comm_poll(void) {
         if (!safety) {
             desiredHeater =
                 determine_heater_intent_for_stage(stage, g_heaterIntentOn, chamberC, tgt, policy);
+
+            if (desiredHeater && runtimeState.materialClass == HeaterMaterialClass::FILAMENT &&
+                filament_should_force_heater_off(stage, chamberC, runtimeState.tempHotspotC, tgt)) {
+                desiredHeater = false;
+            }
         }
 
         // Request = control decision, Effective = relay-safe output after minimum ON/OFF timing
