@@ -44,12 +44,25 @@ struct HeaterGateState {
     uint8_t pulseCount = 0;
 };
 
+struct FanGateState {
+    bool fastFanActive = false;
+    uint32_t forceFastUntilMs = 0;
+    uint32_t lastSwitchMs = 0;
+};
+
 static HeaterGateState g_heaterGate;
+static FanGateState g_fanGate;
 
 static void thermal_pulse_reset(HeaterGateState &tms) {
     tms.heatPhaseUntilMs = 0;
     tms.restUntilMs = 0;
     tms.pulseCount = 0;
+}
+
+static void fan_gate_reset(FanGateState &fgs) {
+    fgs.fastFanActive = false;
+    fgs.forceFastUntilMs = 0;
+    fgs.lastSwitchMs = 0;
 }
 
 static bool heater_gate_is_heating(const HeaterGateState &tms, uint32_t nowMs) {
@@ -69,6 +82,22 @@ static void heater_gate_begin_heat(HeaterGateState &tms, uint32_t nowMs, uint32_
 static void heater_gate_begin_rest(HeaterGateState &tms, uint32_t nowMs, uint32_t soakMs) {
     tms.heatPhaseUntilMs = 0;
     tms.restUntilMs = nowMs + soakMs;
+}
+
+static void fan_gate_force_fast(FanGateState &fgs, uint32_t nowMs, uint32_t holdMs) {
+    if (holdMs == 0) {
+        return;
+    }
+
+    if (!fgs.fastFanActive) {
+        fgs.fastFanActive = true;
+        fgs.lastSwitchMs = nowMs;
+    }
+
+    const uint32_t holdUntilMs = nowMs + holdMs;
+    if (holdUntilMs > fgs.forceFastUntilMs) {
+        fgs.forceFastUntilMs = holdUntilMs;
+    }
 }
 } // namespace
 
@@ -423,18 +452,20 @@ static inline uint16_t mask_set(uint16_t mask, OVEN_CONNECTOR c, bool on) {
     return static_cast<uint16_t>(mask & ~connector_u16(c));
 }
 
-static void apply_filament_running_fan_policy(uint16_t &cmd,
-                                              bool heaterEffective,
-                                              float chamberC,
-                                              float targetC) {
+static void apply_filament_running_fan_policy(uint16_t &cmd, bool heaterEffective) {
+    const uint32_t nowMs = millis();
+    const bool shouldUseFastFan =
+        !heaterEffective && (nowMs < g_fanGate.forceFastUntilMs);
+
+    if (shouldUseFastFan != g_fanGate.fastFanActive &&
+        ((nowMs - g_fanGate.lastSwitchMs) >= HOST_FILAMENT_FAN_MIN_SWITCH_MS)) {
+        g_fanGate.fastFanActive = shouldUseFastFan;
+        g_fanGate.lastSwitchMs = nowMs;
+    }
+
     cmd = mask_set(cmd, OVEN_CONNECTOR::FAN12V, true);
-
-    const bool useFastFan =
-        !heaterEffective &&
-        (chamberC >= (targetC - HOST_FILAMENT_REHEAT_ENABLE_BELOW_TARGET_C));
-
-    cmd = mask_set(cmd, OVEN_CONNECTOR::FAN230V, useFastFan);
-    cmd = mask_set(cmd, OVEN_CONNECTOR::FAN230V_SLOW, !useFastFan);
+    cmd = mask_set(cmd, OVEN_CONNECTOR::FAN230V, g_fanGate.fastFanActive);
+    cmd = mask_set(cmd, OVEN_CONNECTOR::FAN230V_SLOW, !g_fanGate.fastFanActive);
 }
 
 static inline uint16_t preserve_inputs(uint16_t mask) {
@@ -653,6 +684,7 @@ void oven_start(void) {
     // Start in a cold, deterministic heater state. The first ON decision must
     // come from the normal control path after current telemetry is evaluated.
     thermal_pulse_reset(g_heaterGate);
+    fan_gate_reset(g_fanGate);
     g_heaterIntentOn = false;
     g_heaterEffectiveOn = false;
     runtimeState.heater_request_on = false;
@@ -685,6 +717,7 @@ void oven_stop(void) {
 
     // Reset pulse scheduler on stop
     thermal_pulse_reset(g_heaterGate);
+    fan_gate_reset(g_fanGate);
     g_heaterIntentOn = false;
     g_heaterEffectiveOn = false;
     runtimeState.heater_request_on = false;
@@ -779,9 +812,10 @@ void oven_tick(void) {
                 runtimeState.secondsRemaining--;
             } else {
                 if (g_currentPostPlan.active && g_currentPostPlan.seconds > 0) {
-                    runtimeState.mode = OvenMode::POST;
-                    thermal_pulse_reset(g_heaterGate);
-                    runtimeState.running = false;
+    runtimeState.mode = OvenMode::POST;
+    thermal_pulse_reset(g_heaterGate);
+    fan_gate_reset(g_fanGate);
+    runtimeState.running = false;
 
                     runtimeState.post.active = true;
                     runtimeState.post.secondsRemaining = g_currentPostPlan.seconds;
@@ -915,6 +949,7 @@ void oven_pause_wait(void) {
 
     // Reset pulse scheduler while waiting (heater must be off anyway)
     thermal_pulse_reset(g_heaterGate);
+    fan_gate_reset(g_fanGate);
 
     uint16_t m = g_remoteOutputsMask;
     m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
@@ -964,6 +999,7 @@ bool oven_resume_from_wait(void) {
 
     // Reset pulse scheduler on resume to avoid immediate long ON stretches
     thermal_pulse_reset(g_heaterGate);
+    fan_gate_reset(g_fanGate);
 
     comm_send_mask(g_preWaitCommandMask);
 
@@ -1153,7 +1189,11 @@ void oven_comm_poll(void) {
         g_heaterIntentOn = desiredHeater;
         runtimeState.heater_request_on = g_heaterIntentOn;
 
+        const bool wasHeaterEffective = g_heaterEffectiveOn;
         const bool heaterEffective = compute_heater_effective(g_heaterIntentOn);
+        if (isFilament && wasHeaterEffective && !heaterEffective) {
+            fan_gate_force_fast(g_fanGate, now, HOST_FILAMENT_FAN_FAST_AFTER_HEAT_MS);
+        }
         runtimeState.heater_actual_on = heaterEffective;
         runtime_sync_heater_alias();
 
@@ -1161,7 +1201,10 @@ void oven_comm_poll(void) {
         uint16_t cmd = g_lastCommandMask;
         cmd = mask_set(cmd, OVEN_CONNECTOR::HEATER, heaterEffective);
         if (isFilament) {
-            apply_filament_running_fan_policy(cmd, heaterEffective, chamberC, tgt);
+            if (heaterEffective) {
+                g_fanGate.forceFastUntilMs = 0;
+            }
+            apply_filament_running_fan_policy(cmd, heaterEffective);
         }
 
         // Overtemp indicator mirrors safety for now (kept for existing UI/logic)
@@ -1179,6 +1222,7 @@ void oven_comm_poll(void) {
         runtimeState.heater_actual_on = false;
         runtime_sync_heater_alias();
         thermal_pulse_reset(g_heaterGate);
+        fan_gate_reset(g_fanGate);
     }
 
     // 7) ACK-based outputs update (fast UI feedback)
