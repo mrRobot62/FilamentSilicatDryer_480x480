@@ -386,7 +386,13 @@ static uint32_t filament_pulse_duration_ms(float chamberC, float targetC, uint8_
         return HOST_FILAMENT_APPROACH_PULSE_MAX_MS;
     }
     if (errorToTargetC > HOST_FILAMENT_REHEAT_ENABLE_BELOW_TARGET_C) {
-        return HOST_FILAMENT_HOLD_PULSE_MAX_MS;
+        if (targetC >= HOST_FILAMENT_WAIT_RESUME_HOT_TARGET_C) {
+            return HOST_FILAMENT_HOLD_PULSE_MAX_MS;
+        }
+        if (targetC >= HOST_FILAMENT_MID_TARGET_C) {
+            return HOST_FILAMENT_HOLD_PULSE_MID_MS;
+        }
+        return HOST_FILAMENT_HOLD_PULSE_WARM_MS;
     }
     return 0;
 }
