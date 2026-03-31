@@ -997,8 +997,18 @@ bool oven_resume_from_wait(void) {
     runtimeState.heaterStage = HeaterControlStage::BULK_HEAT;
     waiting = false;
 
-    // Reset pulse scheduler on resume to avoid immediate long ON stretches
-    thermal_pulse_reset(g_heaterGate);
+    // Filament resume after a door-open WAIT must not behave like a cold start.
+    // Resume with a short soak and continue in reheat mode instead of granting
+    // another long first pulse.
+    if (runtimeState.materialClass == HeaterMaterialClass::FILAMENT) {
+        thermal_pulse_reset(g_heaterGate);
+        g_heaterGate.pulseCount = 1;
+        g_heaterGate.restUntilMs = millis() + HOST_FILAMENT_WAIT_RESUME_SOAK_MS;
+        runtimeState.heaterStage = HeaterControlStage::APPROACH;
+    } else {
+        // Silica keeps the simpler resume behavior for now.
+        thermal_pulse_reset(g_heaterGate);
+    }
     fan_gate_reset(g_fanGate);
 
     comm_send_mask(g_preWaitCommandMask);
