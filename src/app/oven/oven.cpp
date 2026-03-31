@@ -156,7 +156,7 @@ static constexpr uint32_t kCommAliveTimeoutMs = 1500;
 
 static bool g_hostOvertempActive = false;
 
-static constexpr HeaterPolicy kFilamentHeaterPolicy = {
+static constexpr HeaterPolicy kLowTempHeaterPolicy = {
     HeaterMaterialClass::FILAMENT,
     HOST_HEATER_HYSTERESIS_C,
     10.0f,
@@ -166,7 +166,27 @@ static constexpr HeaterPolicy kFilamentHeaterPolicy = {
     HOST_HOTSPOT_MAX_C,
 };
 
-static constexpr HeaterPolicy kSilicaHeaterPolicy = {
+static constexpr HeaterPolicy kMidTempHeaterPolicy = {
+    HeaterMaterialClass::FILAMENT,
+    HOST_HEATER_HYSTERESIS_C,
+    10.0f,
+    4.0f,
+    HOST_TARGET_OVERSHOOT_CAP_C,
+    HOST_CHAMBER_MAX_C,
+    HOST_HOTSPOT_MAX_C,
+};
+
+static constexpr HeaterPolicy kHighTempHeaterPolicy = {
+    HeaterMaterialClass::FILAMENT,
+    HOST_HEATER_HYSTERESIS_C,
+    10.0f,
+    4.0f,
+    HOST_TARGET_OVERSHOOT_CAP_C,
+    HOST_CHAMBER_MAX_C,
+    HOST_HOTSPOT_MAX_C,
+};
+
+static constexpr HeaterPolicy kSilica100HeaterPolicy = {
     HeaterMaterialClass::SILICA,
     HOST_SILICA_HEATER_HYSTERESIS_C,
     10.0f,
@@ -225,6 +245,7 @@ static OvenRuntimeState runtimeState = {
     .tempChamberValid = false,
     .tempHotspotValid = false,
     .materialClass = HeaterMaterialClass::FILAMENT,
+    .heaterCurveProfile = HeaterCurveProfileId::LOW_45C,
     .heaterStage = HeaterControlStage::IDLE,
 
     .filamentId = 0,
@@ -278,13 +299,30 @@ static HeaterMaterialClass material_class_from_preset_index(int presetIndex) {
     return kPresets[presetIndex].materialClass;
 }
 
-static const HeaterPolicy &heater_policy_for_material_class(HeaterMaterialClass materialClass) {
-    return (materialClass == HeaterMaterialClass::SILICA) ? kSilicaHeaterPolicy
-                                                          : kFilamentHeaterPolicy;
+static HeaterCurveProfileId heater_curve_profile_from_preset_index(int presetIndex) {
+    if (presetIndex < 0 || presetIndex >= static_cast<int>(kPresetCount)) {
+        return HeaterCurveProfileId::LOW_45C;
+    }
+    return kPresets[presetIndex].heaterCurveProfile;
+}
+
+static const HeaterPolicy &heater_policy_for_profile(HeaterCurveProfileId profileId) {
+    switch (profileId) {
+    case HeaterCurveProfileId::LOW_45C:
+        return kLowTempHeaterPolicy;
+    case HeaterCurveProfileId::MID_60C:
+        return kMidTempHeaterPolicy;
+    case HeaterCurveProfileId::HIGH_80C:
+        return kHighTempHeaterPolicy;
+    case HeaterCurveProfileId::SILICA_100C:
+        return kSilica100HeaterPolicy;
+    default:
+        return kLowTempHeaterPolicy;
+    }
 }
 
 static const HeaterPolicy &active_heater_policy() {
-    return heater_policy_for_material_class(runtimeState.materialClass);
+    return heater_policy_for_profile(runtimeState.heaterCurveProfile);
 }
 
 static HeaterControlStage determine_heater_stage(float chamberC,
@@ -586,7 +624,7 @@ static inline void comm_send_mask_if_changed(uint16_t newMask) {
 }
 
 static bool host_heater_safety_cutoff_active(const OvenRuntimeState &state) {
-    const HeaterPolicy &policy = heater_policy_for_material_class(state.materialClass);
+    const HeaterPolicy &policy = heater_policy_for_profile(state.heaterCurveProfile);
     if (state.door_open) {
         return true;
     }
@@ -725,6 +763,7 @@ const FilamentPreset *oven_get_preset(uint16_t index) {
 
 void oven_init(void) {
     runtimeState.materialClass = material_class_from_preset_index(currentProfile.filamentId);
+    runtimeState.heaterCurveProfile = heater_curve_profile_from_preset_index(currentProfile.filamentId);
     runtimeState.tempToleranceC = active_heater_policy().hysteresisC;
     runtime_sync_legacy_temperature_aliases();
     runtime_sync_heater_alias();
@@ -746,6 +785,7 @@ void oven_start(void) {
     runtimeState.secondsRemaining = currentProfile.durationMinutes * 60;
     runtimeState.tempTarget = currentProfile.targetTemperature;
     runtimeState.materialClass = material_class_from_preset_index(currentProfile.filamentId);
+    runtimeState.heaterCurveProfile = heater_curve_profile_from_preset_index(currentProfile.filamentId);
     runtimeState.tempToleranceC = active_heater_policy().hysteresisC;
     runtimeState.heaterStage = HeaterControlStage::BULK_HEAT;
 
@@ -840,7 +880,8 @@ void oven_select_preset(uint16_t index) {
     runtimeState.tempTarget = p.dryTempC;
     runtimeState.filamentId = index;
     runtimeState.materialClass = p.materialClass;
-    runtimeState.tempToleranceC = heater_policy_for_material_class(p.materialClass).hysteresisC;
+    runtimeState.heaterCurveProfile = p.heaterCurveProfile;
+    runtimeState.tempToleranceC = heater_policy_for_profile(p.heaterCurveProfile).hysteresisC;
     runtimeState.rotaryOn = p.rotaryOn;
 
     g_currentPostPlan = p.post;
