@@ -256,6 +256,14 @@ static constexpr float HOST_FILAMENT_HOTSPOT_FORCE_OFF_ABOVE_TARGET_C = 10.0f;
 static constexpr uint32_t HOST_FILAMENT_FAN_MIN_SWITCH_MS = 5000;
 static constexpr uint32_t HOST_FILAMENT_FAN_FAST_AFTER_HEAT_MS = 12000;
 static constexpr uint32_t HOST_FILAMENT_WAIT_RESUME_SOAK_MS = 12000;
+static constexpr uint32_t HOST_FILAMENT_WAIT_RESUME_SOAK_MIN_MS = 5000;
+static constexpr uint32_t HOST_FILAMENT_WAIT_RESUME_SOAK_HOT_TARGET_MS = 7000;
+static constexpr uint32_t HOST_FILAMENT_WAIT_RESUME_PULSE_SHORT_MS = 6000;
+static constexpr uint32_t HOST_FILAMENT_WAIT_RESUME_PULSE_LONG_MS = 8000;
+static constexpr float HOST_FILAMENT_WAIT_RESUME_LONG_PULSE_ERROR_C = 8.0f;
+static constexpr float HOST_FILAMENT_WAIT_RESUME_MEDIUM_PULSE_ERROR_C = 5.0f;
+static constexpr float HOST_FILAMENT_WAIT_RESUME_HOT_TARGET_C = 80.0f;
+static constexpr uint32_t HOST_FILAMENT_WAIT_RESUME_LONG_OPEN_MS = 15000;
 
 // ----------------------------------------------------------------------------
 // Public API

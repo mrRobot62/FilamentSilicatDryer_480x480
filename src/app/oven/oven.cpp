@@ -42,6 +42,7 @@ struct HeaterGateState {
     uint32_t heatPhaseUntilMs = 0; // if now < heatPhaseUntilMs => allow heater ON
     uint32_t restUntilMs = 0;      // if now < restUntilMs => force heater OFF
     uint8_t pulseCount = 0;
+    uint32_t nextPulseOverrideMs = 0;
 };
 
 struct FanGateState {
@@ -57,6 +58,7 @@ static void thermal_pulse_reset(HeaterGateState &tms) {
     tms.heatPhaseUntilMs = 0;
     tms.restUntilMs = 0;
     tms.pulseCount = 0;
+    tms.nextPulseOverrideMs = 0;
 }
 
 static void fan_gate_reset(FanGateState &fgs) {
@@ -109,6 +111,7 @@ static constexpr uint32_t HEATER_MIN_OFF_MS = 2000;
 
 static bool g_heaterEffectiveOn = false;
 static uint32_t g_heaterLastSwitchMs = 0;
+static uint32_t g_waitStartedMs = 0;
 
 static OvenRuntimeState preWaitSnapshot = {};
 static bool hasPreWaitSnapshot = false;
@@ -365,6 +368,12 @@ static bool filament_should_force_heater_off(HeaterControlStage stage,
 }
 
 static uint32_t filament_pulse_duration_ms(float chamberC, float targetC, uint8_t pulseCount) {
+    if (g_heaterGate.nextPulseOverrideMs > 0) {
+        const uint32_t pulseMs = g_heaterGate.nextPulseOverrideMs;
+        g_heaterGate.nextPulseOverrideMs = 0;
+        return pulseMs;
+    }
+
     if (pulseCount == 0) {
         return HOST_FILAMENT_FIRST_PULSE_MAX_MS;
     }
@@ -466,6 +475,50 @@ static void apply_filament_running_fan_policy(uint16_t &cmd, bool heaterEffectiv
     cmd = mask_set(cmd, OVEN_CONNECTOR::FAN12V, true);
     cmd = mask_set(cmd, OVEN_CONNECTOR::FAN230V, g_fanGate.fastFanActive);
     cmd = mask_set(cmd, OVEN_CONNECTOR::FAN230V_SLOW, !g_fanGate.fastFanActive);
+}
+
+static uint32_t filament_resume_soak_ms(float chamberC, float targetC, uint32_t waitOpenMs) {
+    uint32_t soakMs = HOST_FILAMENT_WAIT_RESUME_SOAK_MS;
+
+    if (targetC >= HOST_FILAMENT_WAIT_RESUME_HOT_TARGET_C) {
+        soakMs = HOST_FILAMENT_WAIT_RESUME_SOAK_HOT_TARGET_MS;
+    }
+
+    const float errorToTargetC = max(0.0f, targetC - chamberC);
+    if (errorToTargetC >= HOST_FILAMENT_WAIT_RESUME_LONG_PULSE_ERROR_C) {
+        soakMs = min(soakMs, static_cast<uint32_t>(7000));
+    } else if (errorToTargetC >= HOST_FILAMENT_WAIT_RESUME_MEDIUM_PULSE_ERROR_C) {
+        soakMs = min(soakMs, static_cast<uint32_t>(9000));
+    }
+
+    if (waitOpenMs >= HOST_FILAMENT_WAIT_RESUME_LONG_OPEN_MS) {
+        soakMs = max(HOST_FILAMENT_WAIT_RESUME_SOAK_MIN_MS, soakMs - 2000u);
+    }
+
+    return max(HOST_FILAMENT_WAIT_RESUME_SOAK_MIN_MS, soakMs);
+}
+
+static uint32_t filament_resume_pulse_ms(float chamberC, float targetC) {
+    const float errorToTargetC = max(0.0f, targetC - chamberC);
+    uint32_t pulseMs = HOST_FILAMENT_WAIT_RESUME_PULSE_SHORT_MS;
+
+    if (errorToTargetC >= HOST_FILAMENT_WAIT_RESUME_LONG_PULSE_ERROR_C) {
+        pulseMs = HOST_FILAMENT_WAIT_RESUME_PULSE_LONG_MS;
+    } else if (errorToTargetC >= HOST_FILAMENT_WAIT_RESUME_MEDIUM_PULSE_ERROR_C) {
+        pulseMs = (HOST_FILAMENT_WAIT_RESUME_PULSE_SHORT_MS +
+                   HOST_FILAMENT_WAIT_RESUME_PULSE_LONG_MS) /
+                  2u;
+    }
+
+    if (targetC >= HOST_FILAMENT_WAIT_RESUME_HOT_TARGET_C) {
+        const uint32_t minPulseMs = HOST_FILAMENT_WAIT_RESUME_PULSE_SHORT_MS - 1000u;
+        pulseMs = (pulseMs > 1000u) ? (pulseMs - 1000u) : minPulseMs;
+        if (pulseMs < minPulseMs) {
+            pulseMs = minPulseMs;
+        }
+    }
+
+    return pulseMs;
 }
 
 static inline uint16_t preserve_inputs(uint16_t mask) {
@@ -946,6 +999,7 @@ void oven_pause_wait(void) {
 
     runtimeState.mode = OvenMode::WAITING;
     runtimeState.running = false;
+    g_waitStartedMs = millis();
 
     // Reset pulse scheduler while waiting (heater must be off anyway)
     thermal_pulse_reset(g_heaterGate);
@@ -997,13 +1051,22 @@ bool oven_resume_from_wait(void) {
     runtimeState.heaterStage = HeaterControlStage::BULK_HEAT;
     waiting = false;
 
+    const uint32_t now = millis();
+    const uint32_t waitOpenMs = (g_waitStartedMs > 0) ? (now - g_waitStartedMs) : 0;
+
     // Filament resume after a door-open WAIT must not behave like a cold start.
-    // Resume with a short soak and continue in reheat mode instead of granting
-    // another long first pulse.
+    // Recovery is based on current chamber error, door-open time and target band
+    // so hotter presets can resume slightly faster than low-temp filament runs.
     if (runtimeState.materialClass == HeaterMaterialClass::FILAMENT) {
         thermal_pulse_reset(g_heaterGate);
         g_heaterGate.pulseCount = 1;
-        g_heaterGate.restUntilMs = millis() + HOST_FILAMENT_WAIT_RESUME_SOAK_MS;
+        g_heaterGate.restUntilMs =
+            now + filament_resume_soak_ms(runtimeState.tempChamberC,
+                                          runtimeState.tempTarget,
+                                          waitOpenMs);
+        g_heaterGate.nextPulseOverrideMs =
+            filament_resume_pulse_ms(runtimeState.tempChamberC,
+                                     runtimeState.tempTarget);
         runtimeState.heaterStage = HeaterControlStage::APPROACH;
     } else {
         // Silica keeps the simpler resume behavior for now.
