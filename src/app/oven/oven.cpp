@@ -379,6 +379,16 @@ static bool determine_heater_intent_for_stage(HeaterControlStage stage,
     }
 }
 
+static bool silica_should_force_heater_off(float chamberC,
+                                           float targetC,
+                                           uint8_t pulseCount) {
+    const bool firstPulseActive = (pulseCount <= 1u);
+    const float forceOffBeforeTargetC =
+        firstPulseActive ? HOST_SILICA_FIRST_PULSE_FORCE_OFF_BEFORE_TARGET_C
+                         : HOST_SILICA_FORCE_OFF_BEFORE_TARGET_C;
+    return chamberC >= (targetC - forceOffBeforeTargetC);
+}
+
 static bool filament_should_force_heater_off(HeaterControlStage stage,
                                              float chamberC,
                                              float hotspotC,
@@ -451,6 +461,63 @@ static uint32_t filament_pulse_duration_ms(float chamberC, float targetC, uint8_
 static uint32_t filament_soak_duration_ms(uint8_t pulseCount) {
     return (pulseCount <= 1u) ? HOST_FILAMENT_FIRST_SOAK_MS
                               : HOST_FILAMENT_REHEAT_SOAK_MS;
+}
+
+static uint32_t silica_pulse_duration_ms(float chamberC, float targetC, uint8_t pulseCount) {
+    const float errorToTargetC = targetC - chamberC;
+
+    if (pulseCount == 0) {
+        return HOST_SILICA_FIRST_PULSE_MAX_MS;
+    }
+    if (errorToTargetC > HOST_SILICA_BULK_PULSE_ENABLE_BELOW_TARGET_C) {
+        return HOST_SILICA_BULK_PULSE_MAX_MS;
+    }
+    if (errorToTargetC > HOST_SILICA_APPROACH_PULSE_ENABLE_BELOW_TARGET_C) {
+        return HOST_SILICA_APPROACH_PULSE_MAX_MS;
+    }
+    if (errorToTargetC > HOST_SILICA_REHEAT_ENABLE_BELOW_TARGET_C) {
+        return HOST_SILICA_HOLD_PULSE_MAX_MS;
+    }
+    return 0;
+}
+
+static uint32_t silica_soak_duration_ms(uint8_t pulseCount) {
+    return (pulseCount <= 1u) ? HOST_SILICA_FIRST_SOAK_MS
+                              : HOST_SILICA_REHEAT_SOAK_MS;
+}
+
+static bool silica_reheat_allowed(float chamberC, float targetC) {
+    return chamberC < (targetC - HOST_SILICA_REHEAT_ENABLE_BELOW_TARGET_C);
+}
+
+static bool determine_silica_heater_intent(float chamberC, float targetC) {
+    const uint32_t nowMs = millis();
+
+    if (heater_gate_is_heating(g_heaterGate, nowMs)) {
+        return true;
+    }
+
+    if ((g_heaterGate.heatPhaseUntilMs > 0) && (nowMs >= g_heaterGate.heatPhaseUntilMs)) {
+        heater_gate_begin_rest(g_heaterGate, nowMs,
+                               silica_soak_duration_ms(g_heaterGate.pulseCount));
+    }
+
+    if (heater_gate_is_resting(g_heaterGate, nowMs)) {
+        return false;
+    }
+
+    if (!silica_reheat_allowed(chamberC, targetC)) {
+        return false;
+    }
+
+    const uint32_t pulseMs =
+        silica_pulse_duration_ms(chamberC, targetC, g_heaterGate.pulseCount);
+    if (pulseMs == 0) {
+        return false;
+    }
+
+    heater_gate_begin_heat(g_heaterGate, nowMs, pulseMs);
+    return true;
 }
 
 static bool filament_reheat_allowed(float chamberC, float hotspotC, float targetC) {
@@ -1292,6 +1359,8 @@ void oven_comm_poll(void) {
         const float tgt = runtimeState.tempTarget;
         const HeaterPolicy &policy = active_heater_policy();
         const bool isFilament = (runtimeState.materialClass == HeaterMaterialClass::FILAMENT);
+        const bool isSilica100 =
+            (runtimeState.heaterCurveProfile == HeaterCurveProfileId::SILICA_100C);
 
         const bool safety = host_heater_safety_cutoff_active(runtimeState);
         runtimeState.safetyCutoffActive = safety;
@@ -1304,6 +1373,8 @@ void oven_comm_poll(void) {
             if (isFilament) {
                 desiredHeater =
                     determine_filament_heater_intent(chamberC, runtimeState.tempHotspotC, tgt);
+            } else if (isSilica100) {
+                desiredHeater = determine_silica_heater_intent(chamberC, tgt);
             } else {
                 desiredHeater = determine_heater_intent_for_stage(
                     stage, g_heaterIntentOn, chamberC, tgt, policy);
@@ -1314,9 +1385,15 @@ void oven_comm_poll(void) {
                     stage, chamberC, runtimeState.tempHotspotC, tgt, g_heaterGate.pulseCount)) {
                 desiredHeater = false;
                 heater_gate_begin_rest(g_heaterGate, now, HOST_FILAMENT_REHEAT_SOAK_MS);
+            } else if (desiredHeater && isSilica100 &&
+                       silica_should_force_heater_off(chamberC, tgt, g_heaterGate.pulseCount)) {
+                desiredHeater = false;
+                heater_gate_begin_rest(g_heaterGate, now, HOST_SILICA_REHEAT_SOAK_MS);
             }
         } else if (isFilament) {
             heater_gate_begin_rest(g_heaterGate, now, HOST_FILAMENT_SAFETY_SOAK_MS);
+        } else if (isSilica100) {
+            heater_gate_begin_rest(g_heaterGate, now, HOST_SILICA_SAFETY_SOAK_MS);
         }
 
         // Request = control decision, Effective = relay-safe output after minimum ON/OFF timing
