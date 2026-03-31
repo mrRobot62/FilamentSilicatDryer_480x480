@@ -41,6 +41,7 @@ namespace {
 struct HeaterGateState {
     uint32_t heatPhaseUntilMs = 0; // if now < heatPhaseUntilMs => allow heater ON
     uint32_t restUntilMs = 0;      // if now < restUntilMs => force heater OFF
+    uint8_t pulseCount = 0;
 };
 
 static HeaterGateState g_heaterGate;
@@ -48,6 +49,26 @@ static HeaterGateState g_heaterGate;
 static void thermal_pulse_reset(HeaterGateState &tms) {
     tms.heatPhaseUntilMs = 0;
     tms.restUntilMs = 0;
+    tms.pulseCount = 0;
+}
+
+static bool heater_gate_is_heating(const HeaterGateState &tms, uint32_t nowMs) {
+    return (tms.heatPhaseUntilMs > 0) && (nowMs < tms.heatPhaseUntilMs);
+}
+
+static bool heater_gate_is_resting(const HeaterGateState &tms, uint32_t nowMs) {
+    return (tms.restUntilMs > 0) && (nowMs < tms.restUntilMs);
+}
+
+static void heater_gate_begin_heat(HeaterGateState &tms, uint32_t nowMs, uint32_t pulseMs) {
+    tms.heatPhaseUntilMs = nowMs + pulseMs;
+    tms.restUntilMs = 0;
+    tms.pulseCount++;
+}
+
+static void heater_gate_begin_rest(HeaterGateState &tms, uint32_t nowMs, uint32_t soakMs) {
+    tms.heatPhaseUntilMs = 0;
+    tms.restUntilMs = nowMs + soakMs;
 }
 } // namespace
 
@@ -292,8 +313,12 @@ static bool filament_should_force_heater_off(HeaterControlStage stage,
                                              float chamberC,
                                              float hotspotC,
                                              float targetC) {
-    if (stage == HeaterControlStage::BULK_HEAT) {
-        return false;
+    if (hotspotC >= (targetC + HOST_FILAMENT_HOTSPOT_FORCE_OFF_ABOVE_TARGET_C)) {
+        return true;
+    }
+
+    if (chamberC >= (targetC - HOST_FILAMENT_FORCE_OFF_BEFORE_TARGET_C)) {
+        return true;
     }
 
     const float hotspotLeadC = max(0.0f, hotspotC - chamberC);
@@ -308,6 +333,69 @@ static bool filament_should_force_heater_off(HeaterControlStage stage,
     }
 
     return false;
+}
+
+static uint32_t filament_pulse_duration_ms(float chamberC, float targetC, uint8_t pulseCount) {
+    if (pulseCount == 0) {
+        return HOST_FILAMENT_FIRST_PULSE_MAX_MS;
+    }
+
+    const float errorToTargetC = targetC - chamberC;
+    if (errorToTargetC > HOST_FILAMENT_BULK_PULSE_ENABLE_BELOW_TARGET_C) {
+        return HOST_FILAMENT_BULK_PULSE_MAX_MS;
+    }
+    if (errorToTargetC > HOST_FILAMENT_APPROACH_PULSE_ENABLE_BELOW_TARGET_C) {
+        return HOST_FILAMENT_APPROACH_PULSE_MAX_MS;
+    }
+    if (errorToTargetC > HOST_FILAMENT_REHEAT_ENABLE_BELOW_TARGET_C) {
+        return HOST_FILAMENT_HOLD_PULSE_MAX_MS;
+    }
+    return 0;
+}
+
+static uint32_t filament_soak_duration_ms(uint8_t pulseCount) {
+    return (pulseCount <= 1u) ? HOST_FILAMENT_FIRST_SOAK_MS
+                              : HOST_FILAMENT_REHEAT_SOAK_MS;
+}
+
+static bool filament_reheat_allowed(float chamberC, float hotspotC, float targetC) {
+    if (chamberC >= (targetC - HOST_FILAMENT_REHEAT_ENABLE_BELOW_TARGET_C)) {
+        return false;
+    }
+    if (hotspotC >= (targetC + HOST_FILAMENT_HOTSPOT_REHEAT_BLOCK_ABOVE_TARGET_C)) {
+        return false;
+    }
+    return true;
+}
+
+static bool determine_filament_heater_intent(float chamberC, float hotspotC, float targetC) {
+    const uint32_t nowMs = millis();
+
+    if (heater_gate_is_heating(g_heaterGate, nowMs)) {
+        return true;
+    }
+
+    if ((g_heaterGate.heatPhaseUntilMs > 0) && (nowMs >= g_heaterGate.heatPhaseUntilMs)) {
+        heater_gate_begin_rest(g_heaterGate, nowMs,
+                               filament_soak_duration_ms(g_heaterGate.pulseCount));
+    }
+
+    if (heater_gate_is_resting(g_heaterGate, nowMs)) {
+        return false;
+    }
+
+    if (!filament_reheat_allowed(chamberC, hotspotC, targetC)) {
+        return false;
+    }
+
+    const uint32_t pulseMs =
+        filament_pulse_duration_ms(chamberC, targetC, g_heaterGate.pulseCount);
+    if (pulseMs == 0) {
+        return false;
+    }
+
+    heater_gate_begin_heat(g_heaterGate, nowMs, pulseMs);
+    return true;
 }
 
 // =============================================================================
@@ -333,6 +421,20 @@ static inline uint16_t mask_set(uint16_t mask, OVEN_CONNECTOR c, bool on) {
         return static_cast<uint16_t>(mask | connector_u16(c));
     }
     return static_cast<uint16_t>(mask & ~connector_u16(c));
+}
+
+static void apply_filament_running_fan_policy(uint16_t &cmd,
+                                              bool heaterEffective,
+                                              float chamberC,
+                                              float targetC) {
+    cmd = mask_set(cmd, OVEN_CONNECTOR::FAN12V, true);
+
+    const bool useFastFan =
+        !heaterEffective &&
+        (chamberC >= (targetC - HOST_FILAMENT_REHEAT_ENABLE_BELOW_TARGET_C));
+
+    cmd = mask_set(cmd, OVEN_CONNECTOR::FAN230V, useFastFan);
+    cmd = mask_set(cmd, OVEN_CONNECTOR::FAN230V_SLOW, !useFastFan);
 }
 
 static inline uint16_t preserve_inputs(uint16_t mask) {
@@ -1020,6 +1122,7 @@ void oven_comm_poll(void) {
         const float chamberC = runtimeState.tempChamberC;
         const float tgt = runtimeState.tempTarget;
         const HeaterPolicy &policy = active_heater_policy();
+        const bool isFilament = (runtimeState.materialClass == HeaterMaterialClass::FILAMENT);
 
         const bool safety = host_heater_safety_cutoff_active(runtimeState);
         runtimeState.safetyCutoffActive = safety;
@@ -1029,13 +1132,21 @@ void oven_comm_poll(void) {
 
         bool desiredHeater = false;
         if (!safety) {
-            desiredHeater =
-                determine_heater_intent_for_stage(stage, g_heaterIntentOn, chamberC, tgt, policy);
+            if (isFilament) {
+                desiredHeater =
+                    determine_filament_heater_intent(chamberC, runtimeState.tempHotspotC, tgt);
+            } else {
+                desiredHeater = determine_heater_intent_for_stage(
+                    stage, g_heaterIntentOn, chamberC, tgt, policy);
+            }
 
-            if (desiredHeater && runtimeState.materialClass == HeaterMaterialClass::FILAMENT &&
+            if (desiredHeater && isFilament &&
                 filament_should_force_heater_off(stage, chamberC, runtimeState.tempHotspotC, tgt)) {
                 desiredHeater = false;
+                heater_gate_begin_rest(g_heaterGate, now, HOST_FILAMENT_REHEAT_SOAK_MS);
             }
+        } else if (isFilament) {
+            heater_gate_begin_rest(g_heaterGate, now, HOST_FILAMENT_SAFETY_SOAK_MS);
         }
 
         // Request = control decision, Effective = relay-safe output after minimum ON/OFF timing
@@ -1049,6 +1160,9 @@ void oven_comm_poll(void) {
         // Apply relay-safe effective state to command mask (remote truth is still telemetry)
         uint16_t cmd = g_lastCommandMask;
         cmd = mask_set(cmd, OVEN_CONNECTOR::HEATER, heaterEffective);
+        if (isFilament) {
+            apply_filament_running_fan_policy(cmd, heaterEffective, chamberC, tgt);
+        }
 
         // Overtemp indicator mirrors safety for now (kept for existing UI/logic)
         g_hostOvertempActive = runtimeState.safetyCutoffActive;

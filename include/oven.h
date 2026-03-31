@@ -240,6 +240,19 @@ static constexpr float HOST_CHAMBER_MAX_C = 120.0f;
 static constexpr float HOST_HOTSPOT_MAX_C = 140.0f;
 static constexpr float HOST_SILICA_HEATER_HYSTERESIS_C = 2.5f;
 static constexpr float HOST_SILICA_TARGET_OVERSHOOT_CAP_C = 4.0f;
+static constexpr uint32_t HOST_FILAMENT_FIRST_PULSE_MAX_MS = 12000;
+static constexpr uint32_t HOST_FILAMENT_BULK_PULSE_MAX_MS = 10000;
+static constexpr uint32_t HOST_FILAMENT_APPROACH_PULSE_MAX_MS = 7000;
+static constexpr uint32_t HOST_FILAMENT_HOLD_PULSE_MAX_MS = 4000;
+static constexpr uint32_t HOST_FILAMENT_FIRST_SOAK_MS = 45000;
+static constexpr uint32_t HOST_FILAMENT_REHEAT_SOAK_MS = 30000;
+static constexpr uint32_t HOST_FILAMENT_SAFETY_SOAK_MS = 90000;
+static constexpr float HOST_FILAMENT_BULK_PULSE_ENABLE_BELOW_TARGET_C = 20.0f;
+static constexpr float HOST_FILAMENT_APPROACH_PULSE_ENABLE_BELOW_TARGET_C = 10.0f;
+static constexpr float HOST_FILAMENT_REHEAT_ENABLE_BELOW_TARGET_C = 5.0f;
+static constexpr float HOST_FILAMENT_FORCE_OFF_BEFORE_TARGET_C = 1.0f;
+static constexpr float HOST_FILAMENT_HOTSPOT_REHEAT_BLOCK_ABOVE_TARGET_C = 5.0f;
+static constexpr float HOST_FILAMENT_HOTSPOT_FORCE_OFF_ABOVE_TARGET_C = 10.0f;
 
 // ----------------------------------------------------------------------------
 // Public API
