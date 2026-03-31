@@ -25,7 +25,7 @@ struct CLIENT_TEMP {
 struct CLIENT_LOGIC {
     static constexpr const char *PREFIX = "CLIENT_LOGIC";
 
-    // ts;[CSV_CLIENT_LOGIC];f12;f230;f230s;motor;heater;lamp;door;state
+    // ts;[CSV_<PREFIX>];f12;f230;f230s;motor;heater;lamp;door;state
     static constexpr const char *FMT =
         "[CSV_%s];%d;%d;%d;%d;%d;%d;%d;%u\n";
 };
@@ -33,7 +33,7 @@ struct CLIENT_LOGIC {
 struct HOST_TEMP {
     static constexpr const char *PREFIX = "HOST_PLOT";
 
-    // ts;[CSV_HOST_TEMP];t_chamber_dC;t_hotspot_dC;t_target_dC;t_low_dC;t_high_dC;safety
+    // ts;[CSV_<PREFIX>];t_chamber_dC;t_hotspot_dC;t_target_dC;t_low_dC;t_high_dC;safety
     static constexpr const char *FMT =
         "[CSV_%s];%ld;%ld;%ld;%ld;%ld;%d\n";
 };
@@ -41,7 +41,7 @@ struct HOST_TEMP {
 struct HOST_LOGIC {
     static constexpr const char *PREFIX = "HOST_LOGIC";
 
-    // ts;[CSV_HOST_LOGIC];mode;running;heater_req;heater_actual;door;safety;commAlive;linkSynced;materialClass;heaterStage
+    // ts;[CSV_<PREFIX>];mode;running;heater_req;heater_actual;door;safety;commAlive;linkSynced;materialClass;heaterStage
     static constexpr const char *FMT =
         "[CSV_%s];%u;%d;%d;%d;%d;%d;%d;%d;%u;%u\n";
 };
