@@ -344,19 +344,26 @@ static bool determine_heater_intent_for_stage(HeaterControlStage stage,
 static bool filament_should_force_heater_off(HeaterControlStage stage,
                                              float chamberC,
                                              float hotspotC,
-                                             float targetC) {
+                                             float targetC,
+                                             uint8_t pulseCount) {
     if (hotspotC >= (targetC + HOST_FILAMENT_HOTSPOT_FORCE_OFF_ABOVE_TARGET_C)) {
         return true;
     }
 
-    if (chamberC >= (targetC - HOST_FILAMENT_FORCE_OFF_BEFORE_TARGET_C)) {
+    const bool firstPulseActive = (pulseCount <= 1u);
+    const float directForceOffBeforeTargetC =
+        firstPulseActive ? HOST_FILAMENT_FIRST_PULSE_FORCE_OFF_BEFORE_TARGET_C
+                         : HOST_FILAMENT_FORCE_OFF_BEFORE_TARGET_C;
+    if (chamberC >= (targetC - directForceOffBeforeTargetC)) {
         return true;
     }
 
     const float hotspotLeadC = max(0.0f, hotspotC - chamberC);
     const float predictedChamberC = chamberC + (hotspotLeadC * 1.5f);
+    const float predictiveForceOffBeforeTargetC =
+        firstPulseActive ? HOST_FILAMENT_FIRST_PULSE_FORCE_OFF_BEFORE_TARGET_C : 0.5f;
 
-    if (predictedChamberC >= (targetC - 0.5f)) {
+    if (predictedChamberC >= (targetC - predictiveForceOffBeforeTargetC)) {
         return true;
     }
 
@@ -375,7 +382,13 @@ static uint32_t filament_pulse_duration_ms(float chamberC, float targetC, uint8_
     }
 
     if (pulseCount == 0) {
-        return HOST_FILAMENT_FIRST_PULSE_MAX_MS;
+        if (targetC >= HOST_FILAMENT_WAIT_RESUME_HOT_TARGET_C) {
+            return HOST_FILAMENT_FIRST_PULSE_MAX_MS;
+        }
+        if (targetC >= HOST_FILAMENT_MID_TARGET_C) {
+            return HOST_FILAMENT_FIRST_PULSE_MAX_MID_MS;
+        }
+        return HOST_FILAMENT_FIRST_PULSE_MAX_WARM_MS;
     }
 
     const float errorToTargetC = targetC - chamberC;
@@ -1256,7 +1269,8 @@ void oven_comm_poll(void) {
             }
 
             if (desiredHeater && isFilament &&
-                filament_should_force_heater_off(stage, chamberC, runtimeState.tempHotspotC, tgt)) {
+                filament_should_force_heater_off(
+                    stage, chamberC, runtimeState.tempHotspotC, tgt, g_heaterGate.pulseCount)) {
                 desiredHeater = false;
                 heater_gate_begin_rest(g_heaterGate, now, HOST_FILAMENT_REHEAT_SOAK_MS);
             }
