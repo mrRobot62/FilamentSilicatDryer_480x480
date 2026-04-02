@@ -8,6 +8,7 @@
 
 #include "ntc/ntc.h"
 #include "ntc/ntc_convert.h"
+#include "ntc/ntc_table_hotspot.h"
 #include "ntc/ntc_table_10k_ioveo_036HS05201.h"
 
 #include <Adafruit_ADS1X15.h>
