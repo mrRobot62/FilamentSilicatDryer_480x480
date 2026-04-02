@@ -422,7 +422,33 @@ static bool filament_should_force_heater_off(HeaterControlStage stage,
     return false;
 }
 
-static uint32_t filament_pulse_duration_ms(float chamberC, float targetC, uint8_t pulseCount) {
+static bool is_high_temp_filament_profile(HeaterCurveProfileId profileId) {
+    return profileId == HeaterCurveProfileId::HIGH_80C;
+}
+
+static float filament_reheat_enable_below_target_c(HeaterCurveProfileId profileId) {
+    return is_high_temp_filament_profile(profileId)
+               ? HOST_FILAMENT_HIGH_REHEAT_ENABLE_BELOW_TARGET_C
+               : HOST_FILAMENT_REHEAT_ENABLE_BELOW_TARGET_C;
+}
+
+static uint32_t filament_hold_pulse_duration_ms(float targetC,
+                                                HeaterCurveProfileId profileId) {
+    if (targetC >= HOST_FILAMENT_WAIT_RESUME_HOT_TARGET_C) {
+        return is_high_temp_filament_profile(profileId)
+                   ? HOST_FILAMENT_HOLD_PULSE_HIGH_MS
+                   : HOST_FILAMENT_HOLD_PULSE_MAX_MS;
+    }
+    if (targetC >= HOST_FILAMENT_MID_TARGET_C) {
+        return HOST_FILAMENT_HOLD_PULSE_MID_MS;
+    }
+    return HOST_FILAMENT_HOLD_PULSE_WARM_MS;
+}
+
+static uint32_t filament_pulse_duration_ms(float chamberC,
+                                           float targetC,
+                                           uint8_t pulseCount,
+                                           HeaterCurveProfileId profileId) {
     if (g_heaterGate.nextPulseOverrideMs > 0) {
         const uint32_t pulseMs = g_heaterGate.nextPulseOverrideMs;
         g_heaterGate.nextPulseOverrideMs = 0;
@@ -446,14 +472,8 @@ static uint32_t filament_pulse_duration_ms(float chamberC, float targetC, uint8_
     if (errorToTargetC > HOST_FILAMENT_APPROACH_PULSE_ENABLE_BELOW_TARGET_C) {
         return HOST_FILAMENT_APPROACH_PULSE_MAX_MS;
     }
-    if (errorToTargetC > HOST_FILAMENT_REHEAT_ENABLE_BELOW_TARGET_C) {
-        if (targetC >= HOST_FILAMENT_WAIT_RESUME_HOT_TARGET_C) {
-            return HOST_FILAMENT_HOLD_PULSE_MAX_MS;
-        }
-        if (targetC >= HOST_FILAMENT_MID_TARGET_C) {
-            return HOST_FILAMENT_HOLD_PULSE_MID_MS;
-        }
-        return HOST_FILAMENT_HOLD_PULSE_WARM_MS;
+    if (errorToTargetC > filament_reheat_enable_below_target_c(profileId)) {
+        return filament_hold_pulse_duration_ms(targetC, profileId);
     }
     return 0;
 }
@@ -520,8 +540,11 @@ static bool determine_silica_heater_intent(float chamberC, float targetC) {
     return true;
 }
 
-static bool filament_reheat_allowed(float chamberC, float hotspotC, float targetC) {
-    if (chamberC >= (targetC - HOST_FILAMENT_REHEAT_ENABLE_BELOW_TARGET_C)) {
+static bool filament_reheat_allowed(float chamberC,
+                                    float hotspotC,
+                                    float targetC,
+                                    HeaterCurveProfileId profileId) {
+    if (chamberC >= (targetC - filament_reheat_enable_below_target_c(profileId))) {
         return false;
     }
     if (hotspotC >= (targetC + HOST_FILAMENT_HOTSPOT_REHEAT_BLOCK_ABOVE_TARGET_C)) {
@@ -530,7 +553,10 @@ static bool filament_reheat_allowed(float chamberC, float hotspotC, float target
     return true;
 }
 
-static bool determine_filament_heater_intent(float chamberC, float hotspotC, float targetC) {
+static bool determine_filament_heater_intent(float chamberC,
+                                             float hotspotC,
+                                             float targetC,
+                                             HeaterCurveProfileId profileId) {
     const uint32_t nowMs = millis();
 
     if (heater_gate_is_heating(g_heaterGate, nowMs)) {
@@ -546,12 +572,12 @@ static bool determine_filament_heater_intent(float chamberC, float hotspotC, flo
         return false;
     }
 
-    if (!filament_reheat_allowed(chamberC, hotspotC, targetC)) {
+    if (!filament_reheat_allowed(chamberC, hotspotC, targetC, profileId)) {
         return false;
     }
 
     const uint32_t pulseMs =
-        filament_pulse_duration_ms(chamberC, targetC, g_heaterGate.pulseCount);
+        filament_pulse_duration_ms(chamberC, targetC, g_heaterGate.pulseCount, profileId);
     if (pulseMs == 0) {
         return false;
     }
@@ -1372,7 +1398,8 @@ void oven_comm_poll(void) {
         if (!safety) {
             if (isFilament) {
                 desiredHeater =
-                    determine_filament_heater_intent(chamberC, runtimeState.tempHotspotC, tgt);
+                    determine_filament_heater_intent(
+                        chamberC, runtimeState.tempHotspotC, tgt, runtimeState.heaterCurveProfile);
             } else if (isSilica100) {
                 desiredHeater = determine_silica_heater_intent(chamberC, tgt);
             } else {
