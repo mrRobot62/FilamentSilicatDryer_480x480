@@ -32,3 +32,4 @@
 #include "../assets/icons/temp_tri_down_wht.c"     // Hour needle_wht
 #include "../assets/icons/link_16x16.c"               // Host/Client Sync icon
 #include "../assets/icons/saftey_protect_wht.c"               // Host/Client SafteyProtect icon
+#include "../assets/icons/boot_logo_280.c"               // Boot screen logo

@@ -19,6 +19,7 @@ extern const lv_image_dsc_t temp_tri_up_wht;
 extern const lv_image_dsc_t temp_tri_down_wht;
 extern const lv_image_dsc_t link_wht;
 extern const lv_image_dsc_t saftey_protect_wht;
+extern const lv_image_dsc_t boot_logo_280;
 
 #ifdef __cplusplus
 } /* extern "C" */
