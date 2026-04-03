@@ -116,16 +116,18 @@ typedef struct main_screen_widgets_t {
     // --------------------------------------------------------
     // Bottom: temperature
     // --------------------------------------------------------
-    // Bottom: temperature
-    lv_obj_t *temp_scale;
+    lv_obj_t *temp_scale_current;
+    lv_obj_t *temp_scale_target;
 
-    // Legacy markers (will be removed after triangle rollout)
-    lv_obj_t *temp_tri_target;  // old thin line marker
-    lv_obj_t *temp_tri_current; // old rectangle marker
+    lv_obj_t *temp_tri_hotspot;
 
     // Labels near triangles
-    lv_obj_t *temp_label_target;  // label text near triangle
-    lv_obj_t *temp_label_current; // label text near triangle
+    lv_obj_t *temp_label_target;
+    lv_obj_t *temp_label_current;
+    lv_obj_t *temp_label_hotspot;
+
+    lv_obj_t *temp_tol_low_line;
+    lv_obj_t *temp_tol_high_line;
 
     // --------------------------------------------------------
     // Needle animation timer
@@ -235,7 +237,7 @@ static void pause_button_apply_ui(RunState st, bool door_open) {
 
     switch (st) {
     case RunState::STOPPED:
-        ui_set_pause_label("WAIT");
+        ui_set_pause_label("PAUSE");
         ui_set_pause_enabled(false);
         ui_set_pause_bg_hex(UI_COL_PAUSE_DISABLED_HEX);
         break;
@@ -247,14 +249,12 @@ static void pause_button_apply_ui(RunState st, bool door_open) {
         break;
 
     case RunState::WAIT:
-        ui_set_pause_label("WAIT");
-
         if (door_open) {
-            // blocked by door
+            ui_set_pause_label("CLOSE DOOR");
             ui_set_pause_enabled(false);
             ui_set_pause_bg_hex(UI_COL_PAUSE_WAIT_BLOCKED_HEX);
         } else {
-            // ready to resume
+            ui_set_pause_label("RESUME");
             ui_set_pause_enabled(true);
             ui_set_pause_bg_hex(UI_COL_PAUSE_WAIT_READY_HEX);
         }
@@ -623,10 +623,10 @@ static void countdown_stop_and_set_wait_ui(const char *why) {
 
     g_run_state = RunState::WAIT;
 
-    ui_set_pause_label("WAIT");
+    ui_set_pause_label("CLOSE DOOR");
     ui_set_pause_enabled(false); // stays disabled until door is closed
 
-    UI_INFO("[WAIT] state=WAIT, btnPause WAIT + DISABLED\n");
+    UI_INFO("[WAIT] state=WAIT, btnPause CLOSE DOOR + DISABLED\n");
 }
 
 static void ui_set_pause_enabled(bool en) {
@@ -720,59 +720,6 @@ static void door_debug_toggle_event_cb(lv_event_t *e) {
 
     // Refresh icons immediately (door icon uses get_effective_door_open())
     update_actuator_icons(g_last_runtime);
-}
-
-static uint32_t temp_status_color_hex(float cur, float tgt) {
-    const float lo = tgt - (float)ui_temp_target_tolerance_c;
-    const float hi = tgt + (float)ui_temp_target_tolerance_c;
-
-    if (cur < lo) {
-        return UI_COLOR_TEMP_COLD_HEX; // blue
-    }
-    if (cur > hi) {
-        return UI_COLOR_TEMP_HOT_HEX; // orange
-    }
-    return UI_COLOR_TEMP_OK_HEX; // green
-}
-
-static bool g_heater_pulse_active = false;
-
-static void heater_pulse_exec_cb(void *var, int32_t v) {
-    lv_obj_t *obj = (lv_obj_t *)var;
-    // Pulse only recolor opacity so the icon stays crisp and "alive"
-    lv_obj_set_style_img_recolor_opa(obj, (lv_opa_t)v, LV_PART_MAIN);
-}
-
-static void heater_pulse_start(lv_obj_t *heater_icon) {
-    if (!heater_icon || g_heater_pulse_active) {
-        return;
-    }
-
-    g_heater_pulse_active = true;
-
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, heater_icon);
-    lv_anim_set_exec_cb(&a, heater_pulse_exec_cb);
-    lv_anim_set_values(&a, 140, LV_OPA_COVER); // subtle range
-    lv_anim_set_time(&a, 800);                 // speed
-    lv_anim_set_playback_time(&a, 800);
-    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_start(&a);
-}
-
-static void heater_pulse_stop(lv_obj_t *heater_icon) {
-    if (!heater_icon || !g_heater_pulse_active) {
-        return;
-    }
-
-    // Stop the animation targeting this var + exec_cb
-    lv_anim_del(heater_icon, heater_pulse_exec_cb);
-
-    // Restore to normal "ON"
-    lv_obj_set_style_img_recolor_opa(heater_icon, LV_OPA_COVER, LV_PART_MAIN);
-
-    g_heater_pulse_active = false;
 }
 
 static void icon_link_synced(lv_obj_t *link_icon) {
@@ -1766,6 +1713,7 @@ static void create_page_indicator(lv_obj_t *parent) {
     ui.page_indicator_container = lv_obj_create(parent);
     lv_obj_set_size(ui.page_indicator_container, UI_SCREEN_WIDTH, UI_PAGE_INDICATOR_HEIGHT);
     lv_obj_align_to(ui.page_indicator_container, ui.center_container, LV_ALIGN_OUT_BOTTOM_MID, 0, 0);
+    lv_obj_clear_flag(ui.page_indicator_container, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_set_style_bg_opa(ui.page_indicator_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_opa(ui.page_indicator_container, LV_OPA_TRANSP, 0);
@@ -1776,6 +1724,7 @@ static void create_page_indicator(lv_obj_t *parent) {
     ui.page_indicator_panel = lv_obj_create(ui.page_indicator_container);
     lv_obj_set_size(ui.page_indicator_panel, 130, 24); // width will auto-fit for 3 dots
     lv_obj_center(ui.page_indicator_panel);
+    lv_obj_clear_flag(ui.page_indicator_panel, LV_OBJ_FLAG_SCROLLABLE);
 
     // after creating ui.page_indicator_panel
     lv_obj_add_flag(ui.page_indicator_panel, LV_OBJ_FLAG_CLICKABLE);
@@ -1798,6 +1747,7 @@ static void create_page_indicator(lv_obj_t *parent) {
     for (uint8_t i = 0; i < UI_PAGE_COUNT; ++i) {
         ui.page_dots[i] = lv_obj_create(ui.page_indicator_panel);
         lv_obj_set_size(ui.page_dots[i], UI_PAGE_DOT_SIZE, UI_PAGE_DOT_SIZE);
+        lv_obj_clear_flag(ui.page_dots[i], LV_OBJ_FLAG_SCROLLABLE);
 
         lv_obj_set_style_bg_opa(ui.page_dots[i], LV_OPA_COVER, 0);
         lv_obj_set_style_radius(ui.page_dots[i], UI_PAGE_DOT_SIZE / 2, 0);
@@ -1816,6 +1766,7 @@ static void create_page_indicator(lv_obj_t *parent) {
     lv_obj_remove_style_all(ui.swipe_hit);
     lv_obj_set_size(ui.swipe_hit, 360, UI_PAGE_INDICATOR_HEIGHT); // middle width
     lv_obj_align(ui.swipe_hit, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_clear_flag(ui.swipe_hit, LV_OBJ_FLAG_SCROLLABLE);
     // lv_obj_set_style_bg_opa(ui.swipe_hit, LV_OPA_TRANSP, 0);
     lv_obj_add_flag(ui.swipe_hit, LV_OBJ_FLAG_CLICKABLE);
     // Very subtle swipe hint background
@@ -1830,59 +1781,85 @@ static void create_page_indicator(lv_obj_t *parent) {
 // Bottom section creation (temperature scale)
 //----------------------------------------------------
 static void create_bottom_section(lv_obj_t *parent) {
+    static constexpr lv_coord_t kBottomH = 58;
+    static constexpr lv_coord_t kBarW = UI_TEMP_SCALE_WIDTH;
+    static constexpr lv_coord_t kBarH = 16;
+    static constexpr lv_coord_t kCurrentBarY = 22;
+    static constexpr lv_coord_t kTargetBarY = 39;
+
     ui.bottom_container = lv_obj_create(parent);
-    lv_obj_set_size(ui.bottom_container, UI_SCREEN_WIDTH, 70);
-    lv_obj_align(ui.bottom_container, LV_ALIGN_BOTTOM_MID, 0, -UI_BOTTOM_PADDING);
-    lv_obj_align(ui.bottom_container, LV_ALIGN_BOTTOM_MID, 0, UI_BOTTOM_PADDING + 10);
+    lv_obj_set_size(ui.bottom_container, UI_SCREEN_WIDTH, kBottomH);
+    lv_obj_align(ui.bottom_container, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_clear_flag(ui.bottom_container, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_set_style_bg_opa(ui.bottom_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_opa(ui.bottom_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_pad_all(ui.bottom_container, 0, 0);
 
-    // Temperature scale (horizontal bar as base)
-    ui.temp_scale = lv_bar_create(ui.bottom_container);
-    lv_obj_set_size(ui.temp_scale, UI_TEMP_SCALE_WIDTH, UI_TEMP_SCALE_HEIGHT);
-    lv_obj_align(ui.temp_scale, LV_ALIGN_LEFT_MID, UI_SIDE_PADDING, -6);
-    lv_bar_set_range(ui.temp_scale, UI_TEMP_MIN_C, UI_TEMP_MAX_C);
-    lv_bar_set_value(ui.temp_scale, 0, LV_ANIM_OFF);
+    ui.temp_scale_current = lv_bar_create(ui.bottom_container);
+    lv_obj_set_size(ui.temp_scale_current, kBarW, kBarH);
+    lv_obj_align(ui.temp_scale_current, LV_ALIGN_TOP_MID, 0, kCurrentBarY);
+    lv_obj_clear_flag(ui.temp_scale_current, LV_OBJ_FLAG_SCROLLABLE);
+    lv_bar_set_range(ui.temp_scale_current, UI_TEMP_MIN_C, UI_TEMP_MAX_C);
+    lv_bar_set_value(ui.temp_scale_current, 0, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(ui.temp_scale_current, ui_color_from_hex(0x404040), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui.temp_scale_current, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.temp_scale_current, ui_color_from_hex(UI_COLOR_TEMP_CURRENT_HEX), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(ui.temp_scale_current, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(ui.temp_scale_current, 6, LV_PART_MAIN);
+    lv_obj_set_style_radius(ui.temp_scale_current, 6, LV_PART_INDICATOR);
 
-    lv_obj_set_style_bg_color(ui.temp_scale, ui_color_from_hex(0x404040), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(ui.temp_scale, LV_OPA_COVER, LV_PART_MAIN);
-    // Indicator is not used as "fill" here; we will use separate markers.
+    ui.temp_scale_target = lv_bar_create(ui.bottom_container);
+    lv_obj_set_size(ui.temp_scale_target, kBarW, kBarH);
+    lv_obj_align(ui.temp_scale_target, LV_ALIGN_TOP_MID, 0, kTargetBarY);
+    lv_obj_clear_flag(ui.temp_scale_target, LV_OBJ_FLAG_SCROLLABLE);
+    lv_bar_set_range(ui.temp_scale_target, UI_TEMP_MIN_C, UI_TEMP_MAX_C);
+    lv_bar_set_value(ui.temp_scale_target, 0, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(ui.temp_scale_target, ui_color_from_hex(0x404040), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui.temp_scale_target, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.temp_scale_target, ui_color_from_hex(UI_COLOR_TEMP_TARGET_HEX), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(ui.temp_scale_target, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(ui.temp_scale_target, 6, LV_PART_MAIN);
+    lv_obj_set_style_radius(ui.temp_scale_target, 6, LV_PART_INDICATOR);
 
     // --------------------------------------------------------
-    // New: triangle markers (PNG) + labels
+    // Temperature labels
     // --------------------------------------------------------
+    ui.temp_label_current = lv_label_create(ui.bottom_container);
+    lv_obj_set_style_text_color(ui.temp_label_current, lv_color_white(), 0);
+    lv_label_set_text(ui.temp_label_current, "-- °C");
+    lv_obj_add_flag(ui.temp_label_current, LV_OBJ_FLAG_IGNORE_LAYOUT);
 
-    // --- Target triangle (up, below bar) ---
-    ui.temp_tri_target = lv_image_create(ui.bottom_container);
-    lv_image_set_src(ui.temp_tri_target, &temp_tri_up_wht);
-    lv_obj_set_size(ui.temp_tri_target, UI_TEMP_TRI_W, UI_TEMP_TRI_H);
-    lv_obj_add_flag(ui.temp_tri_target, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    ui.temp_label_hotspot = lv_label_create(ui.bottom_container);
+    lv_obj_set_style_text_color(ui.temp_label_hotspot, ui_color_from_hex(UI_COLOR_TEMP_HOTSPOT_HEX), 0);
+    lv_label_set_text(ui.temp_label_hotspot, "HS: -- °C");
+    lv_obj_add_flag(ui.temp_label_hotspot, LV_OBJ_FLAG_IGNORE_LAYOUT);
 
-    // recolor enabled (color will be set in update_temp_ui)
-    lv_obj_set_style_img_recolor_opa(ui.temp_tri_target, LV_OPA_COVER, LV_PART_MAIN);
-
-    // Target label (white, right of triangle)
     ui.temp_label_target = lv_label_create(ui.bottom_container);
-    lv_obj_set_style_text_color(ui.temp_label_target, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(ui.temp_label_target, lv_color_white(), 0);
     lv_label_set_text(ui.temp_label_target, "-- °C");
     lv_obj_add_flag(ui.temp_label_target, LV_OBJ_FLAG_IGNORE_LAYOUT);
 
-    // --- Current triangle (down, above bar) ---
-    ui.temp_tri_current = lv_image_create(ui.bottom_container);
-    lv_image_set_src(ui.temp_tri_current, &temp_tri_down_wht);
-    lv_obj_set_size(ui.temp_tri_current, UI_TEMP_TRI_W, UI_TEMP_TRI_H);
-    lv_obj_add_flag(ui.temp_tri_current, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    ui.temp_tri_hotspot = lv_image_create(ui.bottom_container);
+    lv_image_set_src(ui.temp_tri_hotspot, &temp_tri_down_wht);
+    lv_obj_set_size(ui.temp_tri_hotspot, UI_TEMP_TRI_W, UI_TEMP_TRI_H);
+    lv_obj_add_flag(ui.temp_tri_hotspot, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_style_img_recolor_opa(ui.temp_tri_hotspot, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_img_recolor(ui.temp_tri_hotspot, ui_color_from_hex(UI_COLOR_TEMP_HOTSPOT_HEX), LV_PART_MAIN);
 
-    // recolor enabled (color will be set in update_temp_ui)
-    lv_obj_set_style_img_recolor_opa(ui.temp_tri_current, LV_OPA_COVER, LV_PART_MAIN);
+    ui.temp_tol_low_line = lv_obj_create(ui.bottom_container);
+    lv_obj_remove_style_all(ui.temp_tol_low_line);
+    lv_obj_set_size(ui.temp_tol_low_line, 2, kBarH + 4);
+    lv_obj_add_flag(ui.temp_tol_low_line, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_style_bg_color(ui.temp_tol_low_line, ui_color_from_hex(UI_COLOR_TEMP_BAND_HEX), 0);
+    lv_obj_set_style_bg_opa(ui.temp_tol_low_line, LV_OPA_COVER, 0);
 
-    // Current label (white, right of triangle)
-    ui.temp_label_current = lv_label_create(ui.bottom_container);
-    lv_obj_set_style_text_color(ui.temp_label_current, lv_color_hex(0xFFFFFF), 0);
-    lv_label_set_text(ui.temp_label_current, "-- °C");
-    lv_obj_add_flag(ui.temp_label_current, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    ui.temp_tol_high_line = lv_obj_create(ui.bottom_container);
+    lv_obj_remove_style_all(ui.temp_tol_high_line);
+    lv_obj_set_size(ui.temp_tol_high_line, 2, kBarH + 4);
+    lv_obj_add_flag(ui.temp_tol_high_line, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_style_bg_color(ui.temp_tol_high_line, ui_color_from_hex(UI_COLOR_TEMP_BAND_HEX), 0);
+    lv_obj_set_style_bg_opa(ui.temp_tol_high_line, LV_OPA_COVER, 0);
 }
 
 //
@@ -2076,15 +2053,18 @@ static void update_dial_ui(const OvenRuntimeState &state) {
 // update der Scale-für IST-Temperatur
 //----------------------------------------------------
 static void update_temp_ui(const OvenRuntimeState &state) {
+    if (!ui.temp_scale_current || !ui.temp_scale_target) {
+        return;
+    }
+
     float cur_f = state.tempCurrent;
     float tgt_f = state.tempTarget;
+    float hot_f = state.tempHotspotC;
 
     int16_t cur = (int16_t)lroundf(cur_f);
     int16_t tgt = (int16_t)lroundf(tgt_f);
-
-    // Example (adjust to your real field names):
-    // cur = (int16_t)state.temp_current;
-    // tgt = (int16_t)state.temp_target;
+    int16_t hot = (int16_t)lroundf(hot_f);
+    int16_t tol = (int16_t)lroundf(state.tempToleranceC);
 
     if (cur < UI_TEMP_MIN_C) {
         cur = UI_TEMP_MIN_C;
@@ -2098,45 +2078,52 @@ static void update_temp_ui(const OvenRuntimeState &state) {
     if (tgt > UI_TEMP_MAX_C) {
         tgt = UI_TEMP_MAX_C;
     }
+    if (hot < UI_TEMP_MIN_C) {
+        hot = UI_TEMP_MIN_C;
+    }
+    if (hot > UI_TEMP_MAX_C) {
+        hot = UI_TEMP_MAX_C;
+    }
 
-    // Update CURRENT label
+    lv_bar_set_value(ui.temp_scale_current, cur, LV_ANIM_OFF);
+    lv_bar_set_value(ui.temp_scale_target, tgt, LV_ANIM_OFF);
+
     char buf_cur[16];
     std::snprintf(buf_cur, sizeof(buf_cur), "%d °C", (int)cur);
     lv_label_set_text(ui.temp_label_current, buf_cur);
 
-    // Update TARGET label
     char buf_tgt[16];
     std::snprintf(buf_tgt, sizeof(buf_tgt), "%d °C", (int)tgt);
     lv_label_set_text(ui.temp_label_target, buf_tgt);
-    // Dim target label when current temp is within tolerance range
-    {
-        const int tol = ui_temp_target_tolerance_c;
-        const bool in_range = (cur >= (tgt - tol)) && (cur <= (tgt + tol));
 
-        // Slightly dim target label when "OK" (within range), otherwise full opacity
-        lv_obj_set_style_text_opa(ui.temp_label_target,
-                                  in_range ? LV_OPA_60 : LV_OPA_COVER,
-                                  LV_PART_MAIN);
+    if (state.tempHotspotValid) {
+        char buf_hot[16];
+        std::snprintf(buf_hot, sizeof(buf_hot), "HS: %d °C", (int)hot);
+        lv_label_set_text(ui.temp_label_hotspot, buf_hot);
+        lv_obj_clear_flag(ui.temp_tri_hotspot, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(ui.temp_label_hotspot, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_label_set_text(ui.temp_label_hotspot, "HS: -- °C");
+        lv_obj_add_flag(ui.temp_tri_hotspot, LV_OBJ_FLAG_HIDDEN);
     }
 
-    // --- Triangle colors ---
-    // Target always red
-    lv_obj_set_style_img_recolor(ui.temp_tri_target, ui_color_from_hex(UI_COLOR_TEMP_TARGET_HEX), LV_PART_MAIN);
-    lv_obj_set_style_img_recolor_opa(ui.temp_tri_target, LV_OPA_COVER, LV_PART_MAIN);
+    const bool in_range = (cur >= (tgt - tol)) && (cur <= (tgt + tol));
+    lv_obj_set_style_text_opa(ui.temp_label_target,
+                              in_range ? LV_OPA_70 : LV_OPA_COVER,
+                              LV_PART_MAIN);
 
-    // Current depends on temperature vs target range
-    {
-        const uint32_t hex = temp_status_color_hex(state.tempCurrent, state.tempTarget);
-        lv_color_t col = ui_color_from_hex(hex);
+    lv_obj_set_style_img_recolor(ui.temp_tri_hotspot, ui_color_from_hex(UI_COLOR_TEMP_HOTSPOT_HEX), LV_PART_MAIN);
+    lv_obj_set_style_img_recolor_opa(ui.temp_tri_hotspot, LV_OPA_COVER, LV_PART_MAIN);
 
-        lv_obj_set_style_img_recolor(ui.temp_tri_current, col, LV_PART_MAIN);
-        lv_obj_set_style_img_recolor_opa(ui.temp_tri_current, LV_OPA_COVER, LV_PART_MAIN);
-    }
+    lv_coord_t current_scale_x = lv_obj_get_x(ui.temp_scale_current);
+    lv_coord_t current_scale_y = lv_obj_get_y(ui.temp_scale_current);
+    lv_coord_t current_scale_w = lv_obj_get_width(ui.temp_scale_current);
+    lv_coord_t current_scale_h = lv_obj_get_height(ui.temp_scale_current);
 
-    lv_coord_t scale_x = lv_obj_get_x(ui.temp_scale);
-    lv_coord_t scale_y = lv_obj_get_y(ui.temp_scale);
-    lv_coord_t scale_w = lv_obj_get_width(ui.temp_scale);
-    lv_coord_t scale_h = lv_obj_get_height(ui.temp_scale);
+    lv_coord_t target_scale_x = lv_obj_get_x(ui.temp_scale_target);
+    lv_coord_t target_scale_y = lv_obj_get_y(ui.temp_scale_target);
+    lv_coord_t target_scale_w = lv_obj_get_width(ui.temp_scale_target);
+    lv_coord_t target_scale_h = lv_obj_get_height(ui.temp_scale_target);
 
     auto value_to_x = [&](int16_t value) -> lv_coord_t {
         float t = (float)(value - UI_TEMP_MIN_C) / (float)(UI_TEMP_MAX_C - UI_TEMP_MIN_C);
@@ -2146,31 +2133,69 @@ static void update_temp_ui(const OvenRuntimeState &state) {
         if (t > 1.0f) {
             t = 1.0f;
         }
-        return scale_x + (lv_coord_t)(t * (float)scale_w);
+        return (lv_coord_t)(t * (float)current_scale_w);
     };
 
-    lv_coord_t tgt_x = value_to_x(tgt);
-    lv_coord_t cur_x = value_to_x(cur);
+    lv_coord_t cur_x = current_scale_x + value_to_x(cur);
+    lv_coord_t hot_x = current_scale_x + value_to_x(hot);
+    lv_coord_t tgt_x = target_scale_x + value_to_x(tgt);
+    const int16_t low = LV_MAX((int16_t)UI_TEMP_MIN_C, (int16_t)(tgt - tol));
+    const int16_t high = LV_MIN((int16_t)UI_TEMP_MAX_C, (int16_t)(tgt + tol));
+    lv_coord_t low_x = target_scale_x + value_to_x(low);
+    lv_coord_t high_x = target_scale_x + value_to_x(high);
 
-    // Triangles centered on x
-    lv_coord_t cur_tri_x = cur_x - (UI_TEMP_TRI_W / 2);
-    lv_coord_t tgt_tri_x = tgt_x - (UI_TEMP_TRI_W / 2);
+    lv_coord_t hot_tri_x = hot_x - (UI_TEMP_TRI_W / 2);
 
-    // Y positions
-    lv_coord_t cur_tri_y = scale_y - UI_TEMP_TRI_H - UI_TEMP_TRI_GAP_Y;
-    lv_coord_t tgt_tri_y = scale_y + scale_h + UI_TEMP_TRI_GAP_Y;
+    lv_coord_t hot_tri_y = current_scale_y - UI_TEMP_TRI_H - 1;
 
-    lv_obj_set_pos(ui.temp_tri_current, cur_tri_x, cur_tri_y);
-    lv_obj_set_pos(ui.temp_tri_target, tgt_tri_x, tgt_tri_y);
+    lv_obj_set_pos(ui.temp_tri_hotspot, hot_tri_x, hot_tri_y);
 
-    // Labels right of triangles
+    lv_obj_update_layout(ui.temp_label_current);
+    lv_coord_t cur_label_w = lv_obj_get_width(ui.temp_label_current);
+    lv_coord_t cur_label_h = lv_obj_get_height(ui.temp_label_current);
+    lv_coord_t cur_label_x = cur_x - (cur_label_w / 2);
+    if (cur_label_x < current_scale_x + 4) {
+        cur_label_x = current_scale_x + 4;
+    }
+    if (cur_label_x + cur_label_w > current_scale_x + current_scale_w - 4) {
+        cur_label_x = current_scale_x + current_scale_w - cur_label_w - 4;
+    }
     lv_obj_set_pos(ui.temp_label_current,
-                   cur_tri_x + UI_TEMP_TRI_W + UI_TEMP_LABEL_GAP_X,
-                   cur_tri_y + (UI_TEMP_TRI_H / 2) - (lv_obj_get_height(ui.temp_label_current) / 2));
+                   cur_label_x,
+                   current_scale_y + ((current_scale_h - cur_label_h) / 2));
 
+    lv_obj_update_layout(ui.temp_label_target);
+    lv_coord_t tgt_label_w = lv_obj_get_width(ui.temp_label_target);
+    lv_coord_t tgt_label_x = tgt_x - (tgt_label_w / 2);
+    if (tgt_label_x < target_scale_x + 4) {
+        tgt_label_x = target_scale_x + 4;
+    }
+    if (tgt_label_x + tgt_label_w > target_scale_x + target_scale_w - 4) {
+        tgt_label_x = target_scale_x + target_scale_w - tgt_label_w - 4;
+    }
     lv_obj_set_pos(ui.temp_label_target,
-                   tgt_tri_x + UI_TEMP_TRI_W + UI_TEMP_LABEL_GAP_X,
-                   tgt_tri_y + (UI_TEMP_TRI_H / 2) - (lv_obj_get_height(ui.temp_label_target) / 2));
+                   tgt_label_x,
+                   target_scale_y + ((target_scale_h - lv_obj_get_height(ui.temp_label_target)) / 2));
+
+    lv_obj_update_layout(ui.temp_label_hotspot);
+    lv_coord_t hot_label_w = lv_obj_get_width(ui.temp_label_hotspot);
+    lv_coord_t hot_label_x = hot_tri_x - hot_label_w - 6;
+    if (hot_label_x < current_scale_x + 4) {
+        hot_label_x = current_scale_x + 4;
+    }
+    if (hot_label_x + hot_label_w > hot_tri_x - 2) {
+        hot_label_x = hot_tri_x - hot_label_w - 2;
+    }
+    lv_obj_set_pos(ui.temp_label_hotspot,
+                   hot_label_x,
+                   hot_tri_y + ((UI_TEMP_TRI_H - lv_obj_get_height(ui.temp_label_hotspot)) / 2));
+
+    lv_obj_set_pos(ui.temp_tol_low_line,
+                   low_x - 1,
+                   target_scale_y);
+    lv_obj_set_pos(ui.temp_tol_high_line,
+                   high_x - 1,
+                   target_scale_y);
 }
 
 //----------------------------------------------------
@@ -2208,33 +2233,9 @@ static void update_actuator_icons(const OvenRuntimeState &state) {
         lv_obj_set_style_img_recolor_opa(ui.icon_door, LV_OPA_COVER, LV_PART_MAIN);
     }
 
-    // T7 AP4.3 - easier to read as above version
-    // if (state.heater_on && (g_run_state == RunState::RUNNING || state.mode == OvenMode::POST)) {
-    //     const uint32_t hex = temp_status_color_hex(state.tempCurrent, state.tempTarget);
-    //     set_icon_state(ui.icon_heater, ui_color_from_hex(hex), true);
-
-    //     // Subtle pulse while heating
-    //     heater_pulse_start(ui.icon_heater);
-    // } else {
-    //     // No heating (or WAIT): no pulse
-    //     heater_pulse_stop(ui.icon_heater);
-    //     set_icon_state(ui.icon_heater, col_on, false);
-    // }
-
-    // T11
-    // Heater icon must follow oven runtime truth (state.mode), not UI-local g_run_state.
-    // Otherwise the icon can get stuck OFF when g_run_state is desynced.
-    if (state.heater_on && (state.mode == OvenMode::RUNNING)) {
-        const uint32_t hex = temp_status_color_hex(state.tempCurrent, state.tempTarget);
-        set_icon_state(ui.icon_heater, ui_color_from_hex(hex), true);
-
-        // Subtle pulse while heating
-        heater_pulse_start(ui.icon_heater);
-    } else {
-        // No heating: no pulse
-        heater_pulse_stop(ui.icon_heater);
-        set_icon_state(ui.icon_heater, col_on, false);
-    }
+    // Heater icon is intentionally binary:
+    // OFF = white, ON = green. No temperature-dependent blue state.
+    set_icon_state(ui.icon_heater, col_on, state.heater_on);
 
     // WAIT override: show safe-state regardless of the real actuator bits
     if (g_run_state == RunState::WAIT) {
