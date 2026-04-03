@@ -2,6 +2,7 @@
 
 #include "../icons/icons_32x32.h"
 #include "screen_base.h"
+#include "versions.h"
 
 #include <cstdio>
 
@@ -13,6 +14,7 @@ struct boot_screen_widgets_t {
     lv_obj_t *status_label = nullptr;
     lv_obj_t *progress_bar = nullptr;
     lv_obj_t *percent_label = nullptr;
+    lv_obj_t *version_label = nullptr;
 };
 
 boot_screen_widgets_t ui;
@@ -21,6 +23,7 @@ constexpr int kBarWidth = 360;
 constexpr int kBarHeight = 18;
 constexpr int kBarYOffset = 120;
 constexpr int kStatusYOffset = 78;
+constexpr int kVersionYOffset = -14;
 constexpr int kLogoYOffset = -74;
 constexpr uint32_t kBootBarBgHex = 0x404040;
 
@@ -67,6 +70,14 @@ lv_obj_t *screen_boot_create(lv_obj_t *parent) {
     lv_label_set_text(ui.percent_label, "0 %");
     lv_obj_set_style_text_color(ui.percent_label, ui_color_from_hex(UI_COLOR_WHITE_FG_HEX), 0);
     lv_obj_align_to(ui.percent_label, ui.progress_bar, LV_ALIGN_OUT_BOTTOM_MID, 0, 12);
+
+    char version_buf[32];
+    snprintf(version_buf, sizeof(version_buf), "%s.%s", HOST_VERSION_SEMVER, HOST_VERSION_BUILD_ID_STR);
+    ui.version_label = lv_label_create(ui.root);
+    lv_label_set_text(ui.version_label, version_buf);
+    lv_obj_set_style_text_color(ui.version_label, ui_color_from_hex(UI_COLOR_WHITE_FG_HEX), 0);
+    lv_obj_set_style_text_opa(ui.version_label, LV_OPA_70, 0);
+    lv_obj_align(ui.version_label, LV_ALIGN_BOTTOM_MID, 0, kVersionYOffset);
 
     return ui.root;
 }
