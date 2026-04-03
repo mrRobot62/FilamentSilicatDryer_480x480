@@ -16,6 +16,7 @@ typedef enum ScreenId {
     SCREEN_CONFIG,
     SCREEN_DBG_HW,
     SCREEN_LOG,
+    SCREEN_BOOT,
     SCREEN_COUNT
 } ScreenId;
 

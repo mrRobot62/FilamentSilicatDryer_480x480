@@ -18,6 +18,8 @@
 
 namespace udp {
 
+extern "C" void app_boot_progress_wifi(uint32_t elapsed_ms, uint32_t timeout_ms) __attribute__((weak));
+
 static bool g_enabled = true;
 static bool g_wifi_ok = false;
 static bool g_udp_ok = false;
@@ -60,8 +62,14 @@ static bool wifi_connect_blocking(const char *ssid, const char *pass, uint32_t t
         if ((millis() - t0) > timeout_ms) {
             return false;
         }
+        if (app_boot_progress_wifi) {
+            app_boot_progress_wifi(millis() - t0, timeout_ms);
+        }
         delay(100);
         yield();
+    }
+    if (app_boot_progress_wifi) {
+        app_boot_progress_wifi(timeout_ms, timeout_ms);
     }
     return true;
 }

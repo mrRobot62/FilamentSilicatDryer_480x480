@@ -1,6 +1,7 @@
 #include "screen_manager.h"
 
 #include "screen_config.h"
+#include "screen_boot.h"
 #include "screen_dbg_hw.h"
 #include "screen_log.h"
 #include "screen_main.h"
@@ -37,6 +38,10 @@ static constexpr int kSwipeMaxDyPx = 40;
 static ScreenId next_id(ScreenId id) {
     const bool running = oven_is_running();
 
+    if (id == SCREEN_BOOT) {
+        return SCREEN_MAIN;
+    }
+
     if (running) {
         // While running: only MAIN <-> LOG
         if (id == SCREEN_MAIN) {
@@ -62,6 +67,10 @@ static ScreenId next_id(ScreenId id) {
 
 static ScreenId prev_id(ScreenId id) {
     const bool running = oven_is_running();
+
+    if (id == SCREEN_BOOT) {
+        return SCREEN_MAIN;
+    }
 
     if (running) {
         // While running: only MAIN <-> LOG
@@ -306,6 +315,7 @@ void screen_manager_init(lv_obj_t *screen_parent) {
     s_screens[SCREEN_CONFIG] = screen_config_create(s_app_root);
     s_screens[SCREEN_DBG_HW] = screen_dbg_hw_create(s_app_root);
     s_screens[SCREEN_LOG] = screen_log_create(s_app_root);
+    s_screens[SCREEN_BOOT] = screen_boot_create(s_app_root);
 
     /* Hide all initially */
     for (int i = 0; i < SCREEN_COUNT; ++i) {
@@ -321,7 +331,7 @@ void screen_manager_init(lv_obj_t *screen_parent) {
     attach_swipe_target(screen_log_get_swipe_target());
 
     /* Default screen after boot */
-    screen_manager_show(SCREEN_MAIN);
+    screen_manager_show(SCREEN_BOOT);
     UI_DBG("[SCR_MANAGER] done. screen-addr: %d\n", s_app_root);
 }
 
