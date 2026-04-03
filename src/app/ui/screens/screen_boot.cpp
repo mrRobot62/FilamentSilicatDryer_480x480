@@ -9,7 +9,6 @@ namespace {
 
 struct boot_screen_widgets_t {
     lv_obj_t *root = nullptr;
-    lv_obj_t *logo_frame = nullptr;
     lv_obj_t *logo = nullptr;
     lv_obj_t *status_label = nullptr;
     lv_obj_t *progress_bar = nullptr;
@@ -24,12 +23,6 @@ constexpr int kBarYOffset = 120;
 constexpr int kStatusYOffset = 78;
 constexpr int kLogoYOffset = -74;
 constexpr uint32_t kBootBarBgHex = 0x404040;
-constexpr int kLogoImageWidth = 280;
-constexpr int kLogoImageHeight = 275;
-constexpr int kLogoFrameInsetPx = 10;
-constexpr int kLogoFrameWidth = kLogoImageWidth + kLogoFrameInsetPx + 5;
-constexpr int kLogoFrameHeight = kLogoImageHeight + kLogoFrameInsetPx + 5;
-constexpr int kLogoFrameRadius = 24;
 
 } // namespace
 
@@ -47,18 +40,11 @@ lv_obj_t *screen_boot_create(lv_obj_t *parent) {
     lv_obj_set_style_pad_all(ui.root, 0, 0);
     lv_obj_clear_flag(ui.root, LV_OBJ_FLAG_SCROLLABLE);
 
-    ui.logo_frame = lv_obj_create(ui.root);
-    lv_obj_remove_style_all(ui.logo_frame);
-    lv_obj_set_size(ui.logo_frame, kLogoFrameWidth, kLogoFrameHeight);
-    lv_obj_align(ui.logo_frame, LV_ALIGN_CENTER, 0, kLogoYOffset);
-    lv_obj_set_style_bg_color(ui.logo_frame, ui_color_from_hex(UI_COLOR_TIME_BAR_HEX), 0);
-    lv_obj_set_style_bg_opa(ui.logo_frame, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_radius(ui.logo_frame, kLogoFrameRadius, 0);
-    lv_obj_clear_flag(ui.logo_frame, LV_OBJ_FLAG_SCROLLABLE);
-
     ui.logo = lv_image_create(ui.root);
     lv_image_set_src(ui.logo, &boot_logo_280);
     lv_obj_align(ui.logo, LV_ALIGN_CENTER, 0, kLogoYOffset);
+    lv_obj_set_style_image_recolor(ui.logo, ui_color_from_hex(UI_COLOR_TIME_BAR_HEX), LV_PART_MAIN);
+    lv_obj_set_style_image_recolor_opa(ui.logo, LV_OPA_TRANSP, LV_PART_MAIN);
 
     ui.status_label = lv_label_create(ui.root);
     lv_label_set_text(ui.status_label, "Systemstart...");
@@ -90,7 +76,7 @@ lv_obj_t *screen_boot_get_swipe_target(void) {
 }
 
 void screen_boot_set_progress(uint8_t percent) {
-    if (!ui.progress_bar || !ui.percent_label || !ui.logo_frame) {
+    if (!ui.progress_bar || !ui.percent_label || !ui.logo) {
         return;
     }
 
@@ -103,8 +89,8 @@ void screen_boot_set_progress(uint8_t percent) {
     snprintf(buf, sizeof(buf), "%u %%", (unsigned)percent);
     lv_label_set_text(ui.percent_label, buf);
 
-    const lv_opa_t frame_opa = (lv_opa_t)((percent * LV_OPA_COVER) / 100U);
-    lv_obj_set_style_bg_opa(ui.logo_frame, frame_opa, 0);
+    const lv_opa_t logo_recolor_opa = (lv_opa_t)((percent * LV_OPA_COVER) / 100U);
+    lv_obj_set_style_image_recolor_opa(ui.logo, logo_recolor_opa, LV_PART_MAIN);
 }
 
 void screen_boot_set_status(const char *text) {

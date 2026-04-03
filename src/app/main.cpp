@@ -160,7 +160,7 @@ void setup() {
     }
 
     if (g_boot_wifi_elapsed_ms < BOOT_WIFI_WAIT_MS) {
-        finish_boot_progress(2000, ok ? "Netzwerk bereit..." : "Netzwerk Timeout...");
+        finish_boot_progress(4000, ok ? "Netzwerk bereit..." : "Netzwerk Timeout...");
     }
 #else
     Serial.println("[UDP] WIFI_LOGGING_CLIENT_UDP is DISABLED");
