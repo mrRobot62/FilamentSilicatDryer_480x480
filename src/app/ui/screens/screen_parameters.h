@@ -33,15 +33,21 @@ typedef struct parameters_screen_widgets_t {
     lv_obj_t *group_heater;
 
     lv_obj_t *shortcut_button[UI_PARAMETER_SHORTCUT_SLOT_COUNT];
-    lv_obj_t *shortcut_button_label[UI_PARAMETER_SHORTCUT_SLOT_COUNT];
-    lv_obj_t *shortcut_spinbox[UI_PARAMETER_SHORTCUT_SLOT_COUNT];
+    lv_obj_t *shortcut_roller[UI_PARAMETER_SHORTCUT_SLOT_COUNT];
 
-    lv_obj_t *heater_spinbox[UI_PARAMETER_HEATER_PROFILE_COUNT][UI_PARAMETER_HEATER_FIELD_COUNT];
+    lv_obj_t *heater_profile_roller;
+    lv_obj_t *heater_value_label[UI_PARAMETER_HEATER_FIELD_COUNT];
 
     lv_obj_t *btn_reset;
     lv_obj_t *btn_save;
     lv_obj_t *label_btn_reset;
     lv_obj_t *label_btn_save;
+
+    lv_obj_t *confirm_overlay;
+    lv_obj_t *confirm_dialog;
+    lv_obj_t *confirm_text;
+    lv_obj_t *btn_confirm_cancel;
+    lv_obj_t *btn_confirm_save;
 
     lv_obj_t *page_indicator_panel;
     lv_obj_t *page_dots[UI_PAGE_COUNT];

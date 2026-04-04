@@ -24,6 +24,10 @@
 #include "wifi_net.h"
 #include "wifi_secrets.h"
 
+// The parameters screen increases LVGL redraw depth enough to exceed the
+// Arduino default loopTask stack on ESP32-S3 during screen transitions.
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+
 static uint32_t last_beat = 0;
 static uint32_t last_tick_ms = 0;
 static uint32_t g_boot_ui_last_ms = 0;
@@ -77,7 +81,6 @@ void setup() {
     host_parameters_init();
     oven_init();
     ui_init();
-    INFO("[MAIN] ui_init() OK\n");
 
     last_tick_ms = millis();
     g_boot_ui_last_ms = last_tick_ms;

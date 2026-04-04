@@ -159,10 +159,8 @@ static void app_swipe_cb(lv_event_t *e) {
         // ----------------------------
 
         if (dx < 0) {
-            UI_INFO("[ScreenManager] SWIPE LEFT\n");
             screen_manager_show(next_id(s_current));
         } else {
-            UI_INFO("[ScreenManager] SWIPE RIGHT\n");
             screen_manager_show(prev_id(s_current));
         }
         return;
@@ -204,8 +202,6 @@ ScreenId screen_manager_current(void) {
 }
 
 void screen_manager_show(ScreenId id) {
-    UI_INFO("[ScreenManager] show(%d) cur=%d ptr=%p\n",
-            (int)id, (int)s_current, (void *)s_screens[id]);
     if (!s_app_root) {
         return;
     }
@@ -247,11 +243,6 @@ void screen_manager_show(ScreenId id) {
     default:
         break;
     }
-    UI_INFO("[ScreenManager] screens: main=%p cfg=%p dbg_hw=%p params=%p current:%p\n",
-            (void *)s_screens[SCREEN_MAIN],
-            (void *)s_screens[SCREEN_CONFIG],
-            (void *)s_screens[SCREEN_DBG_HW],
-            (void *)s_screens[SCREEN_PARAMETERS]);
 }
 
 void screen_manager_init(lv_obj_t *screen_parent) {

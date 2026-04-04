@@ -136,6 +136,8 @@ void ui_init(void) {
     lv_indev_set_type(g_ui.lv_touch_indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(g_ui.lv_touch_indev, my_touch_read);
     lv_indev_set_display(g_ui.lv_touch_indev, g_ui.displayDrv); // auf dieses Display mappen
+    lv_indev_set_long_press_time(g_ui.lv_touch_indev, 350);
+    lv_indev_set_long_press_repeat_time(g_ui.lv_touch_indev, 300);
     UI_INFO("[UI] (6) LVGL input device (touch) created\n");
 
     // 7) UI erzeugen
