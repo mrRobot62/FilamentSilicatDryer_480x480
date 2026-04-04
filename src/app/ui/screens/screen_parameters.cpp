@@ -1,5 +1,6 @@
 #include "screen_parameters.h"
 
+#include "host_parameters.h"
 #include "ui_color_codes.h"
 
 #include <cstdint>
@@ -40,17 +41,7 @@ struct HeaterProfileUiState {
     int16_t overshootCap_dC;
 };
 
-static constexpr uint16_t kDefaultShortcutPresetIds[UI_PARAMETER_SHORTCUT_SLOT_COUNT] = {5, 4, 3, 6};
-
-static constexpr HeaterProfileUiState kDefaultHeaterProfiles[UI_PARAMETER_HEATER_PROFILE_COUNT] = {
-    {45, 15, 100, 40, 20},
-    {60, 15, 100, 40, 20},
-    {80, 15, 100, 40, 20},
-    {100, 25, 100, 25, 30},
-};
-
-static uint16_t s_shortcut_saved[UI_PARAMETER_SHORTCUT_SLOT_COUNT];
-static HeaterProfileUiState s_heater_saved[UI_PARAMETER_HEATER_PROFILE_COUNT];
+static HostParameters s_saved_parameters = {};
 static bool s_internal_update = false;
 
 static inline lv_color_t col_hex(uint32_t hex) { return ui_color_from_hex(hex); }
@@ -76,7 +67,7 @@ static void spinbox_value_changed_cb(lv_event_t *e);
 
 static void reset_widgets_to_defaults(void);
 static void load_saved_state_into_widgets(void);
-static void capture_widgets_as_saved_state(void);
+static void read_widgets_into_parameters(HostParameters *out);
 static bool screen_has_unsaved_changes(void);
 static void update_shortcut_button_labels(void);
 static void update_save_button_state(void);
@@ -178,6 +169,9 @@ static lv_obj_t *create_stepper(lv_obj_t *parent, lv_obj_t **out_spinbox,
 }
 
 static void create_shortcuts_group(lv_obj_t *parent) {
+    HostParameters defaults{};
+    host_parameters_get_defaults(&defaults);
+
     ui_parameters.group_shortcuts = create_group_card(parent, "Filament-ShortCuts");
 
     lv_obj_t *row = lv_obj_create(ui_parameters.group_shortcuts);
@@ -214,7 +208,7 @@ static void create_shortcuts_group(lv_obj_t *parent) {
         lv_obj_center(ui_parameters.shortcut_button_label[i]);
 
         create_stepper(slot, &ui_parameters.shortcut_spinbox[i], 0, kPresetCount - 1, 1,
-                       kDefaultShortcutPresetIds[i], false, 78);
+                       defaults.shortcutPresetIds[i], false, 78);
         lv_spinbox_set_digit_format(ui_parameters.shortcut_spinbox[i], 2, 0);
     }
 }
@@ -238,6 +232,9 @@ static void create_profile_row(lv_obj_t *parent, const char *label_text, lv_obj_
 }
 
 static void create_profile_card(lv_obj_t *parent, const char *title, uint8_t profile_index) {
+    HostParameters defaults{};
+    host_parameters_get_defaults(&defaults);
+
     lv_obj_t *card = lv_obj_create(parent);
     lv_obj_remove_style_all(card);
     lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
@@ -256,17 +253,17 @@ static void create_profile_card(lv_obj_t *parent, const char *title, uint8_t pro
     lv_label_set_text(title_label, title);
     lv_obj_set_style_text_color(title_label, col_hex(kColorAccent), 0);
 
-    const HeaterProfileUiState &defaults = kDefaultHeaterProfiles[profile_index];
+    const HostHeaterProfileParameters &defaults_profile = defaults.heaterProfiles[profile_index];
     create_profile_row(card, "TGT", &ui_parameters.heater_spinbox[profile_index][HEATER_FIELD_TARGET],
-                       30, 120, 1, defaults.targetC, false);
+                       30, 120, 1, defaults_profile.targetC, false);
     create_profile_row(card, "HYS", &ui_parameters.heater_spinbox[profile_index][HEATER_FIELD_HYSTERESIS],
-                       5, 50, 5, defaults.hysteresis_dC, true);
+                       5, 50, 5, defaults_profile.hysteresis_dC, true);
     create_profile_row(card, "APR", &ui_parameters.heater_spinbox[profile_index][HEATER_FIELD_APPROACH],
-                       10, 200, 5, defaults.approachBand_dC, true);
+                       10, 200, 5, defaults_profile.approachBand_dC, true);
     create_profile_row(card, "HLD", &ui_parameters.heater_spinbox[profile_index][HEATER_FIELD_HOLD],
-                       5, 100, 5, defaults.holdBand_dC, true);
+                       5, 100, 5, defaults_profile.holdBand_dC, true);
     create_profile_row(card, "OVR", &ui_parameters.heater_spinbox[profile_index][HEATER_FIELD_OVERSHOOT],
-                       5, 50, 5, defaults.overshootCap_dC, true);
+                       5, 50, 5, defaults_profile.overshootCap_dC, true);
 }
 
 static void create_heater_group(lv_obj_t *parent) {
@@ -453,21 +450,31 @@ static bool heater_profile_equals(const HeaterProfileUiState &lhs, const HeaterP
 }
 
 static bool screen_has_unsaved_changes(void) {
+    HostParameters current{};
+    read_widgets_into_parameters(&current);
+
     for (uint8_t i = 0; i < UI_PARAMETER_SHORTCUT_SLOT_COUNT; ++i) {
-        if (s_shortcut_saved[i] != static_cast<uint16_t>(read_spinbox_value(ui_parameters.shortcut_spinbox[i]))) {
+        if (current.shortcutPresetIds[i] != s_saved_parameters.shortcutPresetIds[i]) {
             return true;
         }
     }
 
     for (uint8_t i = 0; i < UI_PARAMETER_HEATER_PROFILE_COUNT; ++i) {
-        HeaterProfileUiState current = {
-            read_spinbox_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_TARGET]),
-            read_spinbox_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_HYSTERESIS]),
-            read_spinbox_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_APPROACH]),
-            read_spinbox_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_HOLD]),
-            read_spinbox_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_OVERSHOOT]),
+        HeaterProfileUiState current_profile = {
+            current.heaterProfiles[i].targetC,
+            current.heaterProfiles[i].hysteresis_dC,
+            current.heaterProfiles[i].approachBand_dC,
+            current.heaterProfiles[i].holdBand_dC,
+            current.heaterProfiles[i].overshootCap_dC,
         };
-        if (!heater_profile_equals(current, s_heater_saved[i])) {
+        HeaterProfileUiState saved_profile = {
+            s_saved_parameters.heaterProfiles[i].targetC,
+            s_saved_parameters.heaterProfiles[i].hysteresis_dC,
+            s_saved_parameters.heaterProfiles[i].approachBand_dC,
+            s_saved_parameters.heaterProfiles[i].holdBand_dC,
+            s_saved_parameters.heaterProfiles[i].overshootCap_dC,
+        };
+        if (!heater_profile_equals(current_profile, saved_profile)) {
             return true;
         }
     }
@@ -486,17 +493,20 @@ static void update_save_button_state(void) {
 }
 
 static void reset_widgets_to_defaults(void) {
+    HostParameters defaults{};
+    host_parameters_get_defaults(&defaults);
+
     s_internal_update = true;
     for (uint8_t i = 0; i < UI_PARAMETER_SHORTCUT_SLOT_COUNT; ++i) {
-        lv_spinbox_set_value(ui_parameters.shortcut_spinbox[i], kDefaultShortcutPresetIds[i]);
+        lv_spinbox_set_value(ui_parameters.shortcut_spinbox[i], defaults.shortcutPresetIds[i]);
     }
     for (uint8_t i = 0; i < UI_PARAMETER_HEATER_PROFILE_COUNT; ++i) {
-        const HeaterProfileUiState &defaults = kDefaultHeaterProfiles[i];
-        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_TARGET], defaults.targetC);
-        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_HYSTERESIS], defaults.hysteresis_dC);
-        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_APPROACH], defaults.approachBand_dC);
-        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_HOLD], defaults.holdBand_dC);
-        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_OVERSHOOT], defaults.overshootCap_dC);
+        const HostHeaterProfileParameters &profile = defaults.heaterProfiles[i];
+        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_TARGET], profile.targetC);
+        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_HYSTERESIS], profile.hysteresis_dC);
+        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_APPROACH], profile.approachBand_dC);
+        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_HOLD], profile.holdBand_dC);
+        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_OVERSHOOT], profile.overshootCap_dC);
     }
     s_internal_update = false;
     update_shortcut_button_labels();
@@ -506,26 +516,30 @@ static void reset_widgets_to_defaults(void) {
 static void load_saved_state_into_widgets(void) {
     s_internal_update = true;
     for (uint8_t i = 0; i < UI_PARAMETER_SHORTCUT_SLOT_COUNT; ++i) {
-        lv_spinbox_set_value(ui_parameters.shortcut_spinbox[i], s_shortcut_saved[i]);
+        lv_spinbox_set_value(ui_parameters.shortcut_spinbox[i], s_saved_parameters.shortcutPresetIds[i]);
     }
     for (uint8_t i = 0; i < UI_PARAMETER_HEATER_PROFILE_COUNT; ++i) {
-        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_TARGET], s_heater_saved[i].targetC);
-        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_HYSTERESIS], s_heater_saved[i].hysteresis_dC);
-        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_APPROACH], s_heater_saved[i].approachBand_dC);
-        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_HOLD], s_heater_saved[i].holdBand_dC);
-        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_OVERSHOOT], s_heater_saved[i].overshootCap_dC);
+        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_TARGET], s_saved_parameters.heaterProfiles[i].targetC);
+        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_HYSTERESIS], s_saved_parameters.heaterProfiles[i].hysteresis_dC);
+        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_APPROACH], s_saved_parameters.heaterProfiles[i].approachBand_dC);
+        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_HOLD], s_saved_parameters.heaterProfiles[i].holdBand_dC);
+        lv_spinbox_set_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_OVERSHOOT], s_saved_parameters.heaterProfiles[i].overshootCap_dC);
     }
     s_internal_update = false;
     update_shortcut_button_labels();
     update_save_button_state();
 }
 
-static void capture_widgets_as_saved_state(void) {
+static void read_widgets_into_parameters(HostParameters *out) {
+    if (!out) {
+        return;
+    }
+
     for (uint8_t i = 0; i < UI_PARAMETER_SHORTCUT_SLOT_COUNT; ++i) {
-        s_shortcut_saved[i] = static_cast<uint16_t>(read_spinbox_value(ui_parameters.shortcut_spinbox[i]));
+        out->shortcutPresetIds[i] = static_cast<uint16_t>(read_spinbox_value(ui_parameters.shortcut_spinbox[i]));
     }
     for (uint8_t i = 0; i < UI_PARAMETER_HEATER_PROFILE_COUNT; ++i) {
-        s_heater_saved[i] = {
+        out->heaterProfiles[i] = {
             read_spinbox_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_TARGET]),
             read_spinbox_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_HYSTERESIS]),
             read_spinbox_value(ui_parameters.heater_spinbox[i][HEATER_FIELD_APPROACH]),
@@ -572,9 +586,16 @@ static void button_reset_event_cb(lv_event_t *e) {
 
 static void button_save_event_cb(lv_event_t *e) {
     LV_UNUSED(e);
-    capture_widgets_as_saved_state();
+    HostParameters candidate{};
+    read_widgets_into_parameters(&candidate);
+    if (!host_parameters_save(&candidate)) {
+        set_info_message("SAVE fehlgeschlagen", 0xFF7070);
+        return;
+    }
+
+    s_saved_parameters = candidate;
     update_save_button_state();
-    set_info_message("Aenderungen uebernommen", 0x70D070);
+    set_info_message("In NVM gespeichert", 0x70D070);
 }
 
 } // namespace
@@ -604,13 +625,7 @@ lv_obj_t *screen_parameters_create(lv_obj_t *parent) {
     create_page_indicator(ui_parameters.page_indicator_container);
     create_bottom_actions(ui_parameters.bottom_container);
 
-    for (uint8_t i = 0; i < UI_PARAMETER_SHORTCUT_SLOT_COUNT; ++i) {
-        s_shortcut_saved[i] = kDefaultShortcutPresetIds[i];
-    }
-    for (uint8_t i = 0; i < UI_PARAMETER_HEATER_PROFILE_COUNT; ++i) {
-        s_heater_saved[i] = kDefaultHeaterProfiles[i];
-    }
-
+    host_parameters_get(&s_saved_parameters);
     load_saved_state_into_widgets();
     set_info_message("HOST Parameter lokal anpassen", kColorSubtle);
 

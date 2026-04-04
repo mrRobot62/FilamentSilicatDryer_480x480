@@ -7,6 +7,7 @@
 // #include "touch.h"
 
 #include "log_core.h"
+#include "host_parameters.h"
 #include "ui.h"
 #include "ui/screens/screen_dbg_hw.h"
 #include "ui/screens/screen_boot.h"
@@ -73,6 +74,7 @@ void udp_log_selftest() {
 void setup() {
     Serial.begin(115200);
     oven_comm_init(Serial2, 115200, HOST_RX_PIN, HOST_TX_PIN);
+    host_parameters_init();
     oven_init();
     ui_init();
     INFO("[MAIN] ui_init() OK\n");
