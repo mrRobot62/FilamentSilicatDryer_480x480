@@ -28,6 +28,7 @@
  */
 
 #include "oven_utils.h" // includes "oven.h"
+#include "host_parameters.h"
 // =============================================================================
 // Includes
 // =============================================================================
@@ -156,7 +157,7 @@ static constexpr uint32_t kCommAliveTimeoutMs = 1500;
 
 static bool g_hostOvertempActive = false;
 
-static constexpr HeaterPolicy kLowTempHeaterPolicy = {
+static HeaterPolicy g_lowTempHeaterPolicy = {
     HeaterMaterialClass::FILAMENT,
     HOST_HEATER_HYSTERESIS_C,
     10.0f,
@@ -166,7 +167,7 @@ static constexpr HeaterPolicy kLowTempHeaterPolicy = {
     HOST_HOTSPOT_MAX_C,
 };
 
-static constexpr HeaterPolicy kMidTempHeaterPolicy = {
+static HeaterPolicy g_midTempHeaterPolicy = {
     HeaterMaterialClass::FILAMENT,
     HOST_HEATER_HYSTERESIS_C,
     10.0f,
@@ -176,7 +177,7 @@ static constexpr HeaterPolicy kMidTempHeaterPolicy = {
     HOST_HOTSPOT_MAX_C,
 };
 
-static constexpr HeaterPolicy kHighTempHeaterPolicy = {
+static HeaterPolicy g_highTempHeaterPolicy = {
     HeaterMaterialClass::FILAMENT,
     HOST_HEATER_HYSTERESIS_C,
     10.0f,
@@ -186,7 +187,7 @@ static constexpr HeaterPolicy kHighTempHeaterPolicy = {
     HOST_HOTSPOT_MAX_C,
 };
 
-static constexpr HeaterPolicy kSilica100HeaterPolicy = {
+static HeaterPolicy g_silica100HeaterPolicy = {
     HeaterMaterialClass::SILICA,
     HOST_SILICA_HEATER_HYSTERESIS_C,
     10.0f,
@@ -293,6 +294,56 @@ static void runtime_sync_heater_alias() {
                                                  : runtimeState.heater_actual_on;
 }
 
+static void sync_heater_policies_from_host_parameters() {
+    const HostParameters *params = host_parameters_get_cached();
+    if (!params) {
+        return;
+    }
+
+    g_lowTempHeaterPolicy.hysteresisC = params->heaterProfiles[0].hysteresis_dC / 10.0f;
+    g_lowTempHeaterPolicy.approachBandC = params->heaterProfiles[0].approachBand_dC / 10.0f;
+    g_lowTempHeaterPolicy.holdBandC = params->heaterProfiles[0].holdBand_dC / 10.0f;
+    g_lowTempHeaterPolicy.targetOvershootCapC = params->heaterProfiles[0].overshootCap_dC / 10.0f;
+
+    g_midTempHeaterPolicy.hysteresisC = params->heaterProfiles[1].hysteresis_dC / 10.0f;
+    g_midTempHeaterPolicy.approachBandC = params->heaterProfiles[1].approachBand_dC / 10.0f;
+    g_midTempHeaterPolicy.holdBandC = params->heaterProfiles[1].holdBand_dC / 10.0f;
+    g_midTempHeaterPolicy.targetOvershootCapC = params->heaterProfiles[1].overshootCap_dC / 10.0f;
+
+    g_highTempHeaterPolicy.hysteresisC = params->heaterProfiles[2].hysteresis_dC / 10.0f;
+    g_highTempHeaterPolicy.approachBandC = params->heaterProfiles[2].approachBand_dC / 10.0f;
+    g_highTempHeaterPolicy.holdBandC = params->heaterProfiles[2].holdBand_dC / 10.0f;
+    g_highTempHeaterPolicy.targetOvershootCapC = params->heaterProfiles[2].overshootCap_dC / 10.0f;
+
+    g_silica100HeaterPolicy.hysteresisC = params->heaterProfiles[3].hysteresis_dC / 10.0f;
+    g_silica100HeaterPolicy.approachBandC = params->heaterProfiles[3].approachBand_dC / 10.0f;
+    g_silica100HeaterPolicy.holdBandC = params->heaterProfiles[3].holdBand_dC / 10.0f;
+    g_silica100HeaterPolicy.targetOvershootCapC = params->heaterProfiles[3].overshootCap_dC / 10.0f;
+}
+
+float oven_get_effective_preset_target_c(uint16_t index) {
+    if (index >= kPresetCount) {
+        return 0.0f;
+    }
+
+    const FilamentPreset &preset = kPresets[index];
+    if (std::strcmp(preset.name, "CUSTOM") == 0) {
+        return preset.dryTempC;
+    }
+
+    const HostParameters *params = host_parameters_get_cached();
+    if (!params) {
+        return preset.dryTempC;
+    }
+
+    const uint8_t profile_index = static_cast<uint8_t>(preset.heaterCurveProfile);
+    if (profile_index >= HOST_PARAMETER_HEATER_PROFILE_COUNT) {
+        return preset.dryTempC;
+    }
+
+    return static_cast<float>(params->heaterProfiles[profile_index].targetC);
+}
+
 static HeaterMaterialClass material_class_from_preset_index(int presetIndex) {
     if (presetIndex < 0 || presetIndex >= static_cast<int>(kPresetCount)) {
         return HeaterMaterialClass::FILAMENT;
@@ -308,17 +359,19 @@ static HeaterCurveProfileId heater_curve_profile_from_preset_index(int presetInd
 }
 
 static const HeaterPolicy &heater_policy_for_profile(HeaterCurveProfileId profileId) {
+    sync_heater_policies_from_host_parameters();
+
     switch (profileId) {
     case HeaterCurveProfileId::LOW_45C:
-        return kLowTempHeaterPolicy;
+        return g_lowTempHeaterPolicy;
     case HeaterCurveProfileId::MID_60C:
-        return kMidTempHeaterPolicy;
+        return g_midTempHeaterPolicy;
     case HeaterCurveProfileId::HIGH_80C:
-        return kHighTempHeaterPolicy;
+        return g_highTempHeaterPolicy;
     case HeaterCurveProfileId::SILICA_100C:
-        return kSilica100HeaterPolicy;
+        return g_silica100HeaterPolicy;
     default:
-        return kLowTempHeaterPolicy;
+        return g_lowTempHeaterPolicy;
     }
 }
 
@@ -965,14 +1018,15 @@ void oven_select_preset(uint16_t index) {
         return;
     }
     const FilamentPreset &p = kPresets[index];
+    const float effective_target_c = oven_get_effective_preset_target_c(index);
 
     currentProfile.durationMinutes = p.durationMin;
-    currentProfile.targetTemperature = p.dryTempC;
+    currentProfile.targetTemperature = effective_target_c;
     currentProfile.filamentId = index;
 
     runtimeState.durationMinutes = p.durationMin;
     runtimeState.secondsRemaining = p.durationMin * 60;
-    runtimeState.tempTarget = p.dryTempC;
+    runtimeState.tempTarget = effective_target_c;
     runtimeState.filamentId = index;
     runtimeState.materialClass = p.materialClass;
     runtimeState.heaterCurveProfile = p.heaterCurveProfile;

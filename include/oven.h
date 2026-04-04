@@ -323,6 +323,7 @@ void oven_get_preset_name(uint16_t index, char *out, size_t out_len);
 void oven_select_preset(uint16_t index);
 int oven_get_current_preset_index(void);
 const FilamentPreset *oven_get_preset(uint16_t index);
+float oven_get_effective_preset_target_c(uint16_t index);
 
 void oven_set_runtime_duration_minutes(uint16_t duration_min);
 void oven_set_runtime_temp_target(uint16_t temp_c);

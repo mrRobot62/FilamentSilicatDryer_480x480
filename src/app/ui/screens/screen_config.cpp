@@ -231,7 +231,7 @@ static void load_preset_to_widgets(int preset_index) {
     }
 
     // Temperature: temp roller has options starting at 20
-    int temp = (int)p->dryTempC;
+    int temp = (int)oven_get_effective_preset_target_c((uint16_t)preset_index);
     if (temp < 0) {
         temp = 0;
     }
