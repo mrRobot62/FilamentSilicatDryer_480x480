@@ -3,7 +3,7 @@
 #include "screen_config.h"
 #include "screen_boot.h"
 #include "screen_dbg_hw.h"
-#include "screen_log.h"
+#include "screen_parameters.h"
 #include "screen_main.h"
 
 #include "oven_utils.h" // implicde #include "oven.h"
@@ -43,23 +43,23 @@ static ScreenId next_id(ScreenId id) {
     }
 
     if (running) {
-        // While running: only MAIN <-> LOG
+        // While running: only MAIN <-> PARAMETERS
         if (id == SCREEN_MAIN) {
-            return SCREEN_LOG;
+            return SCREEN_PARAMETERS;
         }
-        return SCREEN_LOG; // clamp
+        return SCREEN_PARAMETERS; // clamp
     }
 
-    // Not running: MAIN -> CONFIG -> DBG_HW -> LOG
+    // Not running: MAIN -> CONFIG -> DBG_HW -> PARAMETERS
     switch (id) {
     case SCREEN_MAIN:
         return SCREEN_CONFIG;
     case SCREEN_CONFIG:
         return SCREEN_DBG_HW;
     case SCREEN_DBG_HW:
-        return SCREEN_LOG;
-    case SCREEN_LOG:
-        return SCREEN_LOG; // clamp
+        return SCREEN_PARAMETERS;
+    case SCREEN_PARAMETERS:
+        return SCREEN_PARAMETERS; // clamp
     default:
         return SCREEN_MAIN;
     }
@@ -73,16 +73,16 @@ static ScreenId prev_id(ScreenId id) {
     }
 
     if (running) {
-        // While running: only MAIN <-> LOG
-        if (id == SCREEN_LOG) {
+        // While running: only MAIN <-> PARAMETERS
+        if (id == SCREEN_PARAMETERS) {
             return SCREEN_MAIN;
         }
         return SCREEN_MAIN; // clamp
     }
 
-    // Not running: LOG -> DBG_HW -> CONFIG -> MAIN
+    // Not running: PARAMETERS -> DBG_HW -> CONFIG -> MAIN
     switch (id) {
-    case SCREEN_LOG:
+    case SCREEN_PARAMETERS:
         return SCREEN_DBG_HW;
     case SCREEN_DBG_HW:
         return SCREEN_CONFIG;
@@ -95,52 +95,6 @@ static ScreenId prev_id(ScreenId id) {
     }
 }
 
-/*
-static ScreenId next_id(ScreenId id) {
-   const bool running = oven_is_running();
-
-   if (running) {
-       // While running: only MAIN <-> LOG
-       if (id == SCREEN_MAIN) {
-           return SCREEN_LOG;
-       }
-       if (id == SCREEN_LOG) {
-           return SCREEN_LOG; // clamp at LOG
-       }
-       // if somehow in CONFIG while running, treat as MAIN -> LOG
-       return SCREEN_LOG;
-   }
-
-   // Not running: MAIN -> CONFIG -> LOG (clamped)
-   const int last = SCREEN_COUNT - 1;
-   if ((int)id >= last) {
-       return (ScreenId)last;
-   }
-   return (ScreenId)((int)id + 1);
-}
-
-static ScreenId prev_id(ScreenId id) {
-   const bool running = oven_is_running();
-
-   if (running) {
-       // While running: only MAIN <-> LOG
-       if (id == SCREEN_LOG) {
-           return SCREEN_MAIN;
-       }
-       if (id == SCREEN_MAIN) {
-           return SCREEN_MAIN; // clamp at MAIN
-       }
-       // if somehow in CONFIG while running, go back to MAIN
-       return SCREEN_MAIN;
-   }
-
-   // Not running: LOG -> CONFIG -> MAIN (clamped)
-   if ((int)id <= 0) {
-       return (ScreenId)0;
-   }
-   return (ScreenId)((int)id - 1);
-}
-*/
 static bool navigation_allowed(void) {
     // Navigation disabled while oven is running
     return !oven_is_running();
@@ -287,17 +241,17 @@ void screen_manager_show(ScreenId id) {
     case SCREEN_DBG_HW:
         screen_dbg_hw_set_active_page((uint8_t)id);
         break;
-    case SCREEN_LOG:
-        screen_log_set_active_page((uint8_t)id);
+    case SCREEN_PARAMETERS:
+        screen_parameters_set_active_page((uint8_t)id);
         break;
     default:
         break;
     }
-    UI_INFO("[ScreenManager] screens: main=%p cfg=%p dbg_hw=%p log=%p current:%p\n",
+    UI_INFO("[ScreenManager] screens: main=%p cfg=%p dbg_hw=%p params=%p current:%p\n",
             (void *)s_screens[SCREEN_MAIN],
             (void *)s_screens[SCREEN_CONFIG],
             (void *)s_screens[SCREEN_DBG_HW],
-            (void *)s_screens[SCREEN_LOG]);
+            (void *)s_screens[SCREEN_PARAMETERS]);
 }
 
 void screen_manager_init(lv_obj_t *screen_parent) {
@@ -314,7 +268,7 @@ void screen_manager_init(lv_obj_t *screen_parent) {
     s_screens[SCREEN_MAIN] = screen_main_create(s_app_root);
     s_screens[SCREEN_CONFIG] = screen_config_create(s_app_root);
     s_screens[SCREEN_DBG_HW] = screen_dbg_hw_create(s_app_root);
-    s_screens[SCREEN_LOG] = screen_log_create(s_app_root);
+    s_screens[SCREEN_PARAMETERS] = screen_parameters_create(s_app_root);
     s_screens[SCREEN_BOOT] = screen_boot_create(s_app_root);
 
     /* Hide all initially */
@@ -328,7 +282,7 @@ void screen_manager_init(lv_obj_t *screen_parent) {
     attach_swipe_target(screen_main_get_swipe_target());
     attach_swipe_target(screen_config_get_swipe_target());
     attach_swipe_target(screen_dbg_hw_get_swipe_target());
-    attach_swipe_target(screen_log_get_swipe_target());
+    attach_swipe_target(screen_parameters_get_swipe_target());
 
     /* Default screen after boot */
     screen_manager_show(SCREEN_BOOT);

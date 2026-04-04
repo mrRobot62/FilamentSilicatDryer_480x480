@@ -246,8 +246,7 @@ void loop() {
         case SCREEN_DBG_HW:
             screen_dbg_hw_update_runtime(&st);
             break;
-        case SCREEN_LOG:
-            // not implemented yed
+        case SCREEN_PARAMETERS:
             break;
         case SCREEN_BOOT:
             break;
