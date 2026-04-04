@@ -219,11 +219,12 @@ static bool compute_heater_effective(bool requestOn) {
 }
 
 // T16.Host.1.1 uses HEATER_MIN_ON_MS / HEATER_MIN_OFF_MS above.
+static constexpr uint16_t kDefaultPresetIndex = 3; // ASA
 
 static OvenProfile currentProfile = {
-    .durationMinutes = 60,
-    .targetTemperature = 45.0f,
-    .filamentId = 0};
+    .durationMinutes = 300,
+    .targetTemperature = 82.5f,
+    .filamentId = kDefaultPresetIndex};
 
 static PostConfig g_currentPostPlan = {false, 0, PostFanMode::FAST};
 
@@ -232,12 +233,12 @@ static PostConfig g_currentPostPlan = {false, 0, PostFanMode::FAST};
 // =============================================================================
 
 static OvenRuntimeState runtimeState = {
-    .durationMinutes = 60,
-    .secondsRemaining = 60 * 60,
+    .durationMinutes = 300,
+    .secondsRemaining = 300 * 60,
 
     .tempCurrent = 25.0f,
     .tempChamberC = 25.0f,
-    .tempTarget = 40.0f,
+    .tempTarget = 82.5f,
     .tempToleranceC = HOST_HEATER_HYSTERESIS_C,
     .hostOvertempActive = false,
     .safetyCutoffActive = false,
@@ -245,10 +246,10 @@ static OvenRuntimeState runtimeState = {
     .tempChamberValid = false,
     .tempHotspotValid = false,
     .materialClass = HeaterMaterialClass::FILAMENT,
-    .heaterCurveProfile = HeaterCurveProfileId::LOW_45C,
+    .heaterCurveProfile = HeaterCurveProfileId::HIGH_80C,
     .heaterStage = HeaterControlStage::IDLE,
 
-    .filamentId = 0,
+    .filamentId = kDefaultPresetIndex,
 
     .fan12v_on = false,
     .fan230_on = false,
@@ -855,6 +856,7 @@ const FilamentPreset *oven_get_preset(uint16_t index) {
 }
 
 void oven_init(void) {
+    oven_select_preset(kDefaultPresetIndex);
     runtimeState.materialClass = material_class_from_preset_index(currentProfile.filamentId);
     runtimeState.heaterCurveProfile = heater_curve_profile_from_preset_index(currentProfile.filamentId);
     runtimeState.tempToleranceC = active_heater_policy().hysteresisC;

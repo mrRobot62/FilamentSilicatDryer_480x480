@@ -108,6 +108,12 @@ typedef struct main_screen_widgets_t {
     lv_obj_t *label_btn_pause;
 
     // --------------------------------------------------------
+    // Fast preset buttons
+    // --------------------------------------------------------
+    lv_obj_t *btn_fast_preset[4];
+    lv_obj_t *label_fast_preset[4];
+
+    // --------------------------------------------------------
     // Page indicator
     // --------------------------------------------------------
     lv_obj_t *page_indicator_panel;
@@ -157,9 +163,11 @@ static void update_dial_ui(const OvenRuntimeState &state);
 static void update_temp_ui(const OvenRuntimeState &state);
 static void update_actuator_icons(const OvenRuntimeState &state);
 static void update_start_button_ui(void);
+static void update_fast_preset_buttons_ui(void);
 
 static void start_button_event_cb(lv_event_t *e);
 static void pause_button_event_cb(lv_event_t *e);
+static void fast_preset_button_event_cb(lv_event_t *e);
 
 // UI helpers (needed before first use)
 static void ui_set_pause_enabled(bool en);
@@ -222,6 +230,28 @@ static bool g_sim_door_override = false;
 static bool g_sim_door_open = false;
 static bool g_paused_by_door = false;
 
+static constexpr uint16_t kFastPresetSlotCount = 4;
+static uint16_t s_fast_preset_ids[kFastPresetSlotCount] = {5, 4, 3, 6}; // PLA, PETG, ASA, TPU
+static constexpr uint32_t UI_COL_FAST_PRESET_BG_HEX = 0x2A2A2A;
+static constexpr uint32_t UI_COL_FAST_PRESET_BG_ACTIVE_HEX = 0x3A3A3A;
+static constexpr uint32_t UI_COL_FAST_PRESET_BORDER_HEX = 0x5A5A5A;
+static constexpr uint32_t UI_COL_FAST_PRESET_BORDER_ACTIVE_HEX = 0xFFA500;
+static constexpr uint32_t UI_COL_FAST_PRESET_TEXT_HEX = 0xFFFFFF;
+
+static void fast_preset_label_text(uint16_t preset_id, char *buf, size_t buf_size) {
+    if (!buf || buf_size == 0) {
+        return;
+    }
+
+    const FilamentPreset *p = oven_get_preset(preset_id);
+    if (!p || !p->name[0]) {
+        std::snprintf(buf, buf_size, "----");
+        return;
+    }
+
+    std::snprintf(buf, buf_size, "%.5s", p->name);
+}
+
 static void ui_set_pause_bg_hex(uint32_t rgb_hex) {
     if (!ui.btn_pause) {
         return;
@@ -259,6 +289,38 @@ static void pause_button_apply_ui(RunState st, bool door_open) {
             ui_set_pause_bg_hex(UI_COL_PAUSE_WAIT_READY_HEX);
         }
         break;
+    }
+}
+
+static void update_fast_preset_buttons_ui(void) {
+    const bool enabled = (g_run_state == RunState::STOPPED);
+    const uint16_t active_preset = (uint16_t)g_last_runtime.filamentId;
+
+    for (uint16_t i = 0; i < kFastPresetSlotCount; ++i) {
+        lv_obj_t *btn = ui.btn_fast_preset[i];
+        lv_obj_t *label = ui.label_fast_preset[i];
+        if (!btn || !label) {
+            continue;
+        }
+
+        const bool is_active = (s_fast_preset_ids[i] == active_preset);
+        const uint32_t bg_hex = is_active ? UI_COL_FAST_PRESET_BG_ACTIVE_HEX : UI_COL_FAST_PRESET_BG_HEX;
+        const uint32_t border_hex = is_active ? UI_COL_FAST_PRESET_BORDER_ACTIVE_HEX : UI_COL_FAST_PRESET_BORDER_HEX;
+
+        lv_obj_set_style_bg_color(btn, ui_color_from_hex(bg_hex), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_width(btn, is_active ? 2 : 1, LV_PART_MAIN);
+        lv_obj_set_style_border_color(btn, ui_color_from_hex(border_hex), LV_PART_MAIN);
+        lv_obj_set_style_border_opa(btn, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_text_color(label, ui_color_from_hex(UI_COL_FAST_PRESET_TEXT_HEX), LV_PART_MAIN);
+
+        if (enabled) {
+            lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_style_opa(btn, LV_OPA_COVER, LV_PART_MAIN);
+        } else {
+            lv_obj_clear_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_style_opa(btn, LV_OPA_40, LV_PART_MAIN);
+        }
     }
 }
 
@@ -1176,6 +1238,7 @@ void screen_main_update_runtime(const OvenRuntimeState *state) {
     update_start_button_ui();
     screen_main_refresh_from_runtime();
     pause_button_apply_ui(g_run_state, get_effective_door_open(g_last_runtime));
+    update_fast_preset_buttons_ui();
     update_post_visuals(*state);
     update_status_icons(*state);
 
@@ -1647,31 +1710,26 @@ static void create_center_section(lv_obj_t *parent) {
     // --------------------------------------------------------
     // Start/Stop button container (right)
     // --------------------------------------------------------
+    static constexpr lv_coord_t kRightButtonW = UI_SIDE_PADDING;
+    static constexpr lv_coord_t kRightButtonGap = 8;
+    static constexpr lv_coord_t kRightButtonGroupGap = kRightButtonGap * 2;
+    static constexpr lv_coord_t kRightButtonH =
+        (UI_DIAL_SIZE - (4 * kRightButtonGap) - kRightButtonGroupGap) / 6;
+    static constexpr lv_coord_t kFastPresetButtonH = kRightButtonH - 4;
+
     ui.start_button_container = lv_obj_create(ui.center_container);
     lv_obj_clear_flag(ui.start_button_container, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(ui.start_button_container, UI_SIDE_PADDING, UI_DIAL_SIZE);
+    lv_obj_set_size(ui.start_button_container, kRightButtonW, UI_DIAL_SIZE);
     lv_obj_align(ui.start_button_container, LV_ALIGN_RIGHT_MID, -UI_FRAME_PADDING, 0);
     lv_obj_set_style_bg_opa(ui.start_button_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_opa(ui.start_button_container, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_pad_all(ui.start_button_container, 0, 0);
 
     ui.btn_start = lv_btn_create(ui.start_button_container);
-
-    // Stack buttons vertically (START on top, WAIT below)
-    lv_obj_set_flex_flow(ui.start_button_container, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(ui.start_button_container,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(ui.start_button_container, 12, 0); // spacing between buttons
-
-    // Remove all theme styles so we have full control over the button appearance
-    // lv_obj_remove_style_all(ui.btn_start);
-
-    lv_obj_set_size(ui.btn_start, UI_START_BUTTON_SIZE, UI_START_BUTTON_SIZE);
+    lv_obj_set_size(ui.btn_start, kRightButtonW, kRightButtonH);
+    lv_obj_align(ui.btn_start, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_add_event_cb(ui.btn_start, start_button_event_cb, LV_EVENT_CLICKED, nullptr);
 
-    // Base style for START button: solid color, no gradient
-    // lv_obj_remove_style_all(ui.btn_start);
     lv_obj_set_style_radius(ui.btn_start, 8, LV_PART_MAIN);
     lv_obj_set_style_bg_grad_dir(ui.btn_start, LV_GRAD_DIR_NONE, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui.btn_start, ui_color_from_hex(0xFFA500), LV_PART_MAIN);
@@ -1685,20 +1743,43 @@ static void create_center_section(lv_obj_t *parent) {
     // Pause/Wait button (below START)
     // --------------------------------------------------------
     ui.btn_pause = lv_btn_create(ui.start_button_container);
-    lv_obj_set_size(ui.btn_pause, UI_START_BUTTON_SIZE, UI_START_BUTTON_SIZE);
+    lv_obj_set_size(ui.btn_pause, kRightButtonW, kRightButtonH);
+    lv_obj_align(ui.btn_pause, LV_ALIGN_TOP_MID, 0, kRightButtonH + kRightButtonGap);
 
-    // Same look as START in stopped-state for now (we'll bind to state later)
     lv_obj_set_style_radius(ui.btn_pause, 8, LV_PART_MAIN);
     lv_obj_set_style_bg_grad_dir(ui.btn_pause, LV_GRAD_DIR_NONE, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui.btn_pause, ui_color_from_hex(0xFFA500), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui.btn_pause, LV_OPA_COVER, LV_PART_MAIN);
 
     ui.label_btn_pause = lv_label_create(ui.btn_pause);
-    lv_label_set_text(ui.label_btn_pause, "WAIT");
+    lv_label_set_text(ui.label_btn_pause, "PAUSE");
     lv_obj_center(ui.label_btn_pause);
     lv_obj_add_event_cb(ui.btn_pause, pause_button_event_cb, LV_EVENT_CLICKED, nullptr);
-    // Initially disabled (oven not running at boot)
+
+    for (uint16_t i = 0; i < kFastPresetSlotCount; ++i) {
+        const lv_coord_t y = (2 * kRightButtonH) + kRightButtonGap + kRightButtonGroupGap - 4 + (i * (kFastPresetButtonH + kRightButtonGap));
+        ui.btn_fast_preset[i] = lv_btn_create(ui.start_button_container);
+        lv_obj_set_size(ui.btn_fast_preset[i], kRightButtonW, kFastPresetButtonH);
+        lv_obj_align(ui.btn_fast_preset[i], LV_ALIGN_TOP_MID, 0, y);
+        lv_obj_set_style_radius(ui.btn_fast_preset[i], 8, LV_PART_MAIN);
+        lv_obj_set_style_bg_grad_dir(ui.btn_fast_preset[i], LV_GRAD_DIR_NONE, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(ui.btn_fast_preset[i], ui_color_from_hex(UI_COL_FAST_PRESET_BG_HEX), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(ui.btn_fast_preset[i], LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_width(ui.btn_fast_preset[i], 1, LV_PART_MAIN);
+        lv_obj_set_style_border_color(ui.btn_fast_preset[i], ui_color_from_hex(UI_COL_FAST_PRESET_BORDER_HEX), LV_PART_MAIN);
+        lv_obj_set_style_border_opa(ui.btn_fast_preset[i], LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_add_event_cb(ui.btn_fast_preset[i], fast_preset_button_event_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
+
+        ui.label_fast_preset[i] = lv_label_create(ui.btn_fast_preset[i]);
+        char label_buf[8];
+        fast_preset_label_text(s_fast_preset_ids[i], label_buf, sizeof(label_buf));
+        lv_label_set_text(ui.label_fast_preset[i], label_buf);
+        lv_obj_set_style_text_color(ui.label_fast_preset[i], ui_color_from_hex(UI_COL_FAST_PRESET_TEXT_HEX), LV_PART_MAIN);
+        lv_obj_center(ui.label_fast_preset[i]);
+    }
+
     ui_set_pause_enabled(false);
+    update_fast_preset_buttons_ui();
 
     UI_INFO("Needles: MM=%p HH=%p SS=%p\n", ui.needleMM, ui.needleHH, ui.needleSS);
     UI_INFO("MM p0=%d,%d p1=%d,%d\n",
@@ -2339,6 +2420,7 @@ static void start_button_event_cb(lv_event_t *e) {
         }
 
         g_run_state = RunState::STOPPED;
+        update_fast_preset_buttons_ui();
         UI_INFO("OVEN_STOPPED\n");
         return;
     }
@@ -2367,6 +2449,7 @@ static void start_button_event_cb(lv_event_t *e) {
     // deprecated: oven_tick ist ausschließlich für die Zeit zuständig
     // g_countdown_tick = lv_timer_create(countdown_tick_cb, COUNT_TICK_UPDATE_FREQ, &ui);
     pause_button_apply_ui(g_run_state, get_effective_door_open(g_last_runtime));
+    update_fast_preset_buttons_ui();
     UI_INFO("[COUNTDOWN] started: %d seconds\n", g_remaining_seconds);
 }
 
@@ -2397,6 +2480,7 @@ static void pause_button_event_cb(lv_event_t *e) {
 
         pause_button_apply_ui(g_run_state, get_effective_door_open(g_last_runtime));
         update_start_button_ui();
+        update_fast_preset_buttons_ui();
 
         UI_INFO("[WAIT] (pause_button_event_cb) entered\n");
         return;
@@ -2432,10 +2516,36 @@ static void pause_button_event_cb(lv_event_t *e) {
         g_run_state = RunState::RUNNING;
         pause_button_apply_ui(g_run_state, get_effective_door_open(g_last_runtime));
         update_start_button_ui();
+        update_fast_preset_buttons_ui();
 
         UI_INFO("[WAIT] resumed\n");
         return;
     }
+}
+
+static void fast_preset_button_event_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+
+    if (g_run_state != RunState::STOPPED) {
+        UI_INFO("[FAST_PRESET] blocked: run_state=%d\n", (int)g_run_state);
+        return;
+    }
+
+    const uintptr_t slot = (uintptr_t)lv_event_get_user_data(e);
+    if (slot >= kFastPresetSlotCount) {
+        return;
+    }
+
+    const uint16_t preset_id = s_fast_preset_ids[slot];
+    UI_INFO("[FAST_PRESET] slot=%u preset=%u\n", (unsigned)slot, (unsigned)preset_id);
+
+    oven_select_preset(preset_id);
+
+    OvenRuntimeState st{};
+    oven_get_runtime_state(&st);
+    screen_main_update_runtime(&st);
 }
 
 lv_obj_t *screen_main_get_swipe_target(void) {

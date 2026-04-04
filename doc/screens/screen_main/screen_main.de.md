@@ -9,7 +9,7 @@ Diese Struktur ist absichtlich so aufgebaut, dass wir sie später auch für ande
 ## Kurzüberblick
 
 - Oben siehst du Restzeit und Lauf-Fortschritt.
-- In der Mitte bekommst du Status-Icons, den Dial und rechts die beiden Hauptbuttons.
+- In der Mitte bekommst du Status-Icons, den Dial und rechts die komplette Aktionsspalte mit 6 Buttons.
 - Unten siehst du die Temperaturbalken für Ist- und Sollwert.
 - Zwischen Mitte und unten sitzt der Bereich zum Wechseln der Screens.
 
@@ -22,6 +22,8 @@ Der Screen soll dir nicht alle Details gleichzeitig um die Ohren hauen. Er soll 
 3. Welche Aktion solltest du jetzt als Nächstes drücken?
 
 Genau deshalb sind die beiden rechten Buttons besonders wichtig. Der obere Button steuert den Lauf grundsätzlich. Der untere Button steuert Unterbrechen, Fortsetzen oder zeigt dir, warum Fortsetzen gerade nicht geht.
+
+Dazu kommen jetzt vier Fast-Preset-Buttons. Damit kannst du häufig genutzte Filamente direkt aus dem Main Screen laden, ohne erst auf den Preset-Screen zu wechseln.
 
 ## Layout & Bereiche
 
@@ -45,6 +47,9 @@ Genau deshalb sind die beiden rechten Buttons besonders wichtig. Der obere Butto
 
 - oberer Button: `START` oder `STOP`
 - unterer Button: `PAUSE`, `RESUME` oder `CLOSE DOOR`
+- darunter: 4 Fast-Preset-Buttons
+- Default-Belegung: `PLA`, `PETG`, `ASA`, `TPU`
+- die Fast-Presets sind nur im Zustand `STOPPED` aktiv
 
 ### Page / Swipe Zone
 
@@ -54,10 +59,14 @@ Genau deshalb sind die beiden rechten Buttons besonders wichtig. Der obere Butto
 
 ### Bottom
 
-- oberer Temperaturbalken: Chamber-Istwert
-- unterer Temperaturbalken: Sollwert
-- Hotspot-Hinweis über dem oberen Balken
-- Toleranzlinien im unteren Balken
+- oberer Temperaturbalken: Chamber-Istwert in Rot
+- Chamber-Temperatur als weißer Text direkt im roten Balken
+- Hotspot als blauer Marker oberhalb des oberen Balkens
+- Hotspot-Temperatur links neben dem Marker
+- unterer Temperaturbalken: Sollwert in Orange
+- Soll-Temperatur als weißer Text direkt im orangen Balken
+- graue Toleranzlinien im unteren Balken
+- Skala läuft jetzt bis `150 °C`
 
 ## Bedienidee
 
@@ -85,6 +94,23 @@ Darum gilt auf diesem Screen:
 - `PAUSE`: wechselt von `RUNNING` nach `WAIT`
 - `RESUME`: setzt einen pausierten Lauf fort
 - `CLOSE DOOR`: zeigt dir im `WAIT`-Zustand mit offener Tür, dass zuerst die Tür geschlossen werden muss
+
+### Fast-Preset-Buttons
+
+- laden ein Preset direkt in den Main Screen
+- ändern Filament, Zieltemperatur und Laufzeit sofort auf das gewählte Preset
+- sind nur aktiv, wenn der Ofen gerade `STOPPED` ist
+- zeigen den Preset-Namen mit maximal 5 Zeichen
+- können später über einen Config-Screen frei belegt werden
+
+### Aktuelle Default-Belegung
+
+| Slot | Label | Preset |
+|---|---|---|
+| `1` | `PLA` | PLA |
+| `2` | `PETG` | PETG |
+| `3` | `ASA` | ASA |
+| `4` | `TPU` | TPU |
 
 ## Workflow / States
 
@@ -123,6 +149,14 @@ stateDiagram-v2
 | `RUNNING` | `STOP` | `PAUSE` | rot | orange | Normaler aktiver Betrieb |
 | `WAIT` + Tür offen | `STOP` | `CLOSE DOOR` disabled | rot | rot | System wartet sicher, Fortsetzen ist blockiert |
 | `WAIT` + Tür geschlossen | `STOP` | `RESUME` | rot | grün | Lauf kann direkt fortgesetzt werden |
+
+### Fast-Preset-Verhalten
+
+| Zustand | Fast-Preset-Buttons | Info |
+|---|---|---|
+| `STOPPED` | aktiv | Preset kann direkt geladen werden |
+| `RUNNING` | disabled | Kein Preset-Wechsel während des aktiven Laufs |
+| `WAIT` | disabled | Kein Preset-Wechsel im pausierten Zustand |
 
 ### Tür-Workflow
 
@@ -172,11 +206,13 @@ sequenceDiagram
 - Rot: Stop oder blockierter Sicherheitszustand
 - Grün: sicher fortsetzen möglich
 - Grau: im aktuellen Zustand nicht verfügbar
+- Dunkles Anthrazit: Fast-Preset-Button
+- Heller Rand / Akzent: aktuell ausgewähltes Fast-Preset
 
 ### Temperaturbereich
 
 - Rot: Chamber-Isttemperatur
-- Blau: Hotspot-Hinweis
+- Blau: Hotspot-Marker und Hotspot-Label
 - Orange: Solltemperatur
 - Grau: Toleranzband
 - Weiß: Temperaturwerte als Text im Balken oder neben dem Hotspot-Marker
@@ -194,8 +230,10 @@ sequenceDiagram
 - `screen_main_update_runtime(...)`
 - `update_start_button_ui()`
 - `pause_button_apply_ui(...)`
+- `update_fast_preset_buttons_ui()`
 - `start_button_event_cb(...)`
 - `pause_button_event_cb(...)`
+- `fast_preset_button_event_cb(...)`
 - `countdown_stop_and_set_wait_ui(...)`
 
 ### Relevante Backend-Hooks
@@ -220,6 +258,12 @@ Gute Beispiele:
 - `PAUSE`
 - `RESUME`
 - `CLOSE DOOR`
+
+Bei den Fast-Presets gilt zusätzlich:
+
+- Nur oft genutzte Materialien dort ablegen
+- Labels kurz halten
+- Preset-Wechsel im Lauf blockieren, damit nichts versehentlich kippt
 
 Schwächere Beispiele:
 

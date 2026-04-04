@@ -9,7 +9,7 @@ This structure is intentionally designed so we can reuse it later for other scre
 ## Quick Overview
 
 - At the top, you see remaining time and run progress.
-- In the center, you get status icons, the dial, and the two main buttons on the right.
+- In the center, you get status icons, the dial, and the full 6-button action column on the right.
 - At the bottom, you see the temperature bars for actual and target values.
 - Between center and bottom, you get the screen-switch area.
 
@@ -22,6 +22,8 @@ This screen should not dump every detail on you at once. It should mainly answer
 3. What is the next useful action you can take?
 
 That is why the two buttons on the right matter so much. The upper button controls the run at a high level. The lower button controls pause/resume behavior or tells you why resuming is currently blocked.
+
+On top of that, there are now four fast-preset buttons. They let you load common filament presets directly from the Main Screen without switching to the preset screen first.
 
 ## Layout & Areas
 
@@ -45,6 +47,9 @@ That is why the two buttons on the right matter so much. The upper button contro
 
 - upper button: `START` or `STOP`
 - lower button: `PAUSE`, `RESUME`, or `CLOSE DOOR`
+- below that: 4 fast-preset buttons
+- default assignment: `PLA`, `PETG`, `ASA`, `TPU`
+- fast presets are only active in `STOPPED`
 
 ### Page / Swipe Zone
 
@@ -54,10 +59,14 @@ That is why the two buttons on the right matter so much. The upper button contro
 
 ### Bottom
 
-- upper temperature bar: chamber actual value
-- lower temperature bar: target value
-- hotspot hint above the upper bar
-- tolerance lines inside the lower bar
+- upper temperature bar: chamber actual value in red
+- chamber temperature shown as white text inside the red bar
+- hotspot shown as a blue marker above the upper bar
+- hotspot temperature shown to the left of the marker
+- lower temperature bar: target value in orange
+- target temperature shown as white text inside the orange bar
+- grey tolerance lines inside the lower bar
+- the scale now runs up to `150 °C`
 
 ## Interaction Idea
 
@@ -85,6 +94,23 @@ That is why this screen follows a simple rule:
 - `PAUSE`: switches from `RUNNING` to `WAIT`
 - `RESUME`: continues a paused run
 - `CLOSE DOOR`: tells you that the door must be closed first while the system is in `WAIT`
+
+### Fast-Preset Buttons
+
+- load a preset directly into the Main Screen
+- immediately update filament, target temperature, and runtime to the selected preset
+- are only active while the oven is `STOPPED`
+- show the preset name with a maximum of 5 characters
+- can later be reassigned through a config screen
+
+### Current Default Assignment
+
+| Slot | Label | Preset |
+|---|---|---|
+| `1` | `PLA` | PLA |
+| `2` | `PETG` | PETG |
+| `3` | `ASA` | ASA |
+| `4` | `TPU` | TPU |
 
 ## Workflow / States
 
@@ -123,6 +149,14 @@ stateDiagram-v2
 | `RUNNING` | `STOP` | `PAUSE` | red | orange | Normal active operation |
 | `WAIT` + door open | `STOP` | `CLOSE DOOR` disabled | red | red | System is safely paused, resume is blocked |
 | `WAIT` + door closed | `STOP` | `RESUME` | red | green | Run can continue immediately |
+
+### Fast-Preset Behavior
+
+| State | Fast-Preset Buttons | Info |
+|---|---|---|
+| `STOPPED` | active | Preset can be loaded directly |
+| `RUNNING` | disabled | No preset switching during an active run |
+| `WAIT` | disabled | No preset switching while paused |
 
 ### Door Workflow
 
@@ -172,11 +206,13 @@ sequenceDiagram
 - Red: stop or blocked safety state
 - Green: safe to continue
 - Grey: not available in the current state
+- Dark anthracite: fast-preset button
+- Brighter border / accent: currently selected fast preset
 
 ### Temperature Area
 
 - Red: chamber actual temperature
-- Blue: hotspot hint
+- Blue: hotspot marker and hotspot label
 - Orange: target temperature
 - Grey: tolerance band
 - White: numeric temperature values inside the bars or next to the hotspot marker
@@ -194,8 +230,10 @@ sequenceDiagram
 - `screen_main_update_runtime(...)`
 - `update_start_button_ui()`
 - `pause_button_apply_ui(...)`
+- `update_fast_preset_buttons_ui()`
 - `start_button_event_cb(...)`
 - `pause_button_event_cb(...)`
+- `fast_preset_button_event_cb(...)`
 - `countdown_stop_and_set_wait_ui(...)`
 
 ### Relevant Backend Hooks
@@ -220,6 +258,12 @@ Good examples:
 - `PAUSE`
 - `RESUME`
 - `CLOSE DOOR`
+
+For fast presets, the same idea applies:
+
+- keep only common materials there
+- keep labels short
+- block preset changes while the run is active
 
 Weaker examples:
 
