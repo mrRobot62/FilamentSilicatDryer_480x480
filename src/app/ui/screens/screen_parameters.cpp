@@ -45,6 +45,12 @@ enum HeaterField : uint8_t {
     HEATER_FIELD_OVERSHOOT
 };
 
+enum ConfirmAction : uint8_t {
+    CONFIRM_ACTION_NONE = 0,
+    CONFIRM_ACTION_SAVE,
+    CONFIRM_ACTION_RESET
+};
+
 struct HeaterProfileUiState {
     int16_t targetC;
     int16_t hysteresis_dC;
@@ -57,6 +63,7 @@ static HostParameters s_saved_parameters = {};
 static HostParameters s_edit_parameters = {};
 static bool s_internal_update = false;
 static uint8_t s_selected_heater_profile = 0;
+static ConfirmAction s_confirm_action = CONFIRM_ACTION_NONE;
 
 static inline lv_color_t col_hex(uint32_t hex) { return ui_color_from_hex(hex); }
 
@@ -102,7 +109,7 @@ static void update_heater_field_display(HeaterField field);
 static int16_t clamp_heater_field_value(HeaterField field, int16_t value);
 static int16_t heater_field_step(HeaterField field);
 static void hide_confirm_overlay(void);
-static void show_confirm_overlay(void);
+static void show_confirm_overlay(ConfirmAction action);
 static void save_parameters_and_reboot(const HostParameters &params);
 
 static lv_obj_t *create_group_card(lv_obj_t *parent, const char *title) {
@@ -503,19 +510,19 @@ static void create_confirm_overlay(lv_obj_t *parent) {
     lv_obj_set_size(ui_parameters.btn_confirm_cancel, 120, 42);
     style_small_button(ui_parameters.btn_confirm_cancel, 0x4A4A4A, 10);
     lv_obj_add_event_cb(ui_parameters.btn_confirm_cancel, confirm_cancel_event_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *cancel_label = lv_label_create(ui_parameters.btn_confirm_cancel);
-    lv_label_set_text(cancel_label, "CANCEL");
-    lv_obj_set_style_text_color(cancel_label, lv_color_white(), 0);
-    lv_obj_center(cancel_label);
+    ui_parameters.label_confirm_cancel = lv_label_create(ui_parameters.btn_confirm_cancel);
+    lv_label_set_text(ui_parameters.label_confirm_cancel, "CANCEL");
+    lv_obj_set_style_text_color(ui_parameters.label_confirm_cancel, lv_color_white(), 0);
+    lv_obj_center(ui_parameters.label_confirm_cancel);
 
     ui_parameters.btn_confirm_save = lv_btn_create(button_row);
     lv_obj_set_size(ui_parameters.btn_confirm_save, 120, 42);
     style_small_button(ui_parameters.btn_confirm_save, kColorSave, 10);
     lv_obj_add_event_cb(ui_parameters.btn_confirm_save, confirm_save_event_cb, LV_EVENT_CLICKED, nullptr);
-    lv_obj_t *save_label = lv_label_create(ui_parameters.btn_confirm_save);
-    lv_label_set_text(save_label, "SAVE");
-    lv_obj_set_style_text_color(save_label, lv_color_white(), 0);
-    lv_obj_center(save_label);
+    ui_parameters.label_confirm_save = lv_label_create(ui_parameters.btn_confirm_save);
+    lv_label_set_text(ui_parameters.label_confirm_save, "SAVE");
+    lv_obj_set_style_text_color(ui_parameters.label_confirm_save, lv_color_white(), 0);
+    lv_obj_center(ui_parameters.label_confirm_save);
 }
 
 static void set_info_message(const char *text, uint32_t color_hex) {
@@ -753,14 +760,13 @@ static void spinbox_value_changed_cb(lv_event_t *e) {
 
 static void button_reset_event_cb(lv_event_t *e) {
     LV_UNUSED(e);
-    reset_widgets_to_defaults();
-    save_parameters_and_reboot(s_edit_parameters);
+    show_confirm_overlay(CONFIRM_ACTION_RESET);
 }
 
 static void button_save_event_cb(lv_event_t *e) {
     LV_UNUSED(e);
     sync_shortcut_widgets_to_edit_parameters();
-    show_confirm_overlay();
+    show_confirm_overlay(CONFIRM_ACTION_SAVE);
 }
 
 static void confirm_cancel_event_cb(lv_event_t *e) {
@@ -770,21 +776,54 @@ static void confirm_cancel_event_cb(lv_event_t *e) {
 
 static void confirm_save_event_cb(lv_event_t *e) {
     LV_UNUSED(e);
+    const ConfirmAction action = s_confirm_action;
     hide_confirm_overlay();
-    sync_shortcut_widgets_to_edit_parameters();
-    save_parameters_and_reboot(s_edit_parameters);
+    switch (action) {
+        case CONFIRM_ACTION_SAVE:
+            sync_shortcut_widgets_to_edit_parameters();
+            save_parameters_and_reboot(s_edit_parameters);
+            break;
+        case CONFIRM_ACTION_RESET:
+            reset_widgets_to_defaults();
+            save_parameters_and_reboot(s_edit_parameters);
+            break;
+        case CONFIRM_ACTION_NONE:
+        default:
+            break;
+    }
 }
 
 static void hide_confirm_overlay(void) {
     if (ui_parameters.confirm_overlay) {
         lv_obj_add_flag(ui_parameters.confirm_overlay, LV_OBJ_FLAG_HIDDEN);
     }
+    s_confirm_action = CONFIRM_ACTION_NONE;
 }
 
-static void show_confirm_overlay(void) {
-    if (ui_parameters.confirm_overlay) {
-        lv_obj_clear_flag(ui_parameters.confirm_overlay, LV_OBJ_FLAG_HIDDEN);
+static void show_confirm_overlay(ConfirmAction action) {
+    if (!ui_parameters.confirm_overlay) {
+        return;
     }
+
+    s_confirm_action = action;
+
+    switch (action) {
+        case CONFIRM_ACTION_RESET:
+            lv_label_set_text(ui_parameters.confirm_text, "Werkeinstellungen laden?\nDas System startet danach neu.");
+            lv_label_set_text(ui_parameters.label_confirm_cancel, "NO");
+            lv_label_set_text(ui_parameters.label_confirm_save, "YES");
+            lv_obj_set_style_bg_color(ui_parameters.btn_confirm_save, col_hex(kColorReset), 0);
+            break;
+        case CONFIRM_ACTION_SAVE:
+        default:
+            lv_label_set_text(ui_parameters.confirm_text, "Aktuelle HOST-Parameter speichern?\nDas System startet danach neu.");
+            lv_label_set_text(ui_parameters.label_confirm_cancel, "CANCEL");
+            lv_label_set_text(ui_parameters.label_confirm_save, "SAVE");
+            lv_obj_set_style_bg_color(ui_parameters.btn_confirm_save, col_hex(kColorSave), 0);
+            break;
+    }
+
+    lv_obj_clear_flag(ui_parameters.confirm_overlay, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void save_parameters_and_reboot(const HostParameters &params) {

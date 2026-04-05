@@ -43,11 +43,11 @@ static ScreenId next_id(ScreenId id) {
     }
 
     if (running) {
-        // While running: only MAIN <-> PARAMETERS
-        if (id == SCREEN_MAIN) {
-            return SCREEN_PARAMETERS;
+        // While running: stay on MAIN, but allow leaving PARAMETERS back to MAIN
+        if (id == SCREEN_PARAMETERS) {
+            return SCREEN_MAIN;
         }
-        return SCREEN_PARAMETERS; // clamp
+        return SCREEN_MAIN; // clamp
     }
 
     // Not running: MAIN -> CONFIG -> DBG_HW -> PARAMETERS
@@ -73,7 +73,7 @@ static ScreenId prev_id(ScreenId id) {
     }
 
     if (running) {
-        // While running: only MAIN <-> PARAMETERS
+        // While running: PARAMETERS may return to MAIN, but MAIN cannot enter PARAMETERS
         if (id == SCREEN_PARAMETERS) {
             return SCREEN_MAIN;
         }

@@ -48,6 +48,8 @@ typedef struct parameters_screen_widgets_t {
     lv_obj_t *confirm_text;
     lv_obj_t *btn_confirm_cancel;
     lv_obj_t *btn_confirm_save;
+    lv_obj_t *label_confirm_cancel;
+    lv_obj_t *label_confirm_save;
 
     lv_obj_t *page_indicator_panel;
     lv_obj_t *page_dots[UI_PAGE_COUNT];
