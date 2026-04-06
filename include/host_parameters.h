@@ -7,6 +7,9 @@
 
 static constexpr uint8_t HOST_PARAMETER_SHORTCUT_SLOT_COUNT = 4;
 static constexpr uint8_t HOST_PARAMETER_HEATER_PROFILE_COUNT = 4;
+static constexpr uint8_t HOST_PARAMETER_DISPLAY_DIM_PERCENT_MIN = 5;
+static constexpr uint8_t HOST_PARAMETER_DISPLAY_DIM_PERCENT_MAX = 100;
+static constexpr uint8_t HOST_PARAMETER_DISPLAY_TIMEOUT_MIN_MAX = 30;
 
 typedef struct HostHeaterProfileParameters {
     int16_t targetC;
@@ -19,6 +22,8 @@ typedef struct HostHeaterProfileParameters {
 typedef struct HostParameters {
     uint16_t shortcutPresetIds[HOST_PARAMETER_SHORTCUT_SLOT_COUNT];
     HostHeaterProfileParameters heaterProfiles[HOST_PARAMETER_HEATER_PROFILE_COUNT];
+    uint8_t displayDimPercent;
+    uint8_t displayDimTimeoutMin;
 } HostParameters;
 
 void host_parameters_init(void);

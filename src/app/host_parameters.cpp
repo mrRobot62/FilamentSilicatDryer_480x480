@@ -7,7 +7,7 @@ namespace {
 
 static constexpr const char *kNvsNamespace = "host-params";
 static constexpr const char *kBlobKey = "cfg";
-static constexpr uint16_t kVersion = 1;
+static constexpr uint16_t kVersion = 2;
 
 typedef struct HostParametersBlob {
     uint16_t version;
@@ -47,6 +47,13 @@ static bool validate_params(const HostParameters &params) {
             return false;
         }
     }
+    if (params.displayDimPercent < HOST_PARAMETER_DISPLAY_DIM_PERCENT_MIN ||
+        params.displayDimPercent > HOST_PARAMETER_DISPLAY_DIM_PERCENT_MAX) {
+        return false;
+    }
+    if (params.displayDimTimeoutMin > HOST_PARAMETER_DISPLAY_TIMEOUT_MIN_MAX) {
+        return false;
+    }
     return true;
 }
 
@@ -64,6 +71,8 @@ void host_parameters_get_defaults(HostParameters *out) {
         {80, 15, 100, 40, 20},
         {100, 25, 100, 25, 30},
     };
+    static constexpr uint8_t kDefaultDisplayDimPercent = 30;
+    static constexpr uint8_t kDefaultDisplayDimTimeoutMin = 10;
 
     for (uint8_t i = 0; i < HOST_PARAMETER_SHORTCUT_SLOT_COUNT; ++i) {
         out->shortcutPresetIds[i] = kDefaultShortcuts[i];
@@ -71,6 +80,8 @@ void host_parameters_get_defaults(HostParameters *out) {
     for (uint8_t i = 0; i < HOST_PARAMETER_HEATER_PROFILE_COUNT; ++i) {
         out->heaterProfiles[i] = kDefaultProfiles[i];
     }
+    out->displayDimPercent = kDefaultDisplayDimPercent;
+    out->displayDimTimeoutMin = kDefaultDisplayDimTimeoutMin;
 }
 
 void host_parameters_init(void) {

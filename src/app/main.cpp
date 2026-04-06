@@ -7,6 +7,7 @@
 // #include "touch.h"
 
 #include "log_core.h"
+#include "display/display_timeout_manager.h"
 #include "host_parameters.h"
 #include "ui.h"
 #include "ui/screens/screen_dbg_hw.h"
@@ -33,6 +34,9 @@ static uint32_t last_tick_ms = 0;
 static uint32_t g_boot_ui_last_ms = 0;
 static uint32_t g_boot_wifi_elapsed_ms = 0;
 static uint8_t g_boot_progress_percent = 0;
+static uint32_t g_display_timeout_arm_ms = 0;
+static bool g_display_timeout_pending_init = false;
+static constexpr uint32_t DISPLAY_TIMEOUT_INIT_DELAY_MS = 1000;
 // Host UART pins on ESP32-S3
 constexpr int HOST_RX_PIN = 2;  // IO02 = relay2
 constexpr int HOST_TX_PIN = 40; // IO40 = relay1
@@ -177,8 +181,17 @@ void setup() {
     pump_boot_ui();
     delay(150);
     pump_boot_ui();
+
     screen_manager_show(SCREEN_MAIN);
     pump_boot_ui();
+
+    OvenRuntimeState initial_state;
+    oven_get_runtime_state(&initial_state);
+    screen_main_update_runtime(&initial_state);
+    pump_boot_ui();
+
+    g_display_timeout_arm_ms = millis();
+    g_display_timeout_pending_init = true;
 }
 
 extern "C" void app_boot_progress_wifi(uint32_t elapsed_ms, uint32_t timeout_ms) {
@@ -217,6 +230,16 @@ void loop() {
     const uint32_t elapsed = now - last_tick_ms;
     last_tick_ms = now;
     lv_tick_inc(elapsed);
+
+    if (g_display_timeout_pending_init &&
+        screen_manager_current() != SCREEN_BOOT &&
+        (now - g_display_timeout_arm_ms) >= DISPLAY_TIMEOUT_INIT_DELAY_MS) {
+        OvenRuntimeState st{};
+        oven_get_runtime_state(&st);
+        display_timeout_init();
+        display_timeout_note_runtime_state(&st);
+        g_display_timeout_pending_init = false;
+    }
 
     // IMPORTANT: Poll UART / protocol frequently (non-blocking)
     oven_comm_poll();
@@ -259,7 +282,11 @@ void loop() {
             screen_main_update_runtime(&st);
             break;
         }
+
+        display_timeout_note_runtime_state(&st);
     }
+
+    display_timeout_tick(now);
 
     // Rendering
     lv_timer_handler();

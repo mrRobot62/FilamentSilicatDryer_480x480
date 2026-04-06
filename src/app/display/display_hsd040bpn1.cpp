@@ -1,4 +1,5 @@
 #include "display/display_hsd040bpn1.h"
+#include "display/display_backlight.h"
 
 // Globale Display-Instanz
 Arduino_RGB_Display *gfx = nullptr;
@@ -67,8 +68,7 @@ bool init_display() {
     // gfx->displayOn();
 
     // --- 5) Backlight ---
-    pinMode(GFX_BL, OUTPUT);
-    digitalWrite(GFX_BL, HIGH);
+    display_backlight_init();
 
     Serial.println(F("[DISPLAY] init_display() OK"));
     return true;
