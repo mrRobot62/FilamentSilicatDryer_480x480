@@ -22,8 +22,11 @@ The new structure reflects the current product split:
 
 ## Recommended next additions
 
-The requested structure is complete for the current start. The next useful additions would be:
+The active structure now covers the current architecture, user operation, installation baseline and release/update baseline.
+
+The next useful additions should be:
 
 - a dedicated manufacturing and wiring guide
 - a test and validation section
-- a release and update workflow section
+- a BOM with validated hardware variants
+- an explicit safety concept and validation chapter

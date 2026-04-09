@@ -54,6 +54,8 @@ Behavior:
 - documentation index: [doc/README.md](doc/README.md)
 - software architecture: [doc/02_software_architecture/README.md](doc/02_software_architecture/README.md)
 - user guide: [doc/03_user_guide/README.md](doc/03_user_guide/README.md)
+- installation and safety: [doc/03_user_guide/01_installation_and_safety.md](doc/03_user_guide/01_installation_and_safety.md)
+- release and update workflow: [doc/03_user_guide/03_release_and_update.md](doc/03_user_guide/03_release_and_update.md)
 
 ## Safety
 
