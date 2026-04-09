@@ -7,6 +7,8 @@
 // #include "touch.h"
 
 #include "log_core.h"
+#include "display/display_timeout_manager.h"
+#include "host_parameters.h"
 #include "ui.h"
 #include "ui/screens/screen_dbg_hw.h"
 #include "ui/screens/screen_boot.h"
@@ -23,11 +25,18 @@
 #include "wifi_net.h"
 #include "wifi_secrets.h"
 
+// The parameters screen increases LVGL redraw depth enough to exceed the
+// Arduino default loopTask stack on ESP32-S3 during screen transitions.
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+
 static uint32_t last_beat = 0;
 static uint32_t last_tick_ms = 0;
 static uint32_t g_boot_ui_last_ms = 0;
 static uint32_t g_boot_wifi_elapsed_ms = 0;
 static uint8_t g_boot_progress_percent = 0;
+static uint32_t g_display_timeout_arm_ms = 0;
+static bool g_display_timeout_pending_init = false;
+static constexpr uint32_t DISPLAY_TIMEOUT_INIT_DELAY_MS = 1000;
 // Host UART pins on ESP32-S3
 constexpr int HOST_RX_PIN = 2;  // IO02 = relay2
 constexpr int HOST_TX_PIN = 40; // IO40 = relay1
@@ -73,9 +82,9 @@ void udp_log_selftest() {
 void setup() {
     Serial.begin(115200);
     oven_comm_init(Serial2, 115200, HOST_RX_PIN, HOST_TX_PIN);
+    host_parameters_init();
     oven_init();
     ui_init();
-    INFO("[MAIN] ui_init() OK\n");
 
     last_tick_ms = millis();
     g_boot_ui_last_ms = last_tick_ms;
@@ -172,8 +181,17 @@ void setup() {
     pump_boot_ui();
     delay(150);
     pump_boot_ui();
+
     screen_manager_show(SCREEN_MAIN);
     pump_boot_ui();
+
+    OvenRuntimeState initial_state;
+    oven_get_runtime_state(&initial_state);
+    screen_main_update_runtime(&initial_state);
+    pump_boot_ui();
+
+    g_display_timeout_arm_ms = millis();
+    g_display_timeout_pending_init = true;
 }
 
 extern "C" void app_boot_progress_wifi(uint32_t elapsed_ms, uint32_t timeout_ms) {
@@ -213,6 +231,16 @@ void loop() {
     last_tick_ms = now;
     lv_tick_inc(elapsed);
 
+    if (g_display_timeout_pending_init &&
+        screen_manager_current() != SCREEN_BOOT &&
+        (now - g_display_timeout_arm_ms) >= DISPLAY_TIMEOUT_INIT_DELAY_MS) {
+        OvenRuntimeState st{};
+        oven_get_runtime_state(&st);
+        display_timeout_init();
+        display_timeout_note_runtime_state(&st);
+        g_display_timeout_pending_init = false;
+    }
+
     // IMPORTANT: Poll UART / protocol frequently (non-blocking)
     oven_comm_poll();
 
@@ -246,8 +274,7 @@ void loop() {
         case SCREEN_DBG_HW:
             screen_dbg_hw_update_runtime(&st);
             break;
-        case SCREEN_LOG:
-            // not implemented yed
+        case SCREEN_PARAMETERS:
             break;
         case SCREEN_BOOT:
             break;
@@ -255,7 +282,11 @@ void loop() {
             screen_main_update_runtime(&st);
             break;
         }
+
+        display_timeout_note_runtime_state(&st);
     }
+
+    display_timeout_tick(now);
 
     // Rendering
     lv_timer_handler();

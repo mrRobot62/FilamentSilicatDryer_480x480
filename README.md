@@ -1,5 +1,8 @@
 # ESP32-S3 Filament & SilicaGel Dryer UI
 
+> English documentation is available in [README_EN.md](README_EN.md).
+> Diese README ist die deutsche Hauptfassung.
+
 ## Management Summary
 
 > [!NOTE]
@@ -38,6 +41,19 @@ von Heizung, Lüftern, Motor und Sensorik wurde unverändert weiterverwendet. Di
 Das Ergebnis ist ein **sicheres, transparentes und erweiterbares System**, das sowohl für den täglichen Betrieb als auch
 für Wartung, Service und Weiterentwicklung geeignet ist.
 
+## Aktueller Release-Stand
+
+- Version: `0.7.1`
+- Fokus:
+  - konfigurierbarer Parameterscreen auf dem HOST
+  - NVM-persistente Fast-Shortcut- und Heater-Curve-Parameter
+  - Display-Timeout mit einstellbarem Dimmfaktor und Wake-on-Touch-Schutz
+
+## Sprache / Language
+
+- Deutsche Hauptfassung: [README.md](README.md)
+- Englische Fassung: [README_EN.md](README_EN.md)
+
 
 > [!WARNING]
 > 
@@ -69,6 +85,22 @@ Link: https://www.amazon.de/Heißluftfritteuse-Emphsism-Heissluftfritteuse-Minib
 
 ### Hardware-Debug 
 Diesen Screen nur mit **"Vorsicht"**  nutzen !
+
+### Parameterscreen
+- Der bisher ungenutzte LOG-Screen wurde durch `Parameter` ersetzt.
+- Der Screen ist vertikal scrollbar und verwaltet hostseitige Grundparameter.
+- Aktuell konfigurierbar:
+  - Filament-Shortcuts fuer die vier Fast-Buttons aus `screen_main`
+  - Heater-Curve-Parameter fuer die Presets `45C`, `60C`, `80C`, `100C`
+  - `Display timeout` mit `Dimmfaktor (%)` und `Dimm-Timeout (min)`
+- `SAVE` und `RESET` schreiben die Werte in das HOST-NVM und fuehren danach einen Reboot aus.
+- Der erste Touch nach einem gedimmten Display hellt nur auf und loest absichtlich keine Funktion aus.
+
+## Dokumentation
+
+- Deutscher Parameterscreen: [doc/screens/screen_parameters.de.md](doc/screens/screen_parameters.de.md)
+- Main-Screen DE: [doc/screens/screen_main/screen_main.de.md](doc/screens/screen_main/screen_main.de.md)
+- Main-Screen EN: [doc/screens/screen_main/screen_main.en.md](doc/screens/screen_main/screen_main.en.md)
 
 ## Installation
 

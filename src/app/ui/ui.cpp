@@ -1,5 +1,6 @@
 
 #include "ui.h"
+#include "display/display_timeout_manager.h"
 #include "screens/screen_main.h"
 #include "screens/screen_manager.h"
 #include "ui_events.h"
@@ -36,6 +37,8 @@ static void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data) {
     LV_UNUSED(indev);
 
     static uint32_t read_counter = 0;
+    static bool last_touched = false;
+    static bool swallow_touch_until_release = false;
     read_counter++;
     // Alle 500 Aufrufe eine Debug-Zeile ausgeben
     if (read_counter % 500 == 0) {
@@ -51,6 +54,21 @@ static void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data) {
     }
 
     if (touched) {
+        if (!last_touched) {
+            if (display_timeout_consume_wake_touch()) {
+                swallow_touch_until_release = true;
+            } else {
+                display_timeout_note_user_activity();
+            }
+        }
+
+        last_touched = true;
+
+        if (swallow_touch_until_release) {
+            data->state = LV_INDEV_STATE_RELEASED;
+            return;
+        }
+
         data->state = LV_INDEV_STATE_PRESSED;
         data->point.x = touch_last_x;
         data->point.y = touch_last_y;
@@ -58,6 +76,8 @@ static void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data) {
         // UI_DBG("[TOUCH] PRESSED at %d, %d\n", data->point.x, data->point.y);
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
+        last_touched = false;
+        swallow_touch_until_release = false;
     }
 }
 
@@ -136,6 +156,8 @@ void ui_init(void) {
     lv_indev_set_type(g_ui.lv_touch_indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(g_ui.lv_touch_indev, my_touch_read);
     lv_indev_set_display(g_ui.lv_touch_indev, g_ui.displayDrv); // auf dieses Display mappen
+    lv_indev_set_long_press_time(g_ui.lv_touch_indev, 350);
+    lv_indev_set_long_press_repeat_time(g_ui.lv_touch_indev, 300);
     UI_INFO("[UI] (6) LVGL input device (touch) created\n");
 
     // 7) UI erzeugen

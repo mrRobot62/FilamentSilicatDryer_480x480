@@ -82,8 +82,8 @@ static inline const lv_font_t *ui_preset_font_s() {
 enum UiPageIndex : uint8_t {
     UI_PAGE_MAIN = 0,
     UI_PAGE_CONFIG = 1,
-    UI_PAGE_LOG = 2,
-    // For now UI_PAGE_COUNT is defined as macro (3)
+    UI_PAGE_PARAMETERS = 3,
+    // UI_PAGE_COUNT is defined in ui_general_screen_constants.h
 };
 
 // Public API

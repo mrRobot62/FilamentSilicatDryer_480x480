@@ -1,4 +1,5 @@
 #include "screen_main.h"
+#include "host_parameters.h"
 #include "../icons/icons_32x32.h"
 // -------------------------------------------------------------------
 //
@@ -181,6 +182,8 @@ static void countdown_stop_and_set_wait_ui(const char *why);
 // --------------------------------------------------------
 static bool g_prev_door_open_eff = false;
 static bool g_prev_host_overtemp = false;
+static bool g_runtime_edges_initialized = false;
+static bool g_status_banner_initialized = false;
 
 bool hostOvertempActive;
 
@@ -252,6 +255,17 @@ static void fast_preset_label_text(uint16_t preset_id, char *buf, size_t buf_siz
     std::snprintf(buf, buf_size, "%.5s", p->name);
 }
 
+static void sync_fast_preset_ids_from_host_parameters(void) {
+    const HostParameters *params = host_parameters_get_cached();
+    if (!params) {
+        return;
+    }
+
+    for (uint16_t i = 0; i < kFastPresetSlotCount; ++i) {
+        s_fast_preset_ids[i] = params->shortcutPresetIds[i];
+    }
+}
+
 static void ui_set_pause_bg_hex(uint32_t rgb_hex) {
     if (!ui.btn_pause) {
         return;
@@ -293,6 +307,8 @@ static void pause_button_apply_ui(RunState st, bool door_open) {
 }
 
 static void update_fast_preset_buttons_ui(void) {
+    sync_fast_preset_ids_from_host_parameters();
+
     const bool enabled = (g_run_state == RunState::STOPPED);
     const uint16_t active_preset = (uint16_t)g_last_runtime.filamentId;
 
@@ -302,6 +318,10 @@ static void update_fast_preset_buttons_ui(void) {
         if (!btn || !label) {
             continue;
         }
+
+        char label_buf[8];
+        fast_preset_label_text(s_fast_preset_ids[i], label_buf, sizeof(label_buf));
+        lv_label_set_text(label, label_buf);
 
         const bool is_active = (s_fast_preset_ids[i] == active_preset);
         const uint32_t bg_hex = is_active ? UI_COL_FAST_PRESET_BG_ACTIVE_HEX : UI_COL_FAST_PRESET_BG_HEX;
@@ -1151,6 +1171,13 @@ void screen_main_update_runtime(const OvenRuntimeState *state) {
     static bool last_door_open = false;
     const bool door_open_eff = get_effective_door_open(*state);
 
+    if (!g_runtime_edges_initialized) {
+        last_door_open = door_open_eff;
+        g_prev_door_open_eff = door_open_eff;
+        g_prev_host_overtemp = state->hostOvertempActive;
+        g_runtime_edges_initialized = true;
+    }
+
     if (door_open_eff != last_door_open) {
         UI_INFO("[DOOR] state changed: %d -> %d (run_state=%d mode=%s running=%d)\n",
                 (int)last_door_open, (int)door_open_eff,
@@ -1241,14 +1268,6 @@ void screen_main_update_runtime(const OvenRuntimeState *state) {
     update_fast_preset_buttons_ui();
     update_post_visuals(*state);
     update_status_icons(*state);
-
-    // Initial sync to prevent false edge-events on first update
-    static bool first_runtime_sync = true;
-    if (first_runtime_sync) {
-        g_prev_door_open_eff = door_open_eff;
-        g_prev_host_overtemp = state->hostOvertempActive;
-        first_runtime_sync = false;
-    }
 }
 
 // Public API: page indicator update
@@ -2002,6 +2021,15 @@ static void update_status_icons(const OvenRuntimeState &state) {
 
     static UiStatus s_prev = UiStatus::NONE;
     const UiStatus cur = pick_status(state);
+
+    if (!g_status_banner_initialized) {
+        s_prev = cur;
+        g_status_banner_initialized = true;
+        if (cur == UiStatus::NONE) {
+            screen_main_topbar2_clear_text();
+        }
+        return;
+    }
 
     if (cur == s_prev) {
         return; // no change -> avoid flicker/spam

@@ -21,7 +21,7 @@ typedef struct
 
     lv_obj_t *screenMain = nullptr;
     lv_obj_t *screenConfig = nullptr;
-    lv_obj_t *screenLog = nullptr;
+    lv_obj_t *screenParameters = nullptr;
 
 } UiControls;
 
