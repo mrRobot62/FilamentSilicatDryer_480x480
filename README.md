@@ -1,5 +1,8 @@
 # ESP32-S3 Filament & SilicaGel Dryer UI
 
+> English documentation is available in [README_EN.md](README_EN.md).
+> Diese README ist die deutsche Hauptfassung.
+
 ## Management Summary
 
 > [!NOTE]
@@ -40,11 +43,16 @@ für Wartung, Service und Weiterentwicklung geeignet ist.
 
 ## Aktueller Release-Stand
 
-- Version: `0.7.0`
+- Version: `0.7.1`
 - Fokus:
   - konfigurierbarer Parameterscreen auf dem HOST
   - NVM-persistente Fast-Shortcut- und Heater-Curve-Parameter
   - Display-Timeout mit einstellbarem Dimmfaktor und Wake-on-Touch-Schutz
+
+## Sprache / Language
+
+- Deutsche Hauptfassung: [README.md](README.md)
+- Englische Fassung: [README_EN.md](README_EN.md)
 
 
 > [!WARNING]
@@ -87,6 +95,12 @@ Diesen Screen nur mit **"Vorsicht"**  nutzen !
   - `Display timeout` mit `Dimmfaktor (%)` und `Dimm-Timeout (min)`
 - `SAVE` und `RESET` schreiben die Werte in das HOST-NVM und fuehren danach einen Reboot aus.
 - Der erste Touch nach einem gedimmten Display hellt nur auf und loest absichtlich keine Funktion aus.
+
+## Dokumentation
+
+- Deutscher Parameterscreen: [doc/screens/screen_parameters.de.md](doc/screens/screen_parameters.de.md)
+- Main-Screen DE: [doc/screens/screen_main/screen_main.de.md](doc/screens/screen_main/screen_main.de.md)
+- Main-Screen EN: [doc/screens/screen_main/screen_main.en.md](doc/screens/screen_main/screen_main.en.md)
 
 ## Installation
 
