@@ -5,7 +5,7 @@
 
 ## Current Release
 
-- Version: `0.7.1`
+- Version: `0.7.2`
 - Focus:
   - configurable host-side parameters screen
   - NVM-persistent fast filament shortcuts
@@ -51,9 +51,9 @@ Behavior:
 
 ## Documentation
 
-- German parameters screen doc: [doc/screens/screen_parameters.de.md](doc/screens/screen_parameters.de.md)
-- Main screen DE: [doc/screens/screen_main/screen_main.de.md](doc/screens/screen_main/screen_main.de.md)
-- Main screen EN: [doc/screens/screen_main/screen_main.en.md](doc/screens/screen_main/screen_main.en.md)
+- documentation index: [doc/README.md](doc/README.md)
+- software architecture: [doc/02_software_architecture/README.md](doc/02_software_architecture/README.md)
+- user guide: [doc/03_user_guide/README.md](doc/03_user_guide/README.md)
 
 ## Safety
 

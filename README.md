@@ -43,7 +43,7 @@ für Wartung, Service und Weiterentwicklung geeignet ist.
 
 ## Aktueller Release-Stand
 
-- Version: `0.7.1`
+- Version: `0.7.2`
 - Fokus:
   - konfigurierbarer Parameterscreen auf dem HOST
   - NVM-persistente Fast-Shortcut- und Heater-Curve-Parameter
@@ -98,9 +98,9 @@ Diesen Screen nur mit **"Vorsicht"**  nutzen !
 
 ## Dokumentation
 
-- Deutscher Parameterscreen: [doc/screens/screen_parameters.de.md](doc/screens/screen_parameters.de.md)
-- Main-Screen DE: [doc/screens/screen_main/screen_main.de.md](doc/screens/screen_main/screen_main.de.md)
-- Main-Screen EN: [doc/screens/screen_main/screen_main.en.md](doc/screens/screen_main/screen_main.en.md)
+- Dokumentationsindex: [doc/README.md](doc/README.md)
+- Softwarearchitektur: [doc/02_software_architecture/README.md](doc/02_software_architecture/README.md)
+- User Guide: [doc/03_user_guide/README.md](doc/03_user_guide/README.md)
 
 ## Installation
 
