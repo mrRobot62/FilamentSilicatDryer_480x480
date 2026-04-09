@@ -7,6 +7,14 @@
 - both board targets now use the same UDP logging, CSV logging and client log flags
 - demo loop currently emits logs faster, which makes testing with `udp-viewer` easier
 
+## 0.7.2 - 2026-04-09
+
+- Dokumentation auf Basis des aktuellen `main`-Stands neu strukturiert
+- bisherige Dokumente und Assets in `doc/archive/pre_reorg_v0.7.1/legacy_docs/` archiviert
+- neue aktive Bereiche fuer Hardware, Softwarearchitektur und User Guide aufgebaut
+- Mermaid-Diagramme fuer Host-, Client- und Protokollarchitektur ergänzt
+- README und README_EN auf die neue Dokumentationsstruktur umgestellt
+
 ## 0.7.1 - 2026-04-09
 
 - `feature/small_enhancements` in `main` migriert
