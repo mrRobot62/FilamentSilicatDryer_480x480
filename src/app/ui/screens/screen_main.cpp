@@ -435,7 +435,8 @@ void screen_main_refresh_from_runtime(void) {
     lv_obj_update_layout(ui.dial);
 
     int hh = 0, mm = 0, ss = 0;
-    const bool is_active = (st.mode != OvenMode::STOPPED); // RUNNING or POST or any future active mode
+    const bool delay_waiting = st.delayStartRuntime.active && st.delayStartRuntime.waiting;
+    const bool is_active = (st.mode != OvenMode::STOPPED) || delay_waiting;
 
     if (!is_active) {
         // STOPPED: runtime holds the configured total duration
@@ -452,12 +453,14 @@ void screen_main_refresh_from_runtime(void) {
         lv_bar_set_value(ui.time_bar, 0, LV_ANIM_OFF);
 
     } else {
-        // RUNNING: runtime holds remaining seconds
-        const int rem = (int)st.secondsRemaining;
+        // RUNNING / POST / delayed start: runtime holds remaining seconds
+        const int rem = delay_waiting ? (int)st.delayStartRuntime.delayRemainingSec
+                                      : (int)st.secondsRemaining;
         g_remaining_seconds = (rem < 0) ? 0 : rem;
 
         // If durationMinutes is valid, use it as total; else fall back to remaining
-        int totalSec = (int)st.durationMinutes * 60;
+        int totalSec = delay_waiting ? (int)oven_get_delay_start_seconds()
+                                     : (int)st.durationMinutes * 60;
         if (totalSec <= 0) {
             totalSec = g_remaining_seconds;
         }
@@ -989,6 +992,10 @@ static void preset_name_apply_fit(lv_obj_t *label, const char *text) {
 }
 
 static RunState derive_run_state_from_runtime(const OvenRuntimeState &st) {
+    if (st.delayStartRuntime.active) {
+        return st.delayStartRuntime.paused ? RunState::WAIT : RunState::RUNNING;
+    }
+
     // Single source of truth: st.mode (matches OvenMode enum in oven.h)
     // Expected mapping:
     //   STOPPED  -> OvenMode::STOPPED (0)
@@ -2082,8 +2089,11 @@ static void update_status_icons(const OvenRuntimeState &state) {
 // berechnet Restzeit
 //----------------------------------------------------
 static void update_time_ui(const OvenRuntimeState &state) {
-    const uint32_t totalSeconds = state.durationMinutes * 60;
-    const uint32_t remaining = state.secondsRemaining;
+    const bool delay_waiting = state.delayStartRuntime.active && state.delayStartRuntime.waiting;
+    const uint32_t totalSeconds = delay_waiting ? oven_get_delay_start_seconds()
+                                                : state.durationMinutes * 60;
+    const uint32_t remaining = delay_waiting ? state.delayStartRuntime.delayRemainingSec
+                                             : state.secondsRemaining;
 
     // UI countdown owns the top bar while running (prevents flicker with oven runtime updates)
     if (g_countdown_tick != nullptr) {
@@ -2129,8 +2139,9 @@ static void update_dial_ui(const OvenRuntimeState &state) {
 
     // Preset name (top line)
     if (ui.label_preset_name) {
-        lv_label_set_text(ui.label_preset_name, state.presetName);
-        const char *name = state.presetName;
+        const bool delay_waiting = state.delayStartRuntime.active && state.delayStartRuntime.waiting;
+        const char *name = delay_waiting ? "TIMER" : state.presetName;
+        lv_label_set_text(ui.label_preset_name, name);
 
         const lv_font_t *f = pick_preset_font_for_width(name, max_text_w);
         lv_obj_set_style_text_font(ui.label_preset_name, f, LV_PART_MAIN);
@@ -2150,7 +2161,12 @@ static void update_dial_ui(const OvenRuntimeState &state) {
 
     // Filament id (second line)
     char filament_buf[16];
-    std::snprintf(filament_buf, sizeof(filament_buf), "#%u", (unsigned)state.filamentId);
+    if (state.delayStartRuntime.active && state.delayStartRuntime.waiting) {
+        std::snprintf(filament_buf, sizeof(filament_buf), "%s",
+                      state.delayStartRuntime.paused ? "paused" : "waiting");
+    } else {
+        std::snprintf(filament_buf, sizeof(filament_buf), "#%u", (unsigned)state.filamentId);
+    }
     if (ui.label_preset_id) {
         lv_label_set_text(ui.label_preset_id, filament_buf);
     }
@@ -2453,9 +2469,15 @@ static void start_button_event_cb(lv_event_t *e) {
         return;
     }
     // START from STOPPED
-    oven_start();
-    g_run_state = RunState::RUNNING;
-    UI_INFO("OVEN_STARTED\n");
+    if (!oven_start_or_schedule()) {
+        UI_WARN("[START] start_or_schedule rejected\n");
+        return;
+    }
+
+    OvenRuntimeState st{};
+    oven_get_runtime_state(&st);
+    g_run_state = derive_run_state_from_runtime(st);
+    UI_INFO("OVEN_STARTED_OR_SCHEDULED\n");
     screen_main_refresh_from_runtime();
 
     if (g_remaining_seconds <= 0) {
@@ -2483,6 +2505,25 @@ static void start_button_event_cb(lv_event_t *e) {
 
 static void pause_button_event_cb(lv_event_t *e) {
     LV_UNUSED(e);
+
+    if (g_last_runtime.delayStartRuntime.active && g_last_runtime.delayStartRuntime.waiting) {
+        if (g_last_runtime.delayStartRuntime.paused) {
+            if (!oven_delay_start_resume()) {
+                return;
+            }
+            g_run_state = RunState::RUNNING;
+        } else {
+            if (!oven_delay_start_pause()) {
+                return;
+            }
+            g_run_state = RunState::WAIT;
+        }
+
+        pause_button_apply_ui(g_run_state, false);
+        update_start_button_ui();
+        update_fast_preset_buttons_ui();
+        return;
+    }
 
     // erweitert in T10.1.36b (Schritt 2)
     if (g_run_state == RunState::RUNNING) {

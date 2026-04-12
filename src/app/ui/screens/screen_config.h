@@ -82,6 +82,10 @@ typedef struct config_screen_widgets_t {
     lv_obj_t *roller_drying_temp;
     lv_obj_t *roller_time_hh;
     lv_obj_t *roller_time_mm;
+    lv_obj_t *roller_delay_hh;
+    lv_obj_t *roller_delay_mm;
+    lv_obj_t *roller_cooldown;
+    lv_obj_t *label_delay_summary;
 
     // --------------------------------------------------------
     // Buttons

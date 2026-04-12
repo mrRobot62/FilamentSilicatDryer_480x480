@@ -14,8 +14,12 @@ static void create_bottom_placeholder(lv_obj_t *parent);
 static void temp_roller_event_cb(lv_event_t *e);
 static void hh_roller_event_cb(lv_event_t *e);
 static void mm_roller_event_cb(lv_event_t *e);
+static void delay_hh_roller_event_cb(lv_event_t *e);
+static void delay_mm_roller_event_cb(lv_event_t *e);
+static void cooldown_roller_event_cb(lv_event_t *e);
 
 static void apply_runtime_from_widgets(void);
+static void update_delay_summary_label(void);
 
 static void create_buttons(lv_obj_t *parent);
 static void btn_save_event_cb(lv_event_t *e);
@@ -219,7 +223,8 @@ static void set_roller_value_silent(lv_obj_t *roller, int value) {
 static void load_preset_to_widgets(int preset_index) {
     const FilamentPreset *p = oven_get_preset(preset_index);
     // If stage/testing hasn't created these widgets yet, do nothing.
-    if (!ui_config.roller_drying_temp || !ui_config.roller_time_hh || !ui_config.roller_time_mm) {
+    if (!ui_config.roller_drying_temp || !ui_config.roller_time_hh || !ui_config.roller_time_mm ||
+        !ui_config.roller_delay_hh || !ui_config.roller_delay_mm || !ui_config.roller_cooldown) {
         UI_WARN("[CFG] load_preset_to_widgets skipped (rollers not created)\n");
         return;
     }
@@ -263,11 +268,26 @@ static void load_preset_to_widgets(int preset_index) {
     }
     set_roller_value_silent(ui_config.roller_time_mm, mm5);
 
+    DelayStartConfig delay_cfg{};
+    oven_get_delay_start_config(&delay_cfg);
+    set_roller_value_silent(ui_config.roller_delay_hh, delay_cfg.delayStartHours);
+    set_roller_value_silent(ui_config.roller_delay_mm, delay_cfg.delayStartMinutes / 15);
+
+    int cooldown_step = static_cast<int>(p->cooldownMinutes / 5u);
+    if (cooldown_step < 0) {
+        cooldown_step = 0;
+    }
+    if (cooldown_step > 6) {
+        cooldown_step = 6;
+    }
+    set_roller_value_silent(ui_config.roller_cooldown, cooldown_step);
+    update_delay_summary_label();
+
     // Bottom info message (optional)
     if (ui_config.label_info_message) {
         char buf[64];
-        //        std::snprintf(buf, sizeof(buf), "Loaded preset: %s", p->name);
-        std::snprintf(buf, sizeof(buf), "Loaded preset '%s' %02d:%02d with %3d°C to widgets\n", p->name, hh, mm5, temp);
+        std::snprintf(buf, sizeof(buf), "Loaded preset '%s' %02d:%02d / %3dC / cool %umin\n",
+                      p->name, hh, mm, temp, (unsigned)p->cooldownMinutes);
         lv_label_set_text(ui_config.label_info_message, buf);
         UI_INFO(buf);
     }
@@ -597,6 +617,92 @@ static void create_config_rollers(lv_obj_t *parent) {
     lv_obj_add_event_cb(ui_config.roller_drying_temp, temp_roller_event_cb, LV_EVENT_VALUE_CHANGED, nullptr);
 
     // ------------------------------------------------------------
+    // Zone C: DELAY + COOLDOWN
+    // ------------------------------------------------------------
+    lv_obj_t *zone_c = lv_obj_create(parent);
+    lv_obj_remove_style_all(zone_c);
+    lv_obj_clear_flag(zone_c, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(zone_c, BASE_CENTER_W, kZoneB_H);
+    lv_obj_set_flex_flow(zone_c, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(zone_c,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t *delay_content = nullptr;
+    lv_obj_t *card_delay = create_card(
+        zone_c,
+        kCardW_Small,
+        kCardH,
+        "DELAY START",
+        &delay_content,
+        LV_TEXT_ALIGN_CENTER);
+    if (!delay_content) {
+        delay_content = card_delay;
+    }
+
+    lv_obj_clear_flag(delay_content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_layout(delay_content, LV_LAYOUT_NONE);
+    lv_obj_set_size(delay_content, LV_PCT(100), kRollerH + 24);
+
+    ui_config.roller_delay_hh = lv_roller_create(delay_content);
+    lv_obj_set_size(ui_config.roller_delay_hh, kRollerTimeW, kRollerH);
+    lv_roller_set_visible_row_count(ui_config.roller_delay_hh, 3);
+    style_roller_green(ui_config.roller_delay_hh);
+    lv_obj_align(ui_config.roller_delay_hh, LV_ALIGN_LEFT_MID, 0, -12);
+
+    static char delay_hh_opts[256];
+    delay_hh_opts[0] = '\0';
+    for (int h = 0; h <= 23; ++h) {
+        char line[8];
+        std::snprintf(line, sizeof(line), "%02d\n", h);
+        std::strncat(delay_hh_opts, line, sizeof(delay_hh_opts) - std::strlen(delay_hh_opts) - 1);
+    }
+    size_t len_delay_hh = std::strlen(delay_hh_opts);
+    if (len_delay_hh > 0 && delay_hh_opts[len_delay_hh - 1] == '\n') {
+        delay_hh_opts[len_delay_hh - 1] = '\0';
+    }
+    lv_roller_set_options(ui_config.roller_delay_hh, delay_hh_opts, LV_ROLLER_MODE_NORMAL);
+
+    lv_obj_t *lbl_delay_colon = lv_label_create(delay_content);
+    lv_label_set_text(lbl_delay_colon, ":");
+    lv_obj_set_style_text_color(lbl_delay_colon, lv_color_white(), 0);
+    lv_obj_set_style_text_opa(lbl_delay_colon, LV_OPA_90, 0);
+    lv_obj_align_to(lbl_delay_colon, ui_config.roller_delay_hh, LV_ALIGN_OUT_RIGHT_MID, 6, -12);
+
+    ui_config.roller_delay_mm = lv_roller_create(delay_content);
+    lv_obj_set_size(ui_config.roller_delay_mm, kRollerTimeW, kRollerH);
+    lv_roller_set_visible_row_count(ui_config.roller_delay_mm, 3);
+    style_roller_green(ui_config.roller_delay_mm);
+    lv_obj_align_to(ui_config.roller_delay_mm, lbl_delay_colon, LV_ALIGN_OUT_RIGHT_MID, 6, -12);
+    lv_roller_set_options(ui_config.roller_delay_mm, "00\n15\n30\n45", LV_ROLLER_MODE_NORMAL);
+
+    ui_config.label_delay_summary = lv_label_create(delay_content);
+    lv_label_set_text(ui_config.label_delay_summary, "START IN 00:00");
+    lv_obj_set_width(ui_config.label_delay_summary, LV_PCT(100));
+    lv_obj_set_style_text_color(ui_config.label_delay_summary, lv_color_white(), 0);
+    lv_obj_set_style_text_align(ui_config.label_delay_summary, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_opa(ui_config.label_delay_summary, LV_OPA_70, 0);
+    lv_obj_align(ui_config.label_delay_summary, LV_ALIGN_BOTTOM_MID, 0, 0);
+
+    lv_obj_t *cooldown_content = nullptr;
+    lv_obj_t *card_cooldown = create_card(zone_c, kCardW_Small, kCardH, "COOLDOWN", &cooldown_content);
+    if (!cooldown_content) {
+        cooldown_content = card_cooldown;
+    }
+
+    ui_config.roller_cooldown = lv_roller_create(cooldown_content);
+    lv_obj_set_width(ui_config.roller_cooldown, 90);
+    lv_obj_set_height(ui_config.roller_cooldown, kRollerH);
+    lv_roller_set_visible_row_count(ui_config.roller_cooldown, 3);
+    style_roller_green(ui_config.roller_cooldown);
+    lv_roller_set_options(ui_config.roller_cooldown, "00\n05\n10\n15\n20\n25\n30", LV_ROLLER_MODE_NORMAL);
+
+    lv_obj_add_event_cb(ui_config.roller_delay_hh, delay_hh_roller_event_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_add_event_cb(ui_config.roller_delay_mm, delay_mm_roller_event_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_add_event_cb(ui_config.roller_cooldown, cooldown_roller_event_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+
+    // ------------------------------------------------------------
     // Preload selected preset and load values to widgets
     // ------------------------------------------------------------
     int idx = oven_get_current_preset_index();
@@ -752,11 +858,17 @@ static void btn_clear_event_cb(lv_event_t *e) {
     set_roller_value_silent(ui_config.roller_drying_temp, 0); // -> 20C
     set_roller_value_silent(ui_config.roller_time_hh, 0);
     set_roller_value_silent(ui_config.roller_time_mm, 0);
+    set_roller_value_silent(ui_config.roller_delay_hh, 0);
+    set_roller_value_silent(ui_config.roller_delay_mm, 0);
+    set_roller_value_silent(ui_config.roller_cooldown, 1);
     s_updating_widgets = false;
 
     // Apply neutral runtime
+    oven_select_preset(0);
     oven_set_runtime_temp_target(20);
-    oven_set_runtime_duration_minutes(0);
+    oven_set_delay_start(0, 0, false);
+    oven_set_preset_cooldown_minutes(5);
+    update_delay_summary_label();
 
     if (ui_config.label_info_message) {
         lv_label_set_text(ui_config.label_info_message, "Cleared (runtime)");
@@ -827,6 +939,30 @@ static void hh_roller_event_cb(lv_event_t *e) {
 }
 
 static void mm_roller_event_cb(lv_event_t *e) {
+    (void)e;
+    if (!s_screen_ready || s_updating_widgets) {
+        return;
+    }
+    apply_runtime_from_widgets();
+}
+
+static void delay_hh_roller_event_cb(lv_event_t *e) {
+    (void)e;
+    if (!s_screen_ready || s_updating_widgets) {
+        return;
+    }
+    apply_runtime_from_widgets();
+}
+
+static void delay_mm_roller_event_cb(lv_event_t *e) {
+    (void)e;
+    if (!s_screen_ready || s_updating_widgets) {
+        return;
+    }
+    apply_runtime_from_widgets();
+}
+
+static void cooldown_roller_event_cb(lv_event_t *e) {
     (void)e;
     if (!s_screen_ready || s_updating_widgets) {
         return;
@@ -961,11 +1097,27 @@ static void icons_state_timer_cb(lv_timer_t *t) {
 // -----------------------------------------------------------------------------
 static inline lv_color_t col_hex(uint32_t hex) { return ui_color_from_hex(hex); }
 
+static void update_delay_summary_label(void) {
+    if (!ui_config.label_delay_summary || !ui_config.roller_delay_hh || !ui_config.roller_delay_mm) {
+        return;
+    }
+
+    const int delay_hh = lv_roller_get_selected(ui_config.roller_delay_hh);
+    const int delay_mm = lv_roller_get_selected(ui_config.roller_delay_mm) * 15;
+
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "START IN %02d:%02d", delay_hh, delay_mm);
+    lv_label_set_text(ui_config.label_delay_summary, buf);
+}
+
 static void apply_runtime_from_widgets(void) {
     if (!ui_config.roller_filament_type ||
         !ui_config.roller_time_hh ||
         !ui_config.roller_time_mm ||
-        !ui_config.roller_drying_temp) {
+        !ui_config.roller_drying_temp ||
+        !ui_config.roller_delay_hh ||
+        !ui_config.roller_delay_mm ||
+        !ui_config.roller_cooldown) {
         return;
     }
 
@@ -986,17 +1138,26 @@ static void apply_runtime_from_widgets(void) {
     const int temp_idx = lv_roller_get_selected(ui_config.roller_drying_temp);
     const int temp_c = temp_idx;
 
+    const int delay_hh = lv_roller_get_selected(ui_config.roller_delay_hh);
+    const int delay_mm = lv_roller_get_selected(ui_config.roller_delay_mm) * 15;
+    const int cooldown_min = lv_roller_get_selected(ui_config.roller_cooldown) * 5;
+
     // Apply to runtime only (no persistence)
     oven_set_runtime_duration_minutes((uint16_t)duration_min);
     oven_set_runtime_temp_target((uint16_t)temp_c);
+    oven_set_delay_start((uint8_t)delay_hh, (uint8_t)delay_mm, (delay_hh > 0 || delay_mm > 0));
+    oven_set_preset_cooldown_minutes((uint16_t)cooldown_min);
+    update_delay_summary_label();
 
     if (ui_config.label_info_message) {
-        char buf[64];
-        std::snprintf(buf, sizeof(buf), "Runtime: %dC / %02d:%02d", temp_c, hh, mm);
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "Runtime: %dC / %02d:%02d / delay %02d:%02d / cool %02d",
+                      temp_c, hh, mm, delay_hh, delay_mm, cooldown_min);
         lv_label_set_text(ui_config.label_info_message, buf);
     }
 
-    UI_INFO("[screen_config] runtime updated: temp=%dC duration=%dmin\n", temp_c, duration_min);
+    UI_INFO("[screen_config] runtime updated: temp=%dC duration=%dmin delay=%02d:%02d cooldown=%dmin\n",
+            temp_c, duration_min, delay_hh, delay_mm, cooldown_min);
 }
 
 // -----------------------------------------------------------------------------
