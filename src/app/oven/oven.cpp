@@ -251,6 +251,7 @@ static OvenRuntimeState runtimeState = {
     .heaterStage = HeaterControlStage::IDLE,
 
     .filamentId = kDefaultPresetIndex,
+    .cooldownMinutes = 5,
 
     .fan12v_on = false,
     .fan230_on = false,
@@ -278,10 +279,29 @@ static OvenRuntimeState runtimeState = {
     .running = false,
 
     .post = {false, 0, 0},
+    .delayStart = {false, 0, 0},
+    .delayStartRuntime = {false, false, false, 0},
 
     // Temporary legacy alias
     .tempNtcC = 25.0f,
 };
+
+static uint8_t sanitize_delay_start_minutes(uint8_t minutes) {
+    switch (minutes) {
+    case 0:
+    case 15:
+    case 30:
+    case 45:
+        return minutes;
+    default:
+        return static_cast<uint8_t>((minutes / 15u) * 15u);
+    }
+}
+
+static void sync_post_plan_from_runtime(void) {
+    g_currentPostPlan.active = (runtimeState.cooldownMinutes > 0);
+    g_currentPostPlan.seconds = static_cast<uint16_t>(runtimeState.cooldownMinutes * 60u);
+}
 
 static void runtime_sync_legacy_temperature_aliases() {
     runtimeState.tempCurrent = runtimeState.tempChamberC;
@@ -913,6 +933,7 @@ void oven_init(void) {
     runtimeState.materialClass = material_class_from_preset_index(currentProfile.filamentId);
     runtimeState.heaterCurveProfile = heater_curve_profile_from_preset_index(currentProfile.filamentId);
     runtimeState.tempToleranceC = active_heater_policy().hysteresisC;
+    sync_post_plan_from_runtime();
     runtime_sync_legacy_temperature_aliases();
     runtime_sync_heater_alias();
     OVEN_INFO("[OVEN] Init OK\n");
@@ -1032,8 +1053,10 @@ void oven_select_preset(uint16_t index) {
     runtimeState.heaterCurveProfile = p.heaterCurveProfile;
     runtimeState.tempToleranceC = heater_policy_for_profile(p.heaterCurveProfile).hysteresisC;
     runtimeState.rotaryOn = p.rotaryOn;
+    runtimeState.cooldownMinutes = p.cooldownMinutes;
 
     g_currentPostPlan = p.post;
+    sync_post_plan_from_runtime();
 
     strncpy(runtimeState.presetName, p.name, sizeof(runtimeState.presetName) - 1);
     runtimeState.presetName[sizeof(runtimeState.presetName) - 1] = '\0';
@@ -1186,6 +1209,47 @@ void oven_lamp_toggle_manual(void) {
 // WAIT / RESUME (host-side)
 // =============================================================================
 bool oven_is_waiting(void) { return runtimeState.mode == OvenMode::WAITING; }
+
+void oven_set_delay_start(uint8_t hours, uint8_t minutes, bool enabled) {
+    if (hours > 23u) {
+        hours = 23u;
+    }
+
+    runtimeState.delayStart.enabled = enabled;
+    runtimeState.delayStart.delayStartHours = hours;
+    runtimeState.delayStart.delayStartMinutes = sanitize_delay_start_minutes(minutes);
+
+    OVEN_INFO("[oven_set_delay_start] enabled=%d delay=%02u:%02u\n",
+              enabled ? 1 : 0,
+              (unsigned)runtimeState.delayStart.delayStartHours,
+              (unsigned)runtimeState.delayStart.delayStartMinutes);
+}
+
+void oven_get_delay_start_config(DelayStartConfig *out) {
+    if (!out) {
+        return;
+    }
+
+    *out = runtimeState.delayStart;
+}
+
+uint32_t oven_get_delay_start_seconds(void) {
+    return (static_cast<uint32_t>(runtimeState.delayStart.delayStartHours) * 3600u) +
+           (static_cast<uint32_t>(runtimeState.delayStart.delayStartMinutes) * 60u);
+}
+
+void oven_set_preset_cooldown_minutes(uint16_t minutes) {
+    if (minutes > 30u) {
+        minutes = 30u;
+    }
+
+    minutes = static_cast<uint16_t>((minutes / 5u) * 5u);
+    runtimeState.cooldownMinutes = minutes;
+    sync_post_plan_from_runtime();
+
+    OVEN_INFO("[oven_set_preset_cooldown_minutes] cooldown=%u min\n",
+              (unsigned)runtimeState.cooldownMinutes);
+}
 
 bool oven_is_alive(void) {
     if (g_hostComm != nullptr && g_hostComm->linkSynced()) {
