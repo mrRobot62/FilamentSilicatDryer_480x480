@@ -21,12 +21,14 @@ Der Filament- und SilicaGel-Dryer ersetzt die originale Bedien- und Steuerlogik 
 
 ## Aktueller Release-Stand
 
-- Version: `0.7.2`
+- Version: `0.7.3`
 - Fokus:
   - konfigurierbarer Parameterscreen auf dem `HOST`
   - NVM-persistente Fast-Shortcuts
   - konfigurierbare Heater-Curve-Presets
   - Display-Timeout mit Dimmung und Wake-on-Touch-Schutz
+  - hostseitige Langzeit-CSV-Aggregation `CSV_LR_HOST`
+  - erweiterte aktive Hardware-, Wiring- und BOM-Baseline in der Doku
 
 ## Kritische Sicherheitsregel
 
@@ -64,6 +66,9 @@ Noch im Ausbau:
 
 - Dokumentationsindex: [doc/README.md](doc/README.md)
 - Hardware: [doc/01_reverse_engineering_and_hardware/README.md](doc/01_reverse_engineering_and_hardware/README.md)
+- Hardware-Setup: [doc/01_reverse_engineering_and_hardware/04_hardware_setup.md](doc/01_reverse_engineering_and_hardware/04_hardware_setup.md)
+- Wiring-Baseline: [doc/01_reverse_engineering_and_hardware/05_wiring_baseline.md](doc/01_reverse_engineering_and_hardware/05_wiring_baseline.md)
+- BOM-Baseline: [doc/01_reverse_engineering_and_hardware/06_bom_baseline.md](doc/01_reverse_engineering_and_hardware/06_bom_baseline.md)
 - Softwarearchitektur: [doc/02_software_architecture/README.md](doc/02_software_architecture/README.md)
 - User Guide: [doc/03_user_guide/README.md](doc/03_user_guide/README.md)
 - Installation und Sicherheit: [doc/03_user_guide/01_installation_and_safety.md](doc/03_user_guide/01_installation_and_safety.md)

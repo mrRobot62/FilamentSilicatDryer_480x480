@@ -10,6 +10,7 @@ static constexpr uint8_t HOST_PARAMETER_HEATER_PROFILE_COUNT = 4;
 static constexpr uint8_t HOST_PARAMETER_DISPLAY_DIM_PERCENT_MIN = 5;
 static constexpr uint8_t HOST_PARAMETER_DISPLAY_DIM_PERCENT_MAX = 100;
 static constexpr uint8_t HOST_PARAMETER_DISPLAY_TIMEOUT_MIN_MAX = 30;
+static constexpr uint16_t HOST_PARAMETER_CSV_LONGRUN_INTERVAL_DEFAULT_SEC = 60;
 
 typedef struct HostHeaterProfileParameters {
     int16_t targetC;
@@ -24,6 +25,8 @@ typedef struct HostParameters {
     HostHeaterProfileParameters heaterProfiles[HOST_PARAMETER_HEATER_PROFILE_COUNT];
     uint8_t displayDimPercent;
     uint8_t displayDimTimeoutMin;
+    uint8_t csvLongrunEnabled;
+    uint16_t csvLongrunIntervalSec;
 } HostParameters;
 
 void host_parameters_init(void);
@@ -31,3 +34,4 @@ void host_parameters_get_defaults(HostParameters *out);
 void host_parameters_get(HostParameters *out);
 const HostParameters *host_parameters_get_cached(void);
 bool host_parameters_save(const HostParameters *params);
+bool host_parameters_is_valid_csv_longrun_interval(uint16_t interval_sec);

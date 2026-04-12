@@ -7,7 +7,7 @@ namespace {
 
 static constexpr const char *kNvsNamespace = "host-params";
 static constexpr const char *kBlobKey = "cfg";
-static constexpr uint16_t kVersion = 2;
+static constexpr uint16_t kVersion = 3;
 
 typedef struct HostParametersBlob {
     uint16_t version;
@@ -16,6 +16,8 @@ typedef struct HostParametersBlob {
 
 static HostParameters s_cached_params = {};
 static bool s_initialized = false;
+
+static constexpr uint16_t kCsvLongrunIntervalsSec[] = {10, 30, 60, 300};
 
 static bool validate_profile(const HostHeaterProfileParameters &profile) {
     if (profile.targetC < 30 || profile.targetC > 120) {
@@ -54,6 +56,12 @@ static bool validate_params(const HostParameters &params) {
     if (params.displayDimTimeoutMin > HOST_PARAMETER_DISPLAY_TIMEOUT_MIN_MAX) {
         return false;
     }
+    if (params.csvLongrunEnabled > 1) {
+        return false;
+    }
+    if (!host_parameters_is_valid_csv_longrun_interval(params.csvLongrunIntervalSec)) {
+        return false;
+    }
     return true;
 }
 
@@ -73,6 +81,7 @@ void host_parameters_get_defaults(HostParameters *out) {
     };
     static constexpr uint8_t kDefaultDisplayDimPercent = 30;
     static constexpr uint8_t kDefaultDisplayDimTimeoutMin = 10;
+    static constexpr uint8_t kDefaultCsvLongrunEnabled = 0;
 
     for (uint8_t i = 0; i < HOST_PARAMETER_SHORTCUT_SLOT_COUNT; ++i) {
         out->shortcutPresetIds[i] = kDefaultShortcuts[i];
@@ -82,6 +91,8 @@ void host_parameters_get_defaults(HostParameters *out) {
     }
     out->displayDimPercent = kDefaultDisplayDimPercent;
     out->displayDimTimeoutMin = kDefaultDisplayDimTimeoutMin;
+    out->csvLongrunEnabled = kDefaultCsvLongrunEnabled;
+    out->csvLongrunIntervalSec = HOST_PARAMETER_CSV_LONGRUN_INTERVAL_DEFAULT_SEC;
 }
 
 void host_parameters_init(void) {
@@ -149,4 +160,13 @@ bool host_parameters_save(const HostParameters *params) {
     s_cached_params = *params;
     s_initialized = true;
     return true;
+}
+
+bool host_parameters_is_valid_csv_longrun_interval(uint16_t interval_sec) {
+    for (uint16_t allowed : kCsvLongrunIntervalsSec) {
+        if (allowed == interval_sec) {
+            return true;
+        }
+    }
+    return false;
 }

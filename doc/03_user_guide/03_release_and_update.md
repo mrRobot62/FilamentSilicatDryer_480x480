@@ -13,7 +13,7 @@ The current firmware version is defined in:
 
 At runtime, the visible release identity is composed from:
 
-- semantic version, for example `0.7.2`
+- semantic version, for example `0.7.3`
 - build id derived from git history
 - build date embedded in the firmware
 

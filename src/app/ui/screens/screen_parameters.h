@@ -11,7 +11,7 @@
 static constexpr uint8_t UI_PARAMETER_SHORTCUT_SLOT_COUNT = 4;
 static constexpr uint8_t UI_PARAMETER_HEATER_PROFILE_COUNT = 4;
 static constexpr uint8_t UI_PARAMETER_HEATER_FIELD_COUNT = 5;
-static constexpr uint8_t UI_PARAMETER_DISPLAY_FIELD_COUNT = 2;
+static constexpr uint8_t UI_PARAMETER_DISPLAY_FIELD_COUNT = 4;
 
 typedef struct parameters_screen_widgets_t {
     lv_obj_t *root;
@@ -33,6 +33,7 @@ typedef struct parameters_screen_widgets_t {
     lv_obj_t *group_shortcuts;
     lv_obj_t *group_heater;
     lv_obj_t *group_display_timeout;
+    lv_obj_t *group_csv_longrun;
 
     lv_obj_t *shortcut_button[UI_PARAMETER_SHORTCUT_SLOT_COUNT];
     lv_obj_t *shortcut_roller[UI_PARAMETER_SHORTCUT_SLOT_COUNT];

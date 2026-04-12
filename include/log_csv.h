@@ -46,6 +46,16 @@ struct HOST_LOGIC {
         "[CSV_%s];%u;%d;%d;%d;%d;%d;%d;%d;%u;%u\n";
 };
 
+struct HOST_LONGRUN {
+    static constexpr const char *PREFIX = "LR_HOST";
+
+    // ts;[CSV_LR_HOST];window_s;samples;target_dC;tch_avg;tch_min;tch_max;thot_avg;thot_min;thot_max;
+    // heater_req_on_count;heater_actual_on_count;
+    // door_seen;safety_seen;comm_loss_seen;linksync_loss_seen
+    static constexpr const char *FMT =
+        "[CSV_%s];%u;%u;%ld;%ld;%ld;%ld;%ld;%ld;%ld;%u;%u;%u;%u;%u;%u\n";
+};
+
 } // namespace csv
 
 #ifdef CSV_OUT
@@ -100,6 +110,17 @@ struct HOST_LOGIC {
 #else
 #define CSV_LOG_HOST_LOGIC(...) \
     do {                        \
+    } while (0)
+#endif
+
+#ifdef CSV_OUT
+#define CSV_LOG_HOST_LONGRUN(...)                                                \
+    do {                                                                         \
+        CSV_LOG(csv::HOST_LONGRUN::PREFIX, csv::HOST_LONGRUN::FMT, ##__VA_ARGS__); \
+    } while (0)
+#else
+#define CSV_LOG_HOST_LONGRUN(...) \
+    do {                          \
     } while (0)
 #endif
 

@@ -4,6 +4,12 @@
 
 The current `HOST` uses an ESP32-S3 with a 480x480 touch display stack.
 
+## Reference board image
+
+![ESP32-S3 display PCB](../img/hardware/esp32s3_display_pcb.jpg)
+
+This archived image is the current visual baseline for the `HOST` board family used in the project.
+
 The code base references:
 
 - panel: `HSD040BPN1-A00`

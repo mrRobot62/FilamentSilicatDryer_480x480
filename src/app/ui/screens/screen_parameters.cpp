@@ -47,7 +47,9 @@ enum HeaterField : uint8_t {
 
 enum DisplayField : uint8_t {
     DISPLAY_FIELD_DIM_PERCENT = 0,
-    DISPLAY_FIELD_TIMEOUT_MIN
+    DISPLAY_FIELD_TIMEOUT_MIN,
+    DISPLAY_FIELD_CSV_LONGRUN_ENABLED,
+    DISPLAY_FIELD_CSV_LONGRUN_INTERVAL_SEC
 };
 
 enum ConfirmAction : uint8_t {
@@ -81,6 +83,7 @@ static lv_obj_t *create_group_card(lv_obj_t *parent, const char *title);
 static void create_shortcuts_group(lv_obj_t *parent);
 static void create_heater_group(lv_obj_t *parent);
 static void create_display_timeout_group(lv_obj_t *parent);
+static void create_csv_longrun_group(lv_obj_t *parent);
 static lv_obj_t *create_stepper(lv_obj_t *parent, lv_obj_t **out_value_label,
                                 HeaterField field, lv_coord_t width);
 static lv_obj_t *create_display_stepper(lv_obj_t *parent, lv_obj_t **out_value_label,
@@ -127,6 +130,7 @@ static void format_display_field_value(DisplayField field, int16_t value, char *
 static void update_display_field_display(DisplayField field);
 static int16_t clamp_display_field_value(DisplayField field, int16_t value);
 static int16_t display_field_step(DisplayField field);
+static int16_t cycle_csv_longrun_interval(int16_t current, int8_t direction);
 static void hide_confirm_overlay(void);
 static void show_confirm_overlay(ConfirmAction action);
 static void save_parameters_and_reboot(const HostParameters &params);
@@ -505,6 +509,25 @@ static void create_display_timeout_group(lv_obj_t *parent) {
                              LV_PCT(100));
 }
 
+static void create_csv_longrun_group(lv_obj_t *parent) {
+    ui_parameters.group_csv_longrun = create_group_card(parent, "CSV long-term");
+
+    lv_obj_t *hint = lv_label_create(ui_parameters.group_csv_longrun);
+    lv_label_set_text(hint, "Zusatzliche Host-Aggregation fuer Langzeitmessungen.");
+    lv_obj_set_style_text_color(hint, col_hex(kColorSubtle), 0);
+
+    create_display_field_row(ui_parameters.group_csv_longrun,
+                             "Longrun CSV",
+                             "0 = OFF, 1 = ON.",
+                             DISPLAY_FIELD_CSV_LONGRUN_ENABLED,
+                             LV_PCT(100));
+    create_display_field_row(ui_parameters.group_csv_longrun,
+                             "Intervall (s)",
+                             "Erlaubte Fenster: 10, 30, 60, 300 Sekunden.",
+                             DISPLAY_FIELD_CSV_LONGRUN_INTERVAL_SEC,
+                             LV_PCT(100));
+}
+
 static void create_top_bar(lv_obj_t *parent) {
     ui_parameters.label_title = lv_label_create(parent);
     lv_label_set_text(ui_parameters.label_title, "Parameter");
@@ -533,6 +556,7 @@ static void create_scroll_content(lv_obj_t *parent) {
     create_shortcuts_group(ui_parameters.content_scroll);
     create_heater_group(ui_parameters.content_scroll);
     create_display_timeout_group(ui_parameters.content_scroll);
+    create_csv_longrun_group(ui_parameters.content_scroll);
 }
 
 static void create_page_indicator(lv_obj_t *parent) {
@@ -686,6 +710,10 @@ static int16_t get_display_field_value(const HostParameters &params, DisplayFiel
             return params.displayDimPercent;
         case DISPLAY_FIELD_TIMEOUT_MIN:
             return params.displayDimTimeoutMin;
+        case DISPLAY_FIELD_CSV_LONGRUN_ENABLED:
+            return params.csvLongrunEnabled;
+        case DISPLAY_FIELD_CSV_LONGRUN_INTERVAL_SEC:
+            return static_cast<int16_t>(params.csvLongrunIntervalSec);
     }
     return 0;
 }
@@ -698,6 +726,12 @@ static void set_display_field_value(HostParameters &params, DisplayField field, 
         case DISPLAY_FIELD_TIMEOUT_MIN:
             params.displayDimTimeoutMin = static_cast<uint8_t>(value);
             break;
+        case DISPLAY_FIELD_CSV_LONGRUN_ENABLED:
+            params.csvLongrunEnabled = static_cast<uint8_t>(value);
+            break;
+        case DISPLAY_FIELD_CSV_LONGRUN_INTERVAL_SEC:
+            params.csvLongrunIntervalSec = static_cast<uint16_t>(value);
+            break;
     }
 }
 
@@ -709,6 +743,12 @@ static int16_t clamp_display_field_value(DisplayField field, int16_t value) {
                                                  HOST_PARAMETER_DISPLAY_DIM_PERCENT_MAX));
         case DISPLAY_FIELD_TIMEOUT_MIN:
             return static_cast<int16_t>(LV_CLAMP(0, value, HOST_PARAMETER_DISPLAY_TIMEOUT_MIN_MAX));
+        case DISPLAY_FIELD_CSV_LONGRUN_ENABLED:
+            return static_cast<int16_t>(LV_CLAMP(0, value, 1));
+        case DISPLAY_FIELD_CSV_LONGRUN_INTERVAL_SEC:
+            return host_parameters_is_valid_csv_longrun_interval(static_cast<uint16_t>(value))
+                       ? value
+                       : static_cast<int16_t>(HOST_PARAMETER_CSV_LONGRUN_INTERVAL_DEFAULT_SEC);
     }
     return value;
 }
@@ -719,6 +759,10 @@ static int16_t display_field_step(DisplayField field) {
             return 5;
         case DISPLAY_FIELD_TIMEOUT_MIN:
             return 1;
+        case DISPLAY_FIELD_CSV_LONGRUN_ENABLED:
+            return 1;
+        case DISPLAY_FIELD_CSV_LONGRUN_INTERVAL_SEC:
+            return 0;
     }
     return 1;
 }
@@ -731,7 +775,34 @@ static void format_display_field_value(DisplayField field, int16_t value, char *
         case DISPLAY_FIELD_TIMEOUT_MIN:
             std::snprintf(out, out_size, "%d", static_cast<int>(value));
             break;
+        case DISPLAY_FIELD_CSV_LONGRUN_ENABLED:
+            std::snprintf(out, out_size, "%s", value == 0 ? "OFF" : "ON");
+            break;
+        case DISPLAY_FIELD_CSV_LONGRUN_INTERVAL_SEC:
+            std::snprintf(out, out_size, "%d", static_cast<int>(value));
+            break;
     }
+}
+
+static int16_t cycle_csv_longrun_interval(int16_t current, int8_t direction) {
+    static constexpr int16_t kIntervals[] = {10, 30, 60, 300};
+    static constexpr size_t kCount = sizeof(kIntervals) / sizeof(kIntervals[0]);
+
+    size_t index = 0;
+    for (size_t i = 0; i < kCount; ++i) {
+        if (kIntervals[i] == current) {
+            index = i;
+            break;
+        }
+    }
+
+    if (direction > 0 && index + 1 < kCount) {
+        index++;
+    } else if (direction < 0 && index > 0) {
+        index--;
+    }
+
+    return kIntervals[index];
 }
 
 static void update_display_field_display(DisplayField field) {
@@ -867,7 +938,9 @@ static bool screen_has_unsaved_changes(void) {
         }
     }
     if (s_edit_parameters.displayDimPercent != s_saved_parameters.displayDimPercent ||
-        s_edit_parameters.displayDimTimeoutMin != s_saved_parameters.displayDimTimeoutMin) {
+        s_edit_parameters.displayDimTimeoutMin != s_saved_parameters.displayDimTimeoutMin ||
+        s_edit_parameters.csvLongrunEnabled != s_saved_parameters.csvLongrunEnabled ||
+        s_edit_parameters.csvLongrunIntervalSec != s_saved_parameters.csvLongrunIntervalSec) {
         return true;
     }
     return false;
@@ -945,9 +1018,14 @@ static void spinbox_decrement_event_cb(lv_event_t *e) {
 static void display_increment_event_cb(lv_event_t *e) {
     lv_obj_t *target = static_cast<lv_obj_t *>(lv_event_get_target(e));
     const DisplayField field = static_cast<DisplayField>(reinterpret_cast<uintptr_t>(lv_obj_get_user_data(target)));
-    const int16_t next_value = clamp_display_field_value(field,
-                                                         static_cast<int16_t>(get_display_field_value(s_edit_parameters, field) +
-                                                                              display_field_step(field)));
+    int16_t next_value = 0;
+    if (field == DISPLAY_FIELD_CSV_LONGRUN_INTERVAL_SEC) {
+        next_value = cycle_csv_longrun_interval(get_display_field_value(s_edit_parameters, field), +1);
+    } else {
+        next_value = clamp_display_field_value(field,
+                                               static_cast<int16_t>(get_display_field_value(s_edit_parameters, field) +
+                                                                    display_field_step(field)));
+    }
     set_display_field_value(s_edit_parameters, field, next_value);
     update_display_field_display(field);
     spinbox_value_changed_cb(e);
@@ -956,9 +1034,14 @@ static void display_increment_event_cb(lv_event_t *e) {
 static void display_decrement_event_cb(lv_event_t *e) {
     lv_obj_t *target = static_cast<lv_obj_t *>(lv_event_get_target(e));
     const DisplayField field = static_cast<DisplayField>(reinterpret_cast<uintptr_t>(lv_obj_get_user_data(target)));
-    const int16_t next_value = clamp_display_field_value(field,
-                                                         static_cast<int16_t>(get_display_field_value(s_edit_parameters, field) -
-                                                                              display_field_step(field)));
+    int16_t next_value = 0;
+    if (field == DISPLAY_FIELD_CSV_LONGRUN_INTERVAL_SEC) {
+        next_value = cycle_csv_longrun_interval(get_display_field_value(s_edit_parameters, field), -1);
+    } else {
+        next_value = clamp_display_field_value(field,
+                                               static_cast<int16_t>(get_display_field_value(s_edit_parameters, field) -
+                                                                    display_field_step(field)));
+    }
     set_display_field_value(s_edit_parameters, field, next_value);
     update_display_field_display(field);
     spinbox_value_changed_cb(e);

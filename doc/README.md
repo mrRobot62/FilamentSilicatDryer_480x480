@@ -1,6 +1,6 @@
 # Documentation
 
-This folder was restructured on top of the `v0.7.1` code line.
+This folder reflects the active documentation baseline on top of release `v0.7.3`.
 
 The active documentation is intentionally reduced to three maintained sections:
 
@@ -30,3 +30,13 @@ The next useful additions should be:
 - a test and validation section
 - a BOM with validated hardware variants
 - an explicit safety concept and validation chapter
+
+## Phase-2 hardware documentation status
+
+The active hardware section now also includes:
+
+- a hardware setup baseline
+- a wiring baseline
+- a BOM baseline
+
+These pages intentionally establish the maintained structure first. They should be refined with real photos, exact connector mappings and validated part numbers in the next iterations.

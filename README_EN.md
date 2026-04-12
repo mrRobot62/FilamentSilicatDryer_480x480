@@ -5,12 +5,14 @@
 
 ## Current Release
 
-- Version: `0.7.2`
+- Version: `0.7.3`
 - Focus:
   - configurable host-side parameters screen
   - NVM-persistent fast filament shortcuts
   - configurable heater curve presets on the host
   - display timeout with dimming and wake-on-touch protection
+  - host-side long-term CSV aggregation via `CSV_LR_HOST`
+  - expanded active hardware, wiring and BOM baseline documentation
 
 ## Language
 
@@ -42,6 +44,9 @@ Currently configurable:
 - `Display timeout` with:
   - `Dimmfaktor (%)`
   - `Dimm-Timeout (min)`
+- `CSV long-term` with:
+  - `Longrun CSV` `OFF/ON`
+  - `Intervall (s)` for `10`, `30`, `60`, `300`
 
 Behavior:
 

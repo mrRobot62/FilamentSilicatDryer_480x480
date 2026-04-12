@@ -18,6 +18,34 @@ The reverse-engineering documents archived from the previous structure show a co
 - 230 V loads such as lamp, motor and fan stages are driven through optocoupler / triac style paths
 - the board exposes low-voltage control and status connections that are now driven by the `CLIENT`
 
+## Power board reference images
+
+### Top side with labeled sections
+
+![PowerBoard top side with labels](../img/hardware/powerboard_topside_labeled.png)
+
+This view is currently the most useful reference for:
+
+- identifying the mains-side power section
+- locating the low-voltage control area
+- understanding the physical separation between high-voltage and logic domains
+
+### Bottom side with connector labeling
+
+![PowerBoard bottom side with connector labeling](../img/hardware/powerboard_bottomside_connector.jpeg)
+
+This image is especially relevant for:
+
+- the 12-pin connector area
+- correlating connector pins with the archived reverse-engineering notes
+- future connector-level wiring documentation
+
+### Door-related board area
+
+![PowerBoard door electronics](../img/hardware/powerboard_door_section.png)
+
+This image supports the current interpretation that the door signal is part of the low-voltage safety/control domain and should be documented separately from the actuator outputs.
+
 ## Functional block view
 
 ```mermaid

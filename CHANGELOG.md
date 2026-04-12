@@ -1,11 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.7.3 - 2026-04-12
 
-- added a second PlatformIO environment for `esp32-s3-devkitc-1`
-- moved shared PlatformIO settings into a global `[env]` block
-- both board targets now use the same UDP logging, CSV logging and client log flags
-- demo loop currently emits logs faster, which makes testing with `udp-viewer` easier
+- hostseitige Langzeit-CSV-Aggregation `CSV_LR_HOST` mit `avg/min/max` fuer Kammer- und Hotspot-Temperatur ergaenzt
+- neuer persistenter HOST-Parameterblock fuer `CSV long-term` mit `OFF/ON` und Intervall `10/30/60/300s`
+- Parameterscreen um `CSV long-term` erweitert
+- NVS-Host-Parameterstruktur auf neue Blob-Version fuer Langzeit-CSV erweitert
+- neue Architektur-Doku fuer Langzeit-CSV in `doc/02_software_architecture/04_long_term_csv_sampling.md`
+- aktive Hardware-Doku um Setup-, Wiring- und BOM-Baselines erweitert
+- README, README_EN und aktive Doku-Einstiegspunkte auf den aktuellen Release-Stand angehoben
 
 ## 0.7.2 - 2026-04-09
 

@@ -11,12 +11,12 @@
 #define VERSION_STRINGIFY_IMPL(x) #x
 #define VERSION_STRINGIFY(x) VERSION_STRINGIFY_IMPL(x)
 
-constexpr char HOST_VERSION_SEMVER[] = "0.7.2";
-constexpr char HOST_VERSION_NAME[] = "HOST 0.7.2 - Mainline Release";
-constexpr char HOST_VERSION_DATE[] = "2026-04-09";
+constexpr char HOST_VERSION_SEMVER[] = "0.7.3";
+constexpr char HOST_VERSION_NAME[] = "HOST 0.7.3 - Mainline Release";
+constexpr char HOST_VERSION_DATE[] = "2026-04-12";
 constexpr char HOST_VERSION_BUILD_ID_STR[] = VERSION_STRINGIFY(HOST_VERSION_BUILD_ID);
 
-constexpr char CLIENT_VERSION_SEMVER[] = "0.7.2";
-constexpr char CLIENT_VERSION_NAME[] = "CLIENT 0.7.2 - Mainline Release";
-constexpr char CLIENT_VERSION_DATE[] = "2026-04-09";
+constexpr char CLIENT_VERSION_SEMVER[] = "0.7.3";
+constexpr char CLIENT_VERSION_NAME[] = "CLIENT 0.7.3 - Mainline Release";
+constexpr char CLIENT_VERSION_DATE[] = "2026-04-12";
 constexpr char CLIENT_VERSION_BUILD_ID_STR[] = VERSION_STRINGIFY(CLIENT_VERSION_BUILD_ID);

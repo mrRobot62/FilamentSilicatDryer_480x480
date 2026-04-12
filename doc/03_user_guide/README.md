@@ -10,12 +10,13 @@ Contents:
 
 ## Current release focus
 
-Release `0.7.2` adds or consolidates:
+Release `0.7.3` adds or consolidates:
 
 - configurable parameter screen
 - persistent fast shortcuts
 - persistent heater-curve settings
 - display timeout with dimming and wake-on-touch protection
+- host-side long-term CSV aggregation with configurable longrun interval
 
 ## Current maturity of this section
 

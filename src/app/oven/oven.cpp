@@ -55,6 +55,24 @@ struct FanGateState {
 static HeaterGateState g_heaterGate;
 static FanGateState g_fanGate;
 
+struct HostLongrunAccumulator {
+    uint32_t windowStartMs = 0;
+    uint16_t sampleCount = 0;
+    int64_t chamberSum_dC = 0;
+    int32_t chamberMin_dC = 0;
+    int32_t chamberMax_dC = 0;
+    int64_t hotspotSum_dC = 0;
+    int32_t hotspotMin_dC = 0;
+    int32_t hotspotMax_dC = 0;
+    int32_t target_dC = 0;
+    uint16_t heaterReqOnCount = 0;
+    uint16_t heaterActualOnCount = 0;
+    bool doorOpenSeen = false;
+    bool safetySeen = false;
+    bool commLossSeen = false;
+    bool linkSyncLossSeen = false;
+};
+
 static void thermal_pulse_reset(HeaterGateState &tms) {
     tms.heatPhaseUntilMs = 0;
     tms.restUntilMs = 0;
@@ -101,6 +119,74 @@ static void fan_gate_force_fast(FanGateState &fgs, uint32_t nowMs, uint32_t hold
     if (holdUntilMs > fgs.forceFastUntilMs) {
         fgs.forceFastUntilMs = holdUntilMs;
     }
+}
+
+static HostLongrunAccumulator g_hostLongrunAcc;
+
+static void host_longrun_reset(HostLongrunAccumulator &acc, uint32_t nowMs) {
+    acc = HostLongrunAccumulator{};
+    acc.windowStartMs = nowMs;
+}
+
+static void host_longrun_accumulate(HostLongrunAccumulator &acc,
+                                    const OvenRuntimeState &state,
+                                    uint32_t nowMs) {
+    const int32_t chamber_dC = static_cast<int32_t>(state.tempChamberC * 10.0f);
+    const int32_t hotspot_dC = static_cast<int32_t>(state.tempHotspotC * 10.0f);
+    const int32_t target_dC = static_cast<int32_t>(state.tempTarget * 10.0f);
+
+    if (acc.sampleCount == 0) {
+        acc.windowStartMs = nowMs;
+        acc.target_dC = target_dC;
+        acc.chamberMin_dC = chamber_dC;
+        acc.chamberMax_dC = chamber_dC;
+        acc.hotspotMin_dC = hotspot_dC;
+        acc.hotspotMax_dC = hotspot_dC;
+    } else {
+        acc.chamberMin_dC = min(acc.chamberMin_dC, chamber_dC);
+        acc.chamberMax_dC = max(acc.chamberMax_dC, chamber_dC);
+        acc.hotspotMin_dC = min(acc.hotspotMin_dC, hotspot_dC);
+        acc.hotspotMax_dC = max(acc.hotspotMax_dC, hotspot_dC);
+    }
+
+    acc.sampleCount++;
+    acc.chamberSum_dC += chamber_dC;
+    acc.hotspotSum_dC += hotspot_dC;
+    acc.target_dC = target_dC;
+    acc.heaterReqOnCount += state.heater_request_on ? 1u : 0u;
+    acc.heaterActualOnCount += state.heater_actual_on ? 1u : 0u;
+    acc.doorOpenSeen = acc.doorOpenSeen || state.door_open;
+    acc.safetySeen = acc.safetySeen || state.safetyCutoffActive;
+    acc.commLossSeen = acc.commLossSeen || !state.commAlive;
+    acc.linkSyncLossSeen = acc.linkSyncLossSeen || !state.linkSynced;
+}
+
+static void host_longrun_emit_and_reset(HostLongrunAccumulator &acc,
+                                        uint16_t intervalSec,
+                                        uint32_t nowMs) {
+    if (acc.sampleCount == 0) {
+        host_longrun_reset(acc, nowMs);
+        return;
+    }
+
+    CSV_LOG_HOST_LONGRUN(
+        (unsigned)intervalSec,
+        (unsigned)acc.sampleCount,
+        (long)acc.target_dC,
+        (long)(acc.chamberSum_dC / acc.sampleCount),
+        (long)acc.chamberMin_dC,
+        (long)acc.chamberMax_dC,
+        (long)(acc.hotspotSum_dC / acc.sampleCount),
+        (long)acc.hotspotMin_dC,
+        (long)acc.hotspotMax_dC,
+        (unsigned)acc.heaterReqOnCount,
+        (unsigned)acc.heaterActualOnCount,
+        acc.doorOpenSeen ? 1u : 0u,
+        acc.safetySeen ? 1u : 0u,
+        acc.commLossSeen ? 1u : 0u,
+        acc.linkSyncLossSeen ? 1u : 0u);
+
+    host_longrun_reset(acc, nowMs);
 }
 } // namespace
 
@@ -803,6 +889,26 @@ static int32_t c_to_dC(float tempC) {
     return static_cast<int32_t>(tempC * 10.0f);
 }
 
+static void emit_csv_host_longrun_if_due(const OvenRuntimeState &state) {
+    const HostParameters *params = host_parameters_get_cached();
+    const uint32_t now = millis();
+
+    if (!params || params->csvLongrunEnabled == 0 ||
+        !host_parameters_is_valid_csv_longrun_interval(params->csvLongrunIntervalSec)) {
+        host_longrun_reset(g_hostLongrunAcc, now);
+        return;
+    }
+
+    if (g_hostLongrunAcc.sampleCount > 0) {
+        const uint32_t windowMs = static_cast<uint32_t>(params->csvLongrunIntervalSec) * 1000u;
+        if ((now - g_hostLongrunAcc.windowStartMs) >= windowMs) {
+            host_longrun_emit_and_reset(g_hostLongrunAcc, params->csvLongrunIntervalSec, now);
+        }
+    }
+
+    host_longrun_accumulate(g_hostLongrunAcc, state, now);
+}
+
 static void emit_csv_host_runtime_once_per_second(const OvenRuntimeState &state) {
     static uint32_t lastMs = 0;
     const uint32_t now = millis();
@@ -834,6 +940,8 @@ static void emit_csv_host_runtime_once_per_second(const OvenRuntimeState &state)
         state.linkSynced ? 1 : 0,
         (unsigned)heater_material_class_to_u8(state.materialClass),
         (unsigned)heater_stage_to_u8(state.heaterStage));
+
+    emit_csv_host_longrun_if_due(state);
 }
 
 // =============================================================================
