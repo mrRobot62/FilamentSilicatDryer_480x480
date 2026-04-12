@@ -303,6 +303,13 @@ static void sync_post_plan_from_runtime(void) {
     g_currentPostPlan.seconds = static_cast<uint16_t>(runtimeState.cooldownMinutes * 60u);
 }
 
+static void clear_delay_start_runtime(void) {
+    runtimeState.delayStartRuntime.active = false;
+    runtimeState.delayStartRuntime.waiting = false;
+    runtimeState.delayStartRuntime.paused = false;
+    runtimeState.delayStartRuntime.delayRemainingSec = 0;
+}
+
 static void runtime_sync_legacy_temperature_aliases() {
     runtimeState.tempCurrent = runtimeState.tempChamberC;
     runtimeState.tempNtcC = runtimeState.tempHotspotC;
@@ -947,6 +954,8 @@ void oven_start(void) {
         return;
     }
 
+    clear_delay_start_runtime();
+
     runtimeState.mode = OvenMode::RUNNING;
     runtimeState.running = true;
 
@@ -991,6 +1000,7 @@ void oven_stop(void) {
     runtimeState.running = false;
     runtimeState.heaterStage = HeaterControlStage::IDLE;
     waiting = false;
+    clear_delay_start_runtime();
 
     runtimeState.post.active = false;
     runtimeState.post.secondsRemaining = 0;
@@ -1015,6 +1025,35 @@ void oven_stop(void) {
     comm_send_mask(m);
 
     OVEN_INFO("[oven_stop]\n");
+}
+
+bool oven_start_or_schedule(void) {
+    if (runtimeState.mode == OvenMode::RUNNING ||
+        runtimeState.mode == OvenMode::WAITING ||
+        runtimeState.mode == OvenMode::POST ||
+        runtimeState.delayStartRuntime.active) {
+        return false;
+    }
+
+    if (!runtimeState.delayStart.enabled) {
+        oven_start();
+        return true;
+    }
+
+    const uint32_t delaySeconds = oven_get_delay_start_seconds();
+    if (delaySeconds == 0u) {
+        oven_start();
+        return true;
+    }
+
+    clear_delay_start_runtime();
+    runtimeState.delayStartRuntime.active = true;
+    runtimeState.delayStartRuntime.waiting = true;
+    runtimeState.delayStartRuntime.delayRemainingSec = delaySeconds;
+
+    OVEN_INFO("[oven_start_or_schedule] delayed start armed: %lu sec\n",
+              (unsigned long)delaySeconds);
+    return true;
 }
 
 bool oven_is_running(void) { return runtimeState.mode == OvenMode::RUNNING; }
@@ -1149,6 +1188,22 @@ void oven_tick(void) {
         }
     }
 
+    if (runtimeState.delayStartRuntime.active &&
+        runtimeState.delayStartRuntime.waiting &&
+        !runtimeState.delayStartRuntime.paused) {
+        if (runtimeState.delayStartRuntime.delayRemainingSec > 0) {
+            runtimeState.delayStartRuntime.delayRemainingSec--;
+        }
+
+        if (runtimeState.delayStartRuntime.delayRemainingSec == 0) {
+            runtimeState.delayStartRuntime.active = false;
+            runtimeState.delayStartRuntime.waiting = false;
+            runtimeState.delayStartRuntime.paused = false;
+            OVEN_INFO("[oven_tick] delayed start expired -> RUNNING\n");
+            oven_start();
+        }
+    }
+
     runtimeState.statusRxCount = g_statusRxCount;
     runtimeState.commErrorCount = g_commErrorCount;
 
@@ -1249,6 +1304,36 @@ void oven_set_preset_cooldown_minutes(uint16_t minutes) {
 
     OVEN_INFO("[oven_set_preset_cooldown_minutes] cooldown=%u min\n",
               (unsigned)runtimeState.cooldownMinutes);
+}
+
+bool oven_delay_start_is_active(void) {
+    return runtimeState.delayStartRuntime.active;
+}
+
+bool oven_delay_start_is_waiting(void) {
+    return runtimeState.delayStartRuntime.active && runtimeState.delayStartRuntime.waiting;
+}
+
+bool oven_delay_start_pause(void) {
+    if (!oven_delay_start_is_waiting() || runtimeState.delayStartRuntime.paused) {
+        return false;
+    }
+
+    runtimeState.delayStartRuntime.paused = true;
+    OVEN_INFO("[oven_delay_start_pause] paused at %lu sec\n",
+              (unsigned long)runtimeState.delayStartRuntime.delayRemainingSec);
+    return true;
+}
+
+bool oven_delay_start_resume(void) {
+    if (!oven_delay_start_is_waiting() || !runtimeState.delayStartRuntime.paused) {
+        return false;
+    }
+
+    runtimeState.delayStartRuntime.paused = false;
+    OVEN_INFO("[oven_delay_start_resume] resumed at %lu sec\n",
+              (unsigned long)runtimeState.delayStartRuntime.delayRemainingSec);
+    return true;
 }
 
 bool oven_is_alive(void) {

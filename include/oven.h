@@ -322,6 +322,7 @@ void oven_init(void);
 void oven_tick(void);
 
 void oven_start(void);
+bool oven_start_or_schedule(void);
 void oven_stop(void);
 bool oven_is_running(void);
 bool oven_is_alive(void);
@@ -341,6 +342,10 @@ bool oven_is_waiting(void);
 void oven_set_delay_start(uint8_t hours, uint8_t minutes, bool enabled);
 void oven_get_delay_start_config(DelayStartConfig *out);
 uint32_t oven_get_delay_start_seconds(void);
+bool oven_delay_start_is_active(void);
+bool oven_delay_start_is_waiting(void);
+bool oven_delay_start_pause(void);
+bool oven_delay_start_resume(void);
 void oven_set_preset_cooldown_minutes(uint16_t minutes);
 
 uint16_t oven_get_preset_count(void);
