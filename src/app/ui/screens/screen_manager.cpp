@@ -35,14 +35,24 @@ static constexpr int kSwipeMaxDyPx = 40;
 /* ============================================================================
  * Helpers
  * ==========================================================================*/
+static bool oven_session_active(void) {
+    OvenRuntimeState st{};
+    oven_get_runtime_state(&st);
+
+    return st.delayStartRuntime.active ||
+           st.mode == OvenMode::RUNNING ||
+           st.mode == OvenMode::WAITING ||
+           st.mode == OvenMode::POST;
+}
+
 static ScreenId next_id(ScreenId id) {
-    const bool running = oven_is_running();
+    const bool session_active = oven_session_active();
 
     if (id == SCREEN_BOOT) {
         return SCREEN_MAIN;
     }
 
-    if (running) {
+    if (session_active) {
         // While running: stay on MAIN, but allow leaving PARAMETERS back to MAIN
         if (id == SCREEN_PARAMETERS) {
             return SCREEN_MAIN;
@@ -66,13 +76,13 @@ static ScreenId next_id(ScreenId id) {
 }
 
 static ScreenId prev_id(ScreenId id) {
-    const bool running = oven_is_running();
+    const bool session_active = oven_session_active();
 
     if (id == SCREEN_BOOT) {
         return SCREEN_MAIN;
     }
 
-    if (running) {
+    if (session_active) {
         // While running: PARAMETERS may return to MAIN, but MAIN cannot enter PARAMETERS
         if (id == SCREEN_PARAMETERS) {
             return SCREEN_MAIN;
@@ -96,8 +106,8 @@ static ScreenId prev_id(ScreenId id) {
 }
 
 static bool navigation_allowed(void) {
-    // Navigation disabled while oven is running
-    return !oven_is_running();
+    // Navigation disabled while any active session is in progress.
+    return !oven_session_active();
 }
 
 /* ============================================================================
@@ -210,6 +220,10 @@ void screen_manager_show(ScreenId id) {
     }
     if (!s_screens[id]) {
         return;
+    }
+
+    if (oven_session_active() && id != SCREEN_MAIN && id != SCREEN_BOOT) {
+        id = SCREEN_MAIN;
     }
 
     for (int i = 0; i < SCREEN_COUNT; ++i) {

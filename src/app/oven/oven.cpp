@@ -27,14 +27,14 @@
  * =============================================================================
  */
 
-#include "oven_utils.h" // includes "oven.h"
 #include "host_parameters.h"
+#include "oven_utils.h" // includes "oven.h"
 // =============================================================================
 // Includes
 // =============================================================================
 
-#include <Arduino.h>
 #include "log_csv.h"
+#include <Arduino.h>
 
 static constexpr int16_t TEMP_INVALID_DC = -32768;
 
@@ -287,15 +287,10 @@ static OvenRuntimeState runtimeState = {
 };
 
 static uint8_t sanitize_delay_start_minutes(uint8_t minutes) {
-    switch (minutes) {
-    case 0:
-    case 15:
-    case 30:
-    case 45:
-        return minutes;
-    default:
-        return static_cast<uint8_t>((minutes / 15u) * 15u);
+    if (minutes > 59u) {
+        return 59u;
     }
+    return minutes;
 }
 
 static void sync_post_plan_from_runtime(void) {
@@ -992,7 +987,8 @@ void oven_start(void) {
 }
 
 void oven_stop(void) {
-    if (runtimeState.mode == OvenMode::STOPPED) {
+    if (runtimeState.mode == OvenMode::STOPPED &&
+        !runtimeState.delayStartRuntime.active) {
         return;
     }
 
@@ -1136,10 +1132,10 @@ void oven_tick(void) {
                 runtimeState.secondsRemaining--;
             } else {
                 if (g_currentPostPlan.active && g_currentPostPlan.seconds > 0) {
-    runtimeState.mode = OvenMode::POST;
-    thermal_pulse_reset(g_heaterGate);
-    fan_gate_reset(g_fanGate);
-    runtimeState.running = false;
+                    runtimeState.mode = OvenMode::POST;
+                    thermal_pulse_reset(g_heaterGate);
+                    fan_gate_reset(g_fanGate);
+                    runtimeState.running = false;
 
                     runtimeState.post.active = true;
                     runtimeState.post.secondsRemaining = g_currentPostPlan.seconds;

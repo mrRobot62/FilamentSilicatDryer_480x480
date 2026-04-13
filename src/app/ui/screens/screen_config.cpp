@@ -2,7 +2,7 @@
 #include "../icons/icons_32x32.h"
 #include "screen_base.h"
 
-#define CFG_STAGE 60
+#define CFG_STAGE 999
 
 // -----------------------------------------------------------------------------
 // Forward declarations (local)
@@ -271,7 +271,7 @@ static void load_preset_to_widgets(int preset_index) {
     DelayStartConfig delay_cfg{};
     oven_get_delay_start_config(&delay_cfg);
     set_roller_value_silent(ui_config.roller_delay_hh, delay_cfg.delayStartHours);
-    set_roller_value_silent(ui_config.roller_delay_mm, delay_cfg.delayStartMinutes / 15);
+    set_roller_value_silent(ui_config.roller_delay_mm, delay_cfg.delayStartMinutes);
 
     int cooldown_step = static_cast<int>(p->cooldownMinutes / 5u);
     if (cooldown_step < 0) {
@@ -389,18 +389,24 @@ static void update_icon_colors(void) {
 // -----------------------------------------------------------------------------
 static void create_config_rollers(lv_obj_t *parent) {
 
-    // Root layout for middle container
-    // lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
-    // - only debug
-    lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_OFF);
+    // Root layout for middle container: allow vertical scroll because the
+    // config page now has more content than fits in the visible middle area.
+    lv_obj_add_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(parent, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_ON);
+    lv_obj_set_style_pad_right(parent, 12, 0);
+    lv_obj_set_style_bg_opa(parent, LV_OPA_TRANSP, LV_PART_SCROLLBAR);
+    lv_obj_set_style_width(parent, 6, LV_PART_SCROLLBAR);
+    lv_obj_set_style_radius(parent, LV_RADIUS_CIRCLE, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_color(parent, lv_color_hex(0x6A6A6A), LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_opa(parent, LV_OPA_80, LV_PART_SCROLLBAR);
 
     lv_obj_set_style_bg_opa(parent, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_opa(parent, LV_OPA_TRANSP, 0);
 
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
     // lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     // Fix top clipping + spacing between groups
     // lv_obj_set_style_pad_top(parent, 4, 0);    // war 4
@@ -642,14 +648,22 @@ static void create_config_rollers(lv_obj_t *parent) {
     }
 
     lv_obj_clear_flag(delay_content, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_layout(delay_content, LV_LAYOUT_NONE);
-    lv_obj_set_size(delay_content, LV_PCT(100), kRollerH + 24);
+    lv_obj_set_flex_flow(delay_content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(delay_content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(delay_content, 6, 0);
 
-    ui_config.roller_delay_hh = lv_roller_create(delay_content);
+    lv_obj_t *delay_row = lv_obj_create(delay_content);
+    lv_obj_remove_style_all(delay_row);
+    lv_obj_set_size(delay_row, LV_PCT(100), kRollerH);
+    lv_obj_clear_flag(delay_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(delay_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(delay_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(delay_row, 6, 0);
+
+    ui_config.roller_delay_hh = lv_roller_create(delay_row);
     lv_obj_set_size(ui_config.roller_delay_hh, kRollerTimeW, kRollerH);
     lv_roller_set_visible_row_count(ui_config.roller_delay_hh, 3);
     style_roller_green(ui_config.roller_delay_hh);
-    lv_obj_align(ui_config.roller_delay_hh, LV_ALIGN_LEFT_MID, 0, -12);
 
     static char delay_hh_opts[256];
     delay_hh_opts[0] = '\0';
@@ -664,18 +678,27 @@ static void create_config_rollers(lv_obj_t *parent) {
     }
     lv_roller_set_options(ui_config.roller_delay_hh, delay_hh_opts, LV_ROLLER_MODE_NORMAL);
 
-    lv_obj_t *lbl_delay_colon = lv_label_create(delay_content);
+    lv_obj_t *lbl_delay_colon = lv_label_create(delay_row);
     lv_label_set_text(lbl_delay_colon, ":");
     lv_obj_set_style_text_color(lbl_delay_colon, lv_color_white(), 0);
     lv_obj_set_style_text_opa(lbl_delay_colon, LV_OPA_90, 0);
-    lv_obj_align_to(lbl_delay_colon, ui_config.roller_delay_hh, LV_ALIGN_OUT_RIGHT_MID, 6, -12);
 
-    ui_config.roller_delay_mm = lv_roller_create(delay_content);
+    ui_config.roller_delay_mm = lv_roller_create(delay_row);
     lv_obj_set_size(ui_config.roller_delay_mm, kRollerTimeW, kRollerH);
     lv_roller_set_visible_row_count(ui_config.roller_delay_mm, 3);
     style_roller_green(ui_config.roller_delay_mm);
-    lv_obj_align_to(ui_config.roller_delay_mm, lbl_delay_colon, LV_ALIGN_OUT_RIGHT_MID, 6, -12);
-    lv_roller_set_options(ui_config.roller_delay_mm, "00\n15\n30\n45", LV_ROLLER_MODE_NORMAL);
+    static char delay_mm_opts[256];
+    delay_mm_opts[0] = '\0';
+    for (int m = 0; m <= 59; ++m) {
+        char line[8];
+        std::snprintf(line, sizeof(line), "%02d\n", m);
+        std::strncat(delay_mm_opts, line, sizeof(delay_mm_opts) - std::strlen(delay_mm_opts) - 1);
+    }
+    size_t len_delay_mm = std::strlen(delay_mm_opts);
+    if (len_delay_mm > 0 && delay_mm_opts[len_delay_mm - 1] == '\n') {
+        delay_mm_opts[len_delay_mm - 1] = '\0';
+    }
+    lv_roller_set_options(ui_config.roller_delay_mm, delay_mm_opts, LV_ROLLER_MODE_NORMAL);
 
     ui_config.label_delay_summary = lv_label_create(delay_content);
     lv_label_set_text(ui_config.label_delay_summary, "START IN 00:00");
@@ -1103,7 +1126,7 @@ static void update_delay_summary_label(void) {
     }
 
     const int delay_hh = lv_roller_get_selected(ui_config.roller_delay_hh);
-    const int delay_mm = lv_roller_get_selected(ui_config.roller_delay_mm) * 15;
+    const int delay_mm = lv_roller_get_selected(ui_config.roller_delay_mm);
 
     char buf[32];
     std::snprintf(buf, sizeof(buf), "START IN %02d:%02d", delay_hh, delay_mm);
@@ -1139,7 +1162,7 @@ static void apply_runtime_from_widgets(void) {
     const int temp_c = temp_idx;
 
     const int delay_hh = lv_roller_get_selected(ui_config.roller_delay_hh);
-    const int delay_mm = lv_roller_get_selected(ui_config.roller_delay_mm) * 15;
+    const int delay_mm = lv_roller_get_selected(ui_config.roller_delay_mm);
     const int cooldown_min = lv_roller_get_selected(ui_config.roller_cooldown) * 5;
 
     // Apply to runtime only (no persistence)

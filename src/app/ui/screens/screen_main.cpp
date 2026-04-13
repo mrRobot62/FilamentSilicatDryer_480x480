@@ -1999,6 +1999,8 @@ static void update_status_icons(const OvenRuntimeState &state) {
         LINK_UNSYNCED,
         DOOR_OPEN,
         OVERTEMP,
+        DELAY_PAUSED,
+        DELAY_WAITING,
         WAITING,
         POST_ACTIVE
     };
@@ -2016,6 +2018,12 @@ static void update_status_icons(const OvenRuntimeState &state) {
         }
         if (s.hostOvertempActive) {
             return UiStatus::OVERTEMP;
+        }
+        if (s.delayStartRuntime.active && s.delayStartRuntime.waiting && s.delayStartRuntime.paused) {
+            return UiStatus::DELAY_PAUSED;
+        }
+        if (s.delayStartRuntime.active && s.delayStartRuntime.waiting) {
+            return UiStatus::DELAY_WAITING;
         }
         if (s.mode == OvenMode::WAITING) {
             return UiStatus::WAITING;
@@ -2059,6 +2067,14 @@ static void update_status_icons(const OvenRuntimeState &state) {
 
     case UiStatus::OVERTEMP:
         screen_main_topbar2_show("OVER TEMP - COOLING", UI_COLOR_WHITE_FG_HEX, UI_COLOR_COOLDOWN_HEX, 0);
+        break;
+
+    case UiStatus::DELAY_PAUSED:
+        screen_main_topbar2_show("TIMER PAUSED", UI_COLOR_WHITE_FG_HEX, UI_COLOR_WARNING_HEX, 0);
+        break;
+
+    case UiStatus::DELAY_WAITING:
+        screen_main_topbar2_show("TIMER WAITING", UI_COLOR_WHITE_FG_HEX, UI_COLOR_COOLDOWN_HEX, 0);
         break;
 
     case UiStatus::WAITING:

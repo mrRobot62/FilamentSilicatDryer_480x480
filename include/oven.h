@@ -92,7 +92,7 @@ typedef struct
 {
     bool enabled;
     uint8_t delayStartHours;
-    uint8_t delayStartMinutes; // allowed values for UI: 0, 15, 30, 45
+    uint8_t delayStartMinutes; // 0..59, temporary 1-minute steps for RC1 testing
 } DelayStartConfig;
 
 typedef struct
