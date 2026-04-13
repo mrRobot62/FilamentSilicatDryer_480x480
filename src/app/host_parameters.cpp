@@ -7,7 +7,7 @@ namespace {
 
 static constexpr const char *kNvsNamespace = "host-params";
 static constexpr const char *kBlobKey = "cfg";
-static constexpr uint16_t kVersion = 2;
+static constexpr uint16_t kVersion = 3;
 
 typedef struct HostParametersBlob {
     uint16_t version;
@@ -36,6 +36,22 @@ static bool validate_profile(const HostHeaterProfileParameters &profile) {
     return true;
 }
 
+static bool validate_silica_pulse(const HostSilicaPulseParameters &pulse) {
+    if (pulse.reheatSoakMs < 5000 || pulse.reheatSoakMs > 120000) {
+        return false;
+    }
+    if (pulse.holdPulseMaxMs < 1000 || pulse.holdPulseMaxMs > 30000) {
+        return false;
+    }
+    if (pulse.reheatEnableBelowTarget_dC < 5 || pulse.reheatEnableBelowTarget_dC > 100) {
+        return false;
+    }
+    if (pulse.forceOffBeforeTarget_dC < 5 || pulse.forceOffBeforeTarget_dC > 50) {
+        return false;
+    }
+    return true;
+}
+
 static bool validate_params(const HostParameters &params) {
     for (uint8_t i = 0; i < HOST_PARAMETER_SHORTCUT_SLOT_COUNT; ++i) {
         if (params.shortcutPresetIds[i] >= kPresetCount) {
@@ -46,6 +62,9 @@ static bool validate_params(const HostParameters &params) {
         if (!validate_profile(params.heaterProfiles[i])) {
             return false;
         }
+    }
+    if (!validate_silica_pulse(params.silicaPulse)) {
+        return false;
     }
     if (params.displayDimPercent < HOST_PARAMETER_DISPLAY_DIM_PERCENT_MIN ||
         params.displayDimPercent > HOST_PARAMETER_DISPLAY_DIM_PERCENT_MAX) {
@@ -71,6 +90,12 @@ void host_parameters_get_defaults(HostParameters *out) {
         {80, 15, 100, 40, 20},
         {100, 25, 100, 25, 30},
     };
+    static constexpr HostSilicaPulseParameters kDefaultSilicaPulse = {
+        25000,
+        8000,
+        30,
+        10,
+    };
     static constexpr uint8_t kDefaultDisplayDimPercent = 30;
     static constexpr uint8_t kDefaultDisplayDimTimeoutMin = 10;
 
@@ -80,6 +105,7 @@ void host_parameters_get_defaults(HostParameters *out) {
     for (uint8_t i = 0; i < HOST_PARAMETER_HEATER_PROFILE_COUNT; ++i) {
         out->heaterProfiles[i] = kDefaultProfiles[i];
     }
+    out->silicaPulse = kDefaultSilicaPulse;
     out->displayDimPercent = kDefaultDisplayDimPercent;
     out->displayDimTimeoutMin = kDefaultDisplayDimTimeoutMin;
 }

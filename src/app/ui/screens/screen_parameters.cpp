@@ -36,6 +36,12 @@ static constexpr uint32_t kColorReset = 0xA82020;
 static constexpr uint32_t kColorSubtle = 0xA8A8A8;
 static constexpr uint32_t kColorStepperBg = 0x2A2A2A;
 static constexpr uint32_t kColorStepperBorder = 0x5E5E5E;
+static constexpr uint32_t kColorWarnCardBg = 0x3A2914;
+static constexpr uint32_t kColorWarnCardBorder = 0xB86A1F;
+static constexpr uint32_t kColorWarnText = 0xFFD59A;
+static constexpr uint32_t kColorCautionCardBg = 0x3A1616;
+static constexpr uint32_t kColorCautionCardBorder = 0xC94A4A;
+static constexpr uint32_t kColorCautionText = 0xFFB0B0;
 
 enum HeaterField : uint8_t {
     HEATER_FIELD_TARGET = 0,
@@ -48,6 +54,13 @@ enum HeaterField : uint8_t {
 enum DisplayField : uint8_t {
     DISPLAY_FIELD_DIM_PERCENT = 0,
     DISPLAY_FIELD_TIMEOUT_MIN
+};
+
+enum PulseCurveField : uint8_t {
+    PULSE_FIELD_REHEAT_ENABLE = 0,
+    PULSE_FIELD_REHEAT_SOAK,
+    PULSE_FIELD_HOLD_PULSE_MAX,
+    PULSE_FIELD_FORCE_OFF
 };
 
 enum ConfirmAction : uint8_t {
@@ -81,17 +94,24 @@ static lv_obj_t *create_group_card(lv_obj_t *parent, const char *title);
 static void create_shortcuts_group(lv_obj_t *parent);
 static void create_heater_group(lv_obj_t *parent);
 static void create_display_timeout_group(lv_obj_t *parent);
+static void create_pulse_curve_group(lv_obj_t *parent);
 static lv_obj_t *create_stepper(lv_obj_t *parent, lv_obj_t **out_value_label,
                                 HeaterField field, lv_coord_t width);
 static lv_obj_t *create_display_stepper(lv_obj_t *parent, lv_obj_t **out_value_label,
                                         DisplayField field, lv_coord_t width);
+static lv_obj_t *create_pulse_stepper(lv_obj_t *parent, lv_obj_t **out_value_label,
+                                      PulseCurveField field, lv_coord_t width);
 static lv_obj_t *create_shortcut_roller(lv_obj_t *parent, uint16_t default_value);
 static lv_obj_t *create_heater_profile_roller(lv_obj_t *parent);
 static void create_heater_field_row(lv_obj_t *parent, const char *label_text, const char *hint_text,
                                     HeaterField field, lv_coord_t width);
 static void create_display_field_row(lv_obj_t *parent, const char *label_text, const char *hint_text,
                                      DisplayField field, lv_coord_t width);
+static void create_pulse_field_row(lv_obj_t *parent, const char *label_text, const char *hint_text,
+                                   PulseCurveField field, lv_coord_t width);
 static void create_confirm_overlay(lv_obj_t *parent);
+static void decorate_group_warning(lv_obj_t *card, uint32_t bg_hex, uint32_t border_hex,
+                                   const char *warning_text, uint32_t text_hex);
 
 static void button_reset_event_cb(lv_event_t *e);
 static void button_save_event_cb(lv_event_t *e);
@@ -102,6 +122,8 @@ static void spinbox_increment_event_cb(lv_event_t *e);
 static void spinbox_decrement_event_cb(lv_event_t *e);
 static void display_increment_event_cb(lv_event_t *e);
 static void display_decrement_event_cb(lv_event_t *e);
+static void pulse_increment_event_cb(lv_event_t *e);
+static void pulse_decrement_event_cb(lv_event_t *e);
 static void spinbox_value_changed_cb(lv_event_t *e);
 
 static void reset_widgets_to_defaults(void);
@@ -110,6 +132,7 @@ static void sync_shortcut_widgets_to_edit_parameters(void);
 static void sync_visible_heater_widgets_to_edit_parameters(void);
 static void load_selected_heater_profile_into_widgets(void);
 static void load_display_timeout_widgets(void);
+static void load_pulse_curve_widgets(void);
 static bool screen_has_unsaved_changes(void);
 static void update_save_button_state(void);
 static void set_info_message(const char *text, uint32_t color_hex);
@@ -127,6 +150,12 @@ static void format_display_field_value(DisplayField field, int16_t value, char *
 static void update_display_field_display(DisplayField field);
 static int16_t clamp_display_field_value(DisplayField field, int16_t value);
 static int16_t display_field_step(DisplayField field);
+static int16_t get_pulse_field_value(const HostSilicaPulseParameters &params, PulseCurveField field);
+static void set_pulse_field_value(HostSilicaPulseParameters &params, PulseCurveField field, int16_t value);
+static void format_pulse_field_value(PulseCurveField field, int16_t value, char *out, size_t out_size);
+static void update_pulse_field_display(PulseCurveField field);
+static int16_t clamp_pulse_field_value(PulseCurveField field, int16_t value);
+static int16_t pulse_field_step(PulseCurveField field);
 static void hide_confirm_overlay(void);
 static void show_confirm_overlay(ConfirmAction action);
 static void save_parameters_and_reboot(const HostParameters &params);
@@ -154,6 +183,23 @@ static lv_obj_t *create_group_card(lv_obj_t *parent, const char *title) {
     lv_obj_set_style_text_opa(label, LV_OPA_90, 0);
 
     return card;
+}
+
+static void decorate_group_warning(lv_obj_t *card, uint32_t bg_hex, uint32_t border_hex,
+                                   const char *warning_text, uint32_t text_hex) {
+    if (!card || !warning_text) {
+        return;
+    }
+
+    lv_obj_set_style_bg_color(card, col_hex(bg_hex), 0);
+    lv_obj_set_style_border_color(card, col_hex(border_hex), 0);
+
+    lv_obj_t *warning = lv_label_create(card);
+    lv_label_set_text(warning, warning_text);
+    lv_obj_set_width(warning, LV_PCT(100));
+    lv_obj_set_style_text_color(warning, col_hex(text_hex), 0);
+    lv_obj_set_style_text_opa(warning, LV_OPA_90, 0);
+    lv_obj_set_style_text_align(warning, LV_TEXT_ALIGN_LEFT, 0);
 }
 
 static void style_small_button(lv_obj_t *btn, uint32_t bg_hex, lv_coord_t radius) {
@@ -266,6 +312,63 @@ static lv_obj_t *create_display_stepper(lv_obj_t *parent, lv_obj_t **out_value_l
     style_small_button(btn_plus, kColorStepperBg, 6);
     lv_obj_add_event_cb(btn_plus, display_increment_event_cb, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_event_cb(btn_plus, display_increment_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, nullptr);
+    lv_obj_t *lbl_plus = lv_label_create(btn_plus);
+    lv_label_set_text(lbl_plus, "+");
+    lv_obj_center(lbl_plus);
+
+    lv_obj_set_user_data(btn_minus, reinterpret_cast<void *>(static_cast<uintptr_t>(field)));
+    lv_obj_set_user_data(btn_plus, reinterpret_cast<void *>(static_cast<uintptr_t>(field)));
+
+    if (out_value_label) {
+        *out_value_label = value_label;
+    }
+    return row;
+}
+
+static lv_obj_t *create_pulse_stepper(lv_obj_t *parent, lv_obj_t **out_value_label,
+                                      PulseCurveField field, lv_coord_t width) {
+    const lv_coord_t button_w = kStepperButtonW;
+    const lv_coord_t button_h = kStepperButtonH;
+    const lv_coord_t value_w = width - (2 * button_w) - 8;
+
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(row, width, button_h + 4);
+    lv_obj_set_style_pad_column(row, 4, 0);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t *btn_minus = lv_btn_create(row);
+    lv_obj_set_size(btn_minus, button_w, button_h);
+    style_small_button(btn_minus, kColorStepperBg, 6);
+    lv_obj_add_event_cb(btn_minus, pulse_decrement_event_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(btn_minus, pulse_decrement_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, nullptr);
+    lv_obj_t *lbl_minus = lv_label_create(btn_minus);
+    lv_label_set_text(lbl_minus, "-");
+    lv_obj_center(lbl_minus);
+
+    lv_obj_t *value_box = lv_obj_create(row);
+    lv_obj_remove_style_all(value_box);
+    lv_obj_clear_flag(value_box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(value_box, value_w, button_h + 2);
+    lv_obj_set_style_bg_color(value_box, col_hex(kColorStepperBg), 0);
+    lv_obj_set_style_bg_opa(value_box, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(value_box, 1, 0);
+    lv_obj_set_style_border_color(value_box, col_hex(kColorStepperBorder), 0);
+    lv_obj_set_style_radius(value_box, 6, 0);
+
+    lv_obj_t *value_label = lv_label_create(value_box);
+    lv_label_set_text(value_label, "0");
+    lv_obj_set_style_text_color(value_label, lv_color_white(), 0);
+    lv_obj_set_style_text_align(value_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(value_label);
+
+    lv_obj_t *btn_plus = lv_btn_create(row);
+    lv_obj_set_size(btn_plus, button_w, button_h);
+    style_small_button(btn_plus, kColorStepperBg, 6);
+    lv_obj_add_event_cb(btn_plus, pulse_increment_event_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(btn_plus, pulse_increment_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, nullptr);
     lv_obj_t *lbl_plus = lv_label_create(btn_plus);
     lv_label_set_text(lbl_plus, "+");
     lv_obj_center(lbl_plus);
@@ -429,6 +532,41 @@ static void create_display_field_row(lv_obj_t *parent, const char *label_text, c
     lv_obj_set_style_text_letter_space(hint, 1, 0);
 }
 
+static void create_pulse_field_row(lv_obj_t *parent, const char *label_text, const char *hint_text,
+                                   PulseCurveField field, lv_coord_t width) {
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_width(row, width);
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_row(row, 2, 0);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+
+    lv_obj_t *head = lv_obj_create(row);
+    lv_obj_remove_style_all(head);
+    lv_obj_clear_flag(head, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_width(head, LV_PCT(100));
+    lv_obj_set_height(head, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_column(head, 6, 0);
+    lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(head, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t *label = lv_label_create(head);
+    lv_label_set_text(label, label_text);
+    lv_obj_set_style_text_color(label, col_hex(kColorSubtle), 0);
+
+    create_pulse_stepper(head, &ui_parameters.pulse_value_label[field], field, kStepperWidth);
+
+    lv_obj_t *hint = lv_label_create(row);
+    lv_label_set_text(hint, hint_text);
+    lv_obj_set_width(hint, LV_PCT(100));
+    lv_obj_set_style_text_color(hint, col_hex(0x8C8C8C), 0);
+    lv_obj_set_style_text_opa(hint, LV_OPA_80, 0);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_set_style_text_letter_space(hint, 1, 0);
+}
+
 static lv_obj_t *create_heater_profile_roller(lv_obj_t *parent) {
     lv_obj_t *roller = lv_roller_create(parent);
     lv_obj_set_width(roller, LV_PCT(100));
@@ -452,6 +590,11 @@ static lv_obj_t *create_heater_profile_roller(lv_obj_t *parent) {
 
 static void create_heater_group(lv_obj_t *parent) {
     ui_parameters.group_heater = create_group_card(parent, "Heater-Curve");
+    decorate_group_warning(ui_parameters.group_heater,
+                           kColorWarnCardBg,
+                           kColorWarnCardBorder,
+                           "WARNING: Aenderungen beeinflussen direkt das Heizverhalten.",
+                           kColorWarnText);
 
     lv_obj_t *hint = lv_label_create(ui_parameters.group_heater);
     lv_label_set_text(hint, "Preset-Kennwerte fuer 45/60/80/100");
@@ -505,6 +648,40 @@ static void create_display_timeout_group(lv_obj_t *parent) {
                              LV_PCT(100));
 }
 
+static void create_pulse_curve_group(lv_obj_t *parent) {
+    ui_parameters.group_pulse_curve = create_group_card(parent, "Pulse Curve");
+    decorate_group_warning(ui_parameters.group_pulse_curve,
+                           kColorCautionCardBg,
+                           kColorCautionCardBorder,
+                           "VORSICHT: Nur vorsichtig aendern. Falsche Werte koennen Langlauf und Sicherheit verschlechtern.",
+                           kColorCautionText);
+
+    lv_obj_t *hint = lv_label_create(ui_parameters.group_pulse_curve);
+    lv_label_set_text(hint, "Silica-100C Langlaufparameter");
+    lv_obj_set_style_text_color(hint, col_hex(kColorSubtle), 0);
+
+    create_pulse_field_row(ui_parameters.group_pulse_curve,
+                           "Reheat Enable (°C)",
+                           "Abstand unter Soll fuer erneutes Nachheizen (0.5 bis 10.0 °C).",
+                           PULSE_FIELD_REHEAT_ENABLE,
+                           LV_PCT(100));
+    create_pulse_field_row(ui_parameters.group_pulse_curve,
+                           "Reheat Soak (ms)",
+                           "Pause zwischen Reheat-Pulsen (5000 bis 120000 ms).",
+                           PULSE_FIELD_REHEAT_SOAK,
+                           LV_PCT(100));
+    create_pulse_field_row(ui_parameters.group_pulse_curve,
+                           "Hold Pulse Max (ms)",
+                           "Maximale Dauer eines Haltepulses (1000 bis 30000 ms).",
+                           PULSE_FIELD_HOLD_PULSE_MAX,
+                           LV_PCT(100));
+    create_pulse_field_row(ui_parameters.group_pulse_curve,
+                           "Force Off Before Target (°C)",
+                           "Abstand vor Soll zum erzwungenen Abschalten (0.5 bis 5.0 °C).",
+                           PULSE_FIELD_FORCE_OFF,
+                           LV_PCT(100));
+}
+
 static void create_top_bar(lv_obj_t *parent) {
     ui_parameters.label_title = lv_label_create(parent);
     lv_label_set_text(ui_parameters.label_title, "Parameter");
@@ -531,8 +708,9 @@ static void create_scroll_content(lv_obj_t *parent) {
     lv_obj_set_flex_align(ui_parameters.content_scroll, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
 
     create_shortcuts_group(ui_parameters.content_scroll);
-    create_heater_group(ui_parameters.content_scroll);
     create_display_timeout_group(ui_parameters.content_scroll);
+    create_heater_group(ui_parameters.content_scroll);
+    create_pulse_curve_group(ui_parameters.content_scroll);
 }
 
 static void create_page_indicator(lv_obj_t *parent) {
@@ -723,6 +901,93 @@ static int16_t display_field_step(DisplayField field) {
     return 1;
 }
 
+static int16_t get_pulse_field_value(const HostSilicaPulseParameters &params, PulseCurveField field) {
+    switch (field) {
+        case PULSE_FIELD_REHEAT_ENABLE:
+            return params.reheatEnableBelowTarget_dC;
+        case PULSE_FIELD_REHEAT_SOAK:
+            return static_cast<int16_t>(params.reheatSoakMs);
+        case PULSE_FIELD_HOLD_PULSE_MAX:
+            return static_cast<int16_t>(params.holdPulseMaxMs);
+        case PULSE_FIELD_FORCE_OFF:
+            return params.forceOffBeforeTarget_dC;
+    }
+    return 0;
+}
+
+static void set_pulse_field_value(HostSilicaPulseParameters &params, PulseCurveField field, int16_t value) {
+    switch (field) {
+        case PULSE_FIELD_REHEAT_ENABLE:
+            params.reheatEnableBelowTarget_dC = value;
+            break;
+        case PULSE_FIELD_REHEAT_SOAK:
+            params.reheatSoakMs = static_cast<uint16_t>(value);
+            break;
+        case PULSE_FIELD_HOLD_PULSE_MAX:
+            params.holdPulseMaxMs = static_cast<uint16_t>(value);
+            break;
+        case PULSE_FIELD_FORCE_OFF:
+            params.forceOffBeforeTarget_dC = value;
+            break;
+    }
+}
+
+static int16_t clamp_pulse_field_value(PulseCurveField field, int16_t value) {
+    switch (field) {
+        case PULSE_FIELD_REHEAT_ENABLE:
+            return static_cast<int16_t>(LV_CLAMP(5, value, 100));
+        case PULSE_FIELD_REHEAT_SOAK:
+            return static_cast<int16_t>(LV_CLAMP(5000, value, 120000));
+        case PULSE_FIELD_HOLD_PULSE_MAX:
+            return static_cast<int16_t>(LV_CLAMP(1000, value, 30000));
+        case PULSE_FIELD_FORCE_OFF:
+            return static_cast<int16_t>(LV_CLAMP(5, value, 50));
+    }
+    return value;
+}
+
+static int16_t pulse_field_step(PulseCurveField field) {
+    switch (field) {
+        case PULSE_FIELD_REHEAT_ENABLE:
+        case PULSE_FIELD_FORCE_OFF:
+            return 5;
+        case PULSE_FIELD_REHEAT_SOAK:
+        case PULSE_FIELD_HOLD_PULSE_MAX:
+            return 1000;
+    }
+    return 1;
+}
+
+static void format_pulse_field_value(PulseCurveField field, int16_t value, char *out, size_t out_size) {
+    switch (field) {
+        case PULSE_FIELD_REHEAT_ENABLE:
+        case PULSE_FIELD_FORCE_OFF: {
+            const int whole = value / 10;
+            const int decimal = std::abs(value % 10);
+            std::snprintf(out, out_size, "%d.%d", whole, decimal);
+            break;
+        }
+        case PULSE_FIELD_REHEAT_SOAK:
+        case PULSE_FIELD_HOLD_PULSE_MAX:
+            std::snprintf(out, out_size, "%d", static_cast<int>(value));
+            break;
+    }
+}
+
+static void update_pulse_field_display(PulseCurveField field) {
+    lv_obj_t *label = ui_parameters.pulse_value_label[field];
+    if (!label) {
+        return;
+    }
+
+    char value_text[12];
+    format_pulse_field_value(field,
+                             get_pulse_field_value(s_edit_parameters.silicaPulse, field),
+                             value_text, sizeof(value_text));
+    lv_label_set_text(label, value_text);
+    lv_obj_center(label);
+}
+
 static void format_display_field_value(DisplayField field, int16_t value, char *out, size_t out_size) {
     switch (field) {
         case DISPLAY_FIELD_DIM_PERCENT:
@@ -827,6 +1092,14 @@ static void load_display_timeout_widgets(void) {
     s_internal_update = false;
 }
 
+static void load_pulse_curve_widgets(void) {
+    s_internal_update = true;
+    for (uint8_t field = 0; field < UI_PARAMETER_PULSE_FIELD_COUNT; ++field) {
+        update_pulse_field_display(static_cast<PulseCurveField>(field));
+    }
+    s_internal_update = false;
+}
+
 static bool heater_profile_equals(const HeaterProfileUiState &lhs, const HeaterProfileUiState &rhs) {
     return lhs.targetC == rhs.targetC &&
            lhs.hysteresis_dC == rhs.hysteresis_dC &&
@@ -870,6 +1143,13 @@ static bool screen_has_unsaved_changes(void) {
         s_edit_parameters.displayDimTimeoutMin != s_saved_parameters.displayDimTimeoutMin) {
         return true;
     }
+    for (uint8_t field = 0; field < UI_PARAMETER_PULSE_FIELD_COUNT; ++field) {
+        const PulseCurveField pulse_field = static_cast<PulseCurveField>(field);
+        if (get_pulse_field_value(s_edit_parameters.silicaPulse, pulse_field) !=
+            get_pulse_field_value(s_saved_parameters.silicaPulse, pulse_field)) {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -900,6 +1180,7 @@ static void reset_widgets_to_defaults(void) {
     s_internal_update = false;
     load_selected_heater_profile_into_widgets();
     load_display_timeout_widgets();
+    load_pulse_curve_widgets();
     update_save_button_state();
 }
 
@@ -913,6 +1194,7 @@ static void load_saved_state_into_widgets(void) {
     s_internal_update = false;
     load_selected_heater_profile_into_widgets();
     load_display_timeout_widgets();
+    load_pulse_curve_widgets();
     update_save_button_state();
 }
 
@@ -961,6 +1243,32 @@ static void display_decrement_event_cb(lv_event_t *e) {
                                                                               display_field_step(field)));
     set_display_field_value(s_edit_parameters, field, next_value);
     update_display_field_display(field);
+    spinbox_value_changed_cb(e);
+}
+
+static void pulse_increment_event_cb(lv_event_t *e) {
+    lv_obj_t *target = static_cast<lv_obj_t *>(lv_event_get_target(e));
+    const PulseCurveField field =
+        static_cast<PulseCurveField>(reinterpret_cast<uintptr_t>(lv_obj_get_user_data(target)));
+    const int16_t next_value =
+        clamp_pulse_field_value(field,
+                                static_cast<int16_t>(get_pulse_field_value(s_edit_parameters.silicaPulse, field) +
+                                                     pulse_field_step(field)));
+    set_pulse_field_value(s_edit_parameters.silicaPulse, field, next_value);
+    update_pulse_field_display(field);
+    spinbox_value_changed_cb(e);
+}
+
+static void pulse_decrement_event_cb(lv_event_t *e) {
+    lv_obj_t *target = static_cast<lv_obj_t *>(lv_event_get_target(e));
+    const PulseCurveField field =
+        static_cast<PulseCurveField>(reinterpret_cast<uintptr_t>(lv_obj_get_user_data(target)));
+    const int16_t next_value =
+        clamp_pulse_field_value(field,
+                                static_cast<int16_t>(get_pulse_field_value(s_edit_parameters.silicaPulse, field) -
+                                                     pulse_field_step(field)));
+    set_pulse_field_value(s_edit_parameters.silicaPulse, field, next_value);
+    update_pulse_field_display(field);
     spinbox_value_changed_cb(e);
 }
 

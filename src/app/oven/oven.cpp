@@ -343,6 +343,21 @@ static void sync_heater_policies_from_host_parameters() {
     g_silica100HeaterPolicy.targetOvershootCapC = params->heaterProfiles[3].overshootCap_dC / 10.0f;
 }
 
+static HostSilicaPulseParameters silica_pulse_parameters(void) {
+    HostSilicaPulseParameters pulse = {
+        HOST_SILICA_REHEAT_SOAK_MS,
+        HOST_SILICA_HOLD_PULSE_MAX_MS,
+        static_cast<int16_t>(HOST_SILICA_REHEAT_ENABLE_BELOW_TARGET_C * 10.0f),
+        static_cast<int16_t>(HOST_SILICA_FORCE_OFF_BEFORE_TARGET_C * 10.0f),
+    };
+
+    const HostParameters *params = host_parameters_get_cached();
+    if (params) {
+        pulse = params->silicaPulse;
+    }
+    return pulse;
+}
+
 float oven_get_effective_preset_target_c(uint16_t index) {
     if (index >= kPresetCount) {
         return 0.0f;
@@ -458,10 +473,11 @@ static bool determine_heater_intent_for_stage(HeaterControlStage stage,
 static bool silica_should_force_heater_off(float chamberC,
                                            float targetC,
                                            uint8_t pulseCount) {
+    const HostSilicaPulseParameters pulse = silica_pulse_parameters();
     const bool firstPulseActive = (pulseCount <= 1u);
     const float forceOffBeforeTargetC =
         firstPulseActive ? HOST_SILICA_FIRST_PULSE_FORCE_OFF_BEFORE_TARGET_C
-                         : HOST_SILICA_FORCE_OFF_BEFORE_TARGET_C;
+                         : (pulse.forceOffBeforeTarget_dC / 10.0f);
     return chamberC >= (targetC - forceOffBeforeTargetC);
 }
 
@@ -560,6 +576,7 @@ static uint32_t filament_soak_duration_ms(uint8_t pulseCount) {
 }
 
 static uint32_t silica_pulse_duration_ms(float chamberC, float targetC, uint8_t pulseCount) {
+    const HostSilicaPulseParameters pulse = silica_pulse_parameters();
     const float errorToTargetC = targetC - chamberC;
 
     if (pulseCount == 0) {
@@ -571,19 +588,21 @@ static uint32_t silica_pulse_duration_ms(float chamberC, float targetC, uint8_t 
     if (errorToTargetC > HOST_SILICA_APPROACH_PULSE_ENABLE_BELOW_TARGET_C) {
         return HOST_SILICA_APPROACH_PULSE_MAX_MS;
     }
-    if (errorToTargetC > HOST_SILICA_REHEAT_ENABLE_BELOW_TARGET_C) {
-        return HOST_SILICA_HOLD_PULSE_MAX_MS;
+    if (errorToTargetC > (pulse.reheatEnableBelowTarget_dC / 10.0f)) {
+        return pulse.holdPulseMaxMs;
     }
     return 0;
 }
 
 static uint32_t silica_soak_duration_ms(uint8_t pulseCount) {
+    const HostSilicaPulseParameters pulse = silica_pulse_parameters();
     return (pulseCount <= 1u) ? HOST_SILICA_FIRST_SOAK_MS
-                              : HOST_SILICA_REHEAT_SOAK_MS;
+                              : pulse.reheatSoakMs;
 }
 
 static bool silica_reheat_allowed(float chamberC, float targetC) {
-    return chamberC < (targetC - HOST_SILICA_REHEAT_ENABLE_BELOW_TARGET_C);
+    const HostSilicaPulseParameters pulse = silica_pulse_parameters();
+    return chamberC < (targetC - (pulse.reheatEnableBelowTarget_dC / 10.0f));
 }
 
 static bool determine_silica_heater_intent(float chamberC, float targetC) {
@@ -978,6 +997,7 @@ void oven_start(void) {
 
     uint16_t m = g_remoteOutputsMask;
     m = mask_set(m, OVEN_CONNECTOR::HEATER, false);
+    m = mask_set(m, OVEN_CONNECTOR::SILICAT_MOTOR, runtimeState.rotaryOn);
     m = mask_set(m, OVEN_CONNECTOR::FAN12V, true);
     m = mask_set(m, OVEN_CONNECTOR::FAN230V_SLOW, true);
     m = mask_set(m, OVEN_CONNECTOR::FAN230V, false);
@@ -1616,7 +1636,7 @@ void oven_comm_poll(void) {
             } else if (desiredHeater && isSilica100 &&
                        silica_should_force_heater_off(chamberC, tgt, g_heaterGate.pulseCount)) {
                 desiredHeater = false;
-                heater_gate_begin_rest(g_heaterGate, now, HOST_SILICA_REHEAT_SOAK_MS);
+                heater_gate_begin_rest(g_heaterGate, now, silica_pulse_parameters().reheatSoakMs);
             }
         } else if (isFilament) {
             heater_gate_begin_rest(g_heaterGate, now, HOST_FILAMENT_SAFETY_SOAK_MS);

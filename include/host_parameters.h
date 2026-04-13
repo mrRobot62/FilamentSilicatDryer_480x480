@@ -19,9 +19,17 @@ typedef struct HostHeaterProfileParameters {
     int16_t overshootCap_dC;
 } HostHeaterProfileParameters;
 
+typedef struct HostSilicaPulseParameters {
+    uint16_t reheatSoakMs;
+    uint16_t holdPulseMaxMs;
+    int16_t reheatEnableBelowTarget_dC;
+    int16_t forceOffBeforeTarget_dC;
+} HostSilicaPulseParameters;
+
 typedef struct HostParameters {
     uint16_t shortcutPresetIds[HOST_PARAMETER_SHORTCUT_SLOT_COUNT];
     HostHeaterProfileParameters heaterProfiles[HOST_PARAMETER_HEATER_PROFILE_COUNT];
+    HostSilicaPulseParameters silicaPulse;
     uint8_t displayDimPercent;
     uint8_t displayDimTimeoutMin;
 } HostParameters;
