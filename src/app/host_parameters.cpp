@@ -1,3 +1,5 @@
+#include "oven.h"
+#include "host_curve_profiles.h"
 #include "host_parameters.h"
 
 #include <Preferences.h>
@@ -7,7 +9,7 @@ namespace {
 
 static constexpr const char *kNvsNamespace = "host-params";
 static constexpr const char *kBlobKey = "cfg";
-static constexpr uint16_t kVersion = 3;
+static constexpr uint16_t kVersion = 4;
 
 typedef struct HostParametersBlob {
     uint16_t version;
@@ -17,41 +19,6 @@ typedef struct HostParametersBlob {
 static HostParameters s_cached_params = {};
 static bool s_initialized = false;
 
-static bool validate_profile(const HostHeaterProfileParameters &profile) {
-    if (profile.targetC < 30 || profile.targetC > 120) {
-        return false;
-    }
-    if (profile.hysteresis_dC < 5 || profile.hysteresis_dC > 50) {
-        return false;
-    }
-    if (profile.approachBand_dC < 10 || profile.approachBand_dC > 200) {
-        return false;
-    }
-    if (profile.holdBand_dC < 5 || profile.holdBand_dC > 100) {
-        return false;
-    }
-    if (profile.overshootCap_dC < 5 || profile.overshootCap_dC > 50) {
-        return false;
-    }
-    return true;
-}
-
-static bool validate_silica_pulse(const HostSilicaPulseParameters &pulse) {
-    if (pulse.reheatSoakMs < 5000 || pulse.reheatSoakMs > 120000) {
-        return false;
-    }
-    if (pulse.holdPulseMaxMs < 1000 || pulse.holdPulseMaxMs > 30000) {
-        return false;
-    }
-    if (pulse.reheatEnableBelowTarget_dC < 5 || pulse.reheatEnableBelowTarget_dC > 100) {
-        return false;
-    }
-    if (pulse.forceOffBeforeTarget_dC < 5 || pulse.forceOffBeforeTarget_dC > 50) {
-        return false;
-    }
-    return true;
-}
-
 static bool validate_params(const HostParameters &params) {
     for (uint8_t i = 0; i < HOST_PARAMETER_SHORTCUT_SLOT_COUNT; ++i) {
         if (params.shortcutPresetIds[i] >= kPresetCount) {
@@ -59,12 +26,14 @@ static bool validate_params(const HostParameters &params) {
         }
     }
     for (uint8_t i = 0; i < HOST_PARAMETER_HEATER_PROFILE_COUNT; ++i) {
-        if (!validate_profile(params.heaterProfiles[i])) {
+        if (!host_curve_validate_heater_profile(params.heaterProfiles[i])) {
             return false;
         }
     }
-    if (!validate_silica_pulse(params.silicaPulse)) {
-        return false;
+    for (uint8_t i = 0; i < HOST_PARAMETER_HEATER_PROFILE_COUNT; ++i) {
+        if (!host_curve_validate_pulse_curve(params.pulseCurves[i])) {
+            return false;
+        }
     }
     if (params.displayDimPercent < HOST_PARAMETER_DISPLAY_DIM_PERCENT_MIN ||
         params.displayDimPercent > HOST_PARAMETER_DISPLAY_DIM_PERCENT_MAX) {
@@ -84,18 +53,6 @@ void host_parameters_get_defaults(HostParameters *out) {
     }
 
     static constexpr uint16_t kDefaultShortcuts[HOST_PARAMETER_SHORTCUT_SLOT_COUNT] = {5, 4, 3, 6};
-    static constexpr HostHeaterProfileParameters kDefaultProfiles[HOST_PARAMETER_HEATER_PROFILE_COUNT] = {
-        {45, 15, 100, 40, 20},
-        {60, 15, 100, 40, 20},
-        {80, 15, 100, 40, 20},
-        {100, 25, 100, 25, 30},
-    };
-    static constexpr HostSilicaPulseParameters kDefaultSilicaPulse = {
-        25000,
-        8000,
-        30,
-        10,
-    };
     static constexpr uint8_t kDefaultDisplayDimPercent = 30;
     static constexpr uint8_t kDefaultDisplayDimTimeoutMin = 10;
 
@@ -103,9 +60,11 @@ void host_parameters_get_defaults(HostParameters *out) {
         out->shortcutPresetIds[i] = kDefaultShortcuts[i];
     }
     for (uint8_t i = 0; i < HOST_PARAMETER_HEATER_PROFILE_COUNT; ++i) {
-        out->heaterProfiles[i] = kDefaultProfiles[i];
+        out->heaterProfiles[i] = host_curve_default_heater_profile(i);
     }
-    out->silicaPulse = kDefaultSilicaPulse;
+    for (uint8_t i = 0; i < HOST_PARAMETER_HEATER_PROFILE_COUNT; ++i) {
+        out->pulseCurves[i] = host_curve_default_pulse_curve(i);
+    }
     out->displayDimPercent = kDefaultDisplayDimPercent;
     out->displayDimTimeoutMin = kDefaultDisplayDimTimeoutMin;
 }

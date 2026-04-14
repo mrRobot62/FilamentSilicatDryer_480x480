@@ -3,8 +3,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "oven.h"
-
 static constexpr uint8_t HOST_PARAMETER_SHORTCUT_SLOT_COUNT = 4;
 static constexpr uint8_t HOST_PARAMETER_HEATER_PROFILE_COUNT = 4;
 static constexpr uint8_t HOST_PARAMETER_DISPLAY_DIM_PERCENT_MIN = 5;
@@ -19,17 +17,17 @@ typedef struct HostHeaterProfileParameters {
     int16_t overshootCap_dC;
 } HostHeaterProfileParameters;
 
-typedef struct HostSilicaPulseParameters {
+typedef struct HostPulseCurveParameters {
     uint16_t reheatSoakMs;
     uint16_t holdPulseMaxMs;
     int16_t reheatEnableBelowTarget_dC;
     int16_t forceOffBeforeTarget_dC;
-} HostSilicaPulseParameters;
+} HostPulseCurveParameters;
 
 typedef struct HostParameters {
     uint16_t shortcutPresetIds[HOST_PARAMETER_SHORTCUT_SLOT_COUNT];
     HostHeaterProfileParameters heaterProfiles[HOST_PARAMETER_HEATER_PROFILE_COUNT];
-    HostSilicaPulseParameters silicaPulse;
+    HostPulseCurveParameters pulseCurves[HOST_PARAMETER_HEATER_PROFILE_COUNT];
     uint8_t displayDimPercent;
     uint8_t displayDimTimeoutMin;
 } HostParameters;

@@ -35,6 +35,7 @@ typedef struct parameters_screen_widgets_t {
     lv_obj_t *group_display_timeout;
     lv_obj_t *group_heater;
     lv_obj_t *group_pulse_curve;
+    lv_obj_t *label_group_pulse_curve_title;
 
     lv_obj_t *shortcut_button[UI_PARAMETER_SHORTCUT_SLOT_COUNT];
     lv_obj_t *shortcut_roller[UI_PARAMETER_SHORTCUT_SLOT_COUNT];
